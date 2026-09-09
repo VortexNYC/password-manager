@@ -12,9 +12,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"os/exec"
+	"os/signal"
+
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/mcpserver"
 	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/vortexnyc/password-manager/internal/proxy"
 )
 
 func New(version string) *cobra.Command {
@@ -36,6 +40,8 @@ func New(version string) *cobra.Command {
 	root.AddCommand(useCmd(&home))
 	root.AddCommand(approveCmd(&home))
 	root.AddCommand(mcpCmd(&home))
+	root.AddCommand(proxyCmd(&home))
+	root.AddCommand(runCmd(&home))
 	return root
 }
 
@@ -267,6 +273,87 @@ func approveCmd(home *string) *cobra.Command {
 		},
 	}
 	c.Flags().DurationVar(&ttl, "ttl", 15*time.Minute, "approval lifetime")
+	return c
+}
+
+func proxyCmd(home *string) *cobra.Command {
+	var agent, listen string
+	c := &cobra.Command{
+		Use:   "proxy",
+		Short: "HTTPS_PROXY inject. Bound to --agent. Unknown hosts fail closed.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if agent == "" {
+				agent = os.Getenv("PWM_AGENT")
+			}
+			if agent == "" {
+				return fmt.Errorf("--agent or PWM_AGENT is required")
+			}
+			a, err := openApp(*home)
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			s, err := proxy.New(a, agent, a.Dir)
+			if err != nil {
+				return err
+			}
+			if listen != "" {
+				s.ListenAddr = listen
+			}
+			if err := s.Start(); err != nil {
+				return err
+			}
+			defer s.Close()
+			for _, e := range s.Env() {
+				fmt.Fprintln(cmd.OutOrStdout(), e)
+			}
+			ctx := cmd.Context()
+			ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+			defer stop()
+			<-ctx.Done()
+			return nil
+		},
+	}
+	c.Flags().StringVar(&agent, "agent", "", "agent id (or PWM_AGENT)")
+	c.Flags().StringVar(&listen, "listen", "127.0.0.1:0", "listen address")
+	return c
+}
+
+func runCmd(home *string) *cobra.Command {
+	var agent string
+	c := &cobra.Command{
+		Use:   "run --agent NAME -- COMMAND [args...]",
+		Short: "Run COMMAND with HTTP(S)_PROXY set. Same inject as proxy. Infisical vault run.",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if agent == "" {
+				agent = os.Getenv("PWM_AGENT")
+			}
+			if agent == "" {
+				return fmt.Errorf("--agent or PWM_AGENT is required")
+			}
+			a, err := openApp(*home)
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			s, err := proxy.New(a, agent, a.Dir)
+			if err != nil {
+				return err
+			}
+			if err := s.Start(); err != nil {
+				return err
+			}
+			defer s.Close()
+			proc := exec.CommandContext(cmd.Context(), args[0], args[1:]...)
+			proc.Stdin = cmd.InOrStdin()
+			proc.Stdout = cmd.OutOrStdout()
+			proc.Stderr = cmd.ErrOrStderr()
+			proc.Env = append(os.Environ(), s.Env()...)
+			return proc.Run()
+		},
+	}
+	c.Flags().StringVar(&agent, "agent", "", "agent id (or PWM_AGENT)")
 	return c
 }
 

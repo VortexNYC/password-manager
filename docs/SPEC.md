@@ -24,7 +24,7 @@ Not Better Auth. Not a 1Password clone. Humans/orgs/SSO stay an identity plane w
 | identity | Humans, orgs, invitations, SSO as an IdP we verify | — | Vortex Auth / Better Auth as JWT issuer, not a rewrite |
 | workload | Laptop == cloud. Device key or provider OIDC. | grant, identity | Entra workload federation; Infisical named agent tokens |
 
-Build order: protocol → grant → broker → store/crypto → mcp-cli (this commit) → proxy → totp → workload → passkey → identity.
+Build order: protocol → grant → broker → store/crypto → mcp-cli → proxy (this commit) → totp → workload → passkey → identity.
 
 ## Commands
 
@@ -43,6 +43,7 @@ cmd/password-manager    cobra CLI + MCP stdio
 internal/app            facade CLI and MCP share
 internal/cli            human commands (no --secret on argv)
 internal/mcpserver      official Go MCP SDK
+internal/proxy          elazarl/goproxy MITM; per-vault CA; fail closed
 internal/protocol       the one API
 internal/grant          evaluation
 internal/broker         the only code that touches secrets
@@ -78,6 +79,8 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - [x] CLI: init, item add (secret-file/stdin), agent, grant, use, approve.
 - [x] MCP `fetch` / `list_items` bound to PWM_AGENT; output JSON has no secret.
 - [x] No agent-facing Reveal / `item get` / `--secret` argv.
+- [x] HTTPS_PROXY MITM via goproxy; per-vault CA; inject + scrub; unknown hosts denied.
+- [x] `run --agent NAME -- CMD` sets HTTP(S)_PROXY and CA env. Vault secret is not in env.
 
 ## Open questions
 

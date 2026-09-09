@@ -15,4 +15,4 @@ This is an agent-first credential broker. Read `docs/SPEC.md` and `docs/prior-ar
 
 ## Current slice
 
-Infisical broker + MeowPass CLI/MCP. SQLite at `--home` / `PWM_HOME`. MCP is bound to `PWM_AGENT`. Next: HTTPS_PROXY via goproxy, then TOTP.
+Infisical broker + MeowPass CLI/MCP + goproxy HTTPS_PROXY. SQLite at `--home` / `PWM_HOME`. MCP and proxy are bound to one agent. Next: TOTP.

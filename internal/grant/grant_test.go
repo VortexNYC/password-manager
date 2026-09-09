@@ -133,3 +133,23 @@ func TestNoGrantDenied(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestHTTPSDefaultPortMatchesBareHost(t *testing.T) {
+	in := fixture(protocol.Level2)
+	in.Item.URIs = []string{"https://api.stripe.com"}
+	in.TargetURL = "https://api.stripe.com:443/v1/customers"
+	got := Evaluate(in)
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestCanonicalHostCONNECT(t *testing.T) {
+	u, err := ParseDest("api.stripe.com:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if CanonicalHost(u) != "api.stripe.com" {
+		t.Fatalf("%q", CanonicalHost(u))
+	}
+}

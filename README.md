@@ -24,9 +24,12 @@ go run ./cmd/password-manager item add stripe --home /tmp/pwm --uri https://api.
 go run ./cmd/password-manager agent add claude --home /tmp/pwm
 go run ./cmd/password-manager grant add --home /tmp/pwm --agent claude --item stripe --level level2
 PWM_AGENT=claude go run ./cmd/password-manager mcp --home /tmp/pwm
+go run ./cmd/password-manager run --home /tmp/pwm --agent claude -- curl -s https://api.stripe.com/v1/customers
 ```
 
 MCP tools: `list_items`, `fetch`. Bound to `PWM_AGENT`. The model cannot switch principals. Secrets never appear in tool output.
+
+`run` / `proxy` is the Infisical path: unmodified HTTP clients go through `HTTPS_PROXY`. Unknown hosts fail closed. A per-vault CA (`ca.pem`) is used for MITM — not goproxy's public default.
 
 There is no `item get`. Secrets are injected at Use, not printed.
 

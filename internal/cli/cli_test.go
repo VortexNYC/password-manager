@@ -125,6 +125,26 @@ func TestCLILevel1NeedsApprove(t *testing.T) {
 	}
 }
 
+func TestCLIRunSetsProxyEnvWithoutVaultSecret(t *testing.T) {
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, home, "", "run", "--agent", "claude", "--", "env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "HTTPS_PROXY=http://claude:") {
+		t.Fatalf("missing proxy env: %s", out)
+	}
+	if scrub.Contains([]byte(out), []byte(secret)) {
+		t.Fatal("vault secret in env")
+	}
+}
+
 func TestCLIRejectsSecretOnArgvPattern(t *testing.T) {
 	cmd := New("test")
 	itemAdd := cmd.Commands()

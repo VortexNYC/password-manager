@@ -5,6 +5,7 @@
 package grant
 
 import (
+	"errors"
 	"net/url"
 	"slices"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/vortexnyc/password-manager/internal/protocol"
 )
+
+var errEmptyDest = errors.New("grant: empty destination")
 
 type Input struct {
 	Principal protocol.Principal
@@ -78,19 +81,61 @@ func hostAllowed(item protocol.Item, rawURL string) string {
 	if rawURL == "" {
 		return "missing_url"
 	}
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
+	u, err := ParseDest(rawURL)
+	if err != nil {
 		return "invalid_url"
 	}
-	want := strings.ToLower(u.Host)
+	want := CanonicalHost(u)
+	if want == "" {
+		return "invalid_url"
+	}
 	for _, raw := range item.URIs {
-		iu, err := url.Parse(raw)
+		iu, err := ParseDest(raw)
 		if err != nil {
 			continue
 		}
-		if strings.ToLower(iu.Host) == want {
+		if CanonicalHost(iu) == want {
 			return ""
 		}
 	}
 	return "host_not_allowed"
+}
+
+// ParseDest accepts an absolute URL or a CONNECT host:port.
+func ParseDest(raw string) (*url.URL, error) {
+	if raw == "" {
+		return nil, errEmptyDest
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if u.Host == "" {
+		return nil, errEmptyDest
+	}
+	return u, nil
+}
+
+// CanonicalHost is hostname, plus port when it is not the scheme default.
+func CanonicalHost(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	h := strings.ToLower(u.Hostname())
+	if h == "" {
+		return ""
+	}
+	port := u.Port()
+	scheme := strings.ToLower(u.Scheme)
+	if port == "" || (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		return h
+	}
+	return h + ":" + port
+}
+
+func HostAllowed(item protocol.Item, rawURL string) bool {
+	return hostAllowed(item, rawURL) == ""
 }
