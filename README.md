@@ -15,12 +15,20 @@ Same protocol on a laptop and in Codex Cloud / Flue / Cloudflare Agents. Org-rea
 
 ## Status
 
-Engine only. Covered by tests. CLI/MCP/proxy are next.
+Engine + local SQLite vault + CLI + MCP. Covered by tests.
 
 ```
 make test
-go run ./cmd/password-manager version
+go run ./cmd/password-manager init --home /tmp/pwm
+go run ./cmd/password-manager item add stripe --home /tmp/pwm --uri https://api.stripe.com --secret-file ./key
+go run ./cmd/password-manager agent add claude --home /tmp/pwm
+go run ./cmd/password-manager grant add --home /tmp/pwm --agent claude --item stripe --level level2
+PWM_AGENT=claude go run ./cmd/password-manager mcp --home /tmp/pwm
 ```
+
+MCP tools: `list_items`, `fetch`. Bound to `PWM_AGENT`. The model cannot switch principals. Secrets never appear in tool output.
+
+There is no `item get`. Secrets are injected at Use, not printed.
 
 See [docs/SPEC.md](docs/SPEC.md) for the capability map and [docs/prior-art.md](docs/prior-art.md) for what we take from Infisical, Bitwarden, OneCLI, 1Password, Aside, Entra, and MeowPass.
 

@@ -31,11 +31,23 @@ func NewMemory() *Memory {
 
 func grantKey(agentID, itemID string) string { return agentID + "\x00" + itemID }
 
+func (m *Memory) Close() error { return nil }
+
 func (m *Memory) PutAgent(p protocol.Principal) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.agents[p.ID] = p
 	return nil
+}
+
+func (m *Memory) ListAgents() ([]protocol.Principal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]protocol.Principal, 0, len(m.agents))
+	for _, p := range m.agents {
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 func (m *Memory) Agent(id string) (protocol.Principal, error) {
@@ -83,6 +95,27 @@ func (m *Memory) Item(id string) (protocol.Item, error) {
 	return item, nil
 }
 
+func (m *Memory) ItemByName(orgID, name string) (protocol.Item, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, item := range m.items {
+		if item.OrgID == orgID && item.Name == name {
+			return item, nil
+		}
+	}
+	return protocol.Item{}, ErrNotFound
+}
+
+func (m *Memory) ListItems() ([]protocol.Item, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]protocol.Item, 0, len(m.items))
+	for _, item := range m.items {
+		out = append(out, item)
+	}
+	return out, nil
+}
+
 func (m *Memory) Secret(id string) (Secret, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -102,6 +135,18 @@ func (m *Memory) PutGrant(g protocol.Grant) error {
 	return nil
 }
 
+func (m *Memory) Grant(id string) (*protocol.Grant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, g := range m.grants {
+		if g.ID == id {
+			cp := g
+			return &cp, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (m *Memory) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -111,6 +156,16 @@ func (m *Memory) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
 	}
 	cp := g
 	return &cp, nil
+}
+
+func (m *Memory) ListGrants() ([]protocol.Grant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]protocol.Grant, 0, len(m.grants))
+	for _, g := range m.grants {
+		out = append(out, g)
+	}
+	return out, nil
 }
 
 func (m *Memory) PutApproval(a protocol.Approval) error {
@@ -134,16 +189,17 @@ func (m *Memory) LiveApproval(grantID string, now time.Time) (*protocol.Approval
 	return &cp, nil
 }
 
-func (m *Memory) AppendAudit(e protocol.AuditEvent) {
+func (m *Memory) AppendAudit(e protocol.AuditEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.audit = append(m.audit, e)
+	return nil
 }
 
-func (m *Memory) Audit() []protocol.AuditEvent {
+func (m *Memory) Audit() ([]protocol.AuditEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]protocol.AuditEvent, len(m.audit))
 	copy(out, m.audit)
-	return out
+	return out, nil
 }

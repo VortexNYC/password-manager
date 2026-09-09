@@ -106,7 +106,7 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		Reason:     dec.Reason,
 		ApprovalID: dec.ApprovalID,
 	}
-	defer func() { b.Store.AppendAudit(event) }()
+	defer func() { _ = b.Store.AppendAudit(event) }()
 
 	if dec.Decision != protocol.DecisionAllow {
 		return dec, nil

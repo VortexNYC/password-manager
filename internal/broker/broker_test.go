@@ -99,7 +99,10 @@ func TestLevel2FetchInjectsAndScrubs(t *testing.T) {
 		t.Fatalf("secret in header: %v", got.Fetch.Header)
 	}
 	mustNoLeak(t, got)
-	events := b.Store.Audit()
+	events, err := b.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(events) != 1 || events[0].Decision != protocol.DecisionAllow {
 		t.Fatalf("audit=%+v", events)
 	}

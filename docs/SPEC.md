@@ -24,7 +24,7 @@ Not Better Auth. Not a 1Password clone. Humans/orgs/SSO stay an identity plane w
 | identity | Humans, orgs, invitations, SSO as an IdP we verify | — | Vortex Auth / Better Auth as JWT issuer, not a rewrite |
 | workload | Laptop == cloud. Device key or provider OIDC. | grant, identity | Entra workload federation; Infisical named agent tokens |
 
-Build order: protocol → grant → broker → store/crypto (this commit) → mcp-cli → proxy → totp → workload → passkey → identity.
+Build order: protocol → grant → broker → store/crypto → mcp-cli (this commit) → proxy → totp → workload → passkey → identity.
 
 ## Commands
 
@@ -39,11 +39,14 @@ go run ./cmd/password-manager version
 ## Project structure
 
 ```
-cmd/password-manager    stub binary
+cmd/password-manager    cobra CLI + MCP stdio
+internal/app            facade CLI and MCP share
+internal/cli            human commands (no --secret on argv)
+internal/mcpserver      official Go MCP SDK
 internal/protocol       the one API
 internal/grant          evaluation
 internal/broker         the only code that touches secrets
-internal/store          memory now; sqlite next
+internal/store          memory + sqlite (secrets sealed)
 internal/crypto         x/crypto wrapper
 internal/scrub          agent-visible redaction
 docs/                   spec + prior art
@@ -63,7 +66,7 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - Ask first: new item kinds, new dependencies, changing the grant model.
 - Never: return a secret to an agent; add a Reveal API on the agent path; copy Infisical/Bitwarden source; hand-roll AEAD, TOTP, or an HTTP MITM.
 
-## Success criteria (current slice — Infisical broker)
+## Success criteria (current slice — MeowPass CLI/MCP + sqlite)
 
 - [x] Agent is a principal, not a user with a password.
 - [x] Level 2 fetch injects Bearer token; agent result and audit contain no secret.
@@ -71,6 +74,10 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - [x] Fetch to a host not on the item is denied.
 - [x] Wrong agent is denied.
 - [x] Crypto is x/crypto XChaCha20-Poly1305.
+- [x] SQLite persists items; plaintext secret is not on disk.
+- [x] CLI: init, item add (secret-file/stdin), agent, grant, use, approve.
+- [x] MCP `fetch` / `list_items` bound to PWM_AGENT; output JSON has no secret.
+- [x] No agent-facing Reveal / `item get` / `--secret` argv.
 
 ## Open questions
 

@@ -15,4 +15,4 @@ This is an agent-first credential broker. Read `docs/SPEC.md` and `docs/prior-ar
 
 ## Current slice
 
-Infisical broker: `internal/broker` Fetch inject + scrub. Level 1/2 in `internal/grant`. Next: CLI/MCP, then HTTPS_PROXY via goproxy.
+Infisical broker + MeowPass CLI/MCP. SQLite at `--home` / `PWM_HOME`. MCP is bound to `PWM_AGENT`. Next: HTTPS_PROXY via goproxy, then TOTP.
