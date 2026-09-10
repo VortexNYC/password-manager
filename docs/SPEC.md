@@ -141,8 +141,8 @@ The next slices, in this order, and nothing else until each is proven:
                          item.Name. Empty is honest. not MCP. not list.
                          Touch ID in the host is still open. Product
                          chrome is slice 37, not this listing.
-27 totp enroll            not written. `otpauth://` + QR to a file.
-                         seed `--out-file`, then item add --totp-file.
+27 totp enroll            written. `totp enroll --out-file --qr-file`.
+                         otpauth QR is a PNG. seed then item add --totp-file.
                          not MCP. not a screenshot of the seed.
 28 kratos MFA             not written. totp and/or webauthn on Kratos
                          so a human unlocking Veil is not password+email
@@ -601,7 +601,7 @@ Do not scaffold slices 30–36 until 26 is proven. Do not scaffold Native SDK, T
 - [x] HTTPS_PROXY MITM via goproxy; per-vault CA; inject + scrub; unknown hosts denied.
 - [x] `run --agent NAME -- CMD` sets HTTP(S)_PROXY and CA env. Granted secrets go into the child. Broker stdout has no secret.
 - [x] TOTP seed lives on the item. `pquerna/otp` mints at inject into `X-TOTP`. Seed and code are absent from CLI, MCP, and audit.
-- [x] `--totp-file` only. No `--totp` / `--secret` on argv. No `get_totp` tool.
+- [x] `--totp-file` only. No `--totp` / `--secret` on argv. No `get_totp` tool. `totp enroll --out-file --qr-file` writes the seed and an otpauth PNG. Stdout has neither.
 - [x] Workload identity is `coreos/go-oidc` verify only. `agent bind` maps issuer+subject to an existing agent. Unknown issuers are rejected before discovery. No token issuance.
 - [x] OAuth refresh uses `golang.org/x/oauth2`. Access token is injected. Refresh token and client secret never appear in agent output.
 - [x] Identity plane is pinned Ory images in `identity/`, not source in this tree. Kratos v26.2.0, Hydra v26.2.0, Keto v26.2.0, Postgres. Broker does not talk to Kratos. Broker calls glue for Keto member/owner checks. Grants stay in the vault.

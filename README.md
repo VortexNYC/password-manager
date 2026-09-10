@@ -65,7 +65,7 @@ Paste `mcp config` as the HTTP server block when the process has `PWM_OIDC_TOKEN
 
 `device offer` wraps master to another machine's public key (`nacl/box`, same as fill). `Init` writes `device.key` and `wraps/`. `device accept` writes those, not plaintext `master.key`. Copy `vault.db` yourself. That is not sync and it does not pair a model.
 
-TOTP is a field on the item, not a tool. The seed is sealed with the token. At Use, `pquerna/otp` mints a 6-digit code and the broker sets `X-TOTP`. The model never receives the seed or the code. There is no `get_totp`.
+TOTP is a field on the item, not a tool. `totp enroll --out-file --qr-file` writes the seed and an otpauth PNG. Then `item add --totp-file`. At Use, `pquerna/otp` mints a 6-digit code and the broker sets `X-TOTP`. The model never receives the seed or the code. There is no `get_totp`.
 
 There is no `item get`. Secrets are injected at Use, not printed.
 

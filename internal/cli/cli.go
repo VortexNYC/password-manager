@@ -33,6 +33,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/proxy"
 	"github.com/vortexnyc/password-manager/internal/socket"
 	"github.com/vortexnyc/password-manager/internal/sshagent"
+	"github.com/vortexnyc/password-manager/internal/totpenroll"
 )
 
 func New(version string) *cobra.Command {
@@ -63,6 +64,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(sshCmd(&home))
 	root.AddCommand(auditCmd(&home))
 	root.AddCommand(genCmd())
+	root.AddCommand(totpCmd())
 	return root
 }
 
@@ -1151,6 +1153,37 @@ func genCmd() *cobra.Command {
 	}
 	c.Flags().IntVar(&n, "length", 20, "length 12-128")
 	c.Flags().StringVar(&outFile, "out-file", "", "write here instead of stdout. never argv.")
+	return c
+}
+
+func totpCmd() *cobra.Command {
+	c := &cobra.Command{Use: "totp", Short: "Enroll a TOTP seed. Human CLI. Not MCP."}
+	var issuer, account, outFile, qrFile string
+	enroll := &cobra.Command{
+		Use:   "enroll",
+		Short: "Write seed --out-file and otpauth QR --qr-file. Then item add --totp-file. Never stdout.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if outFile == "" || qrFile == "" {
+				return fmt.Errorf("totp enroll: --out-file and --qr-file required")
+			}
+			got, err := totpenroll.Generate(issuer, account)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(outFile, append([]byte(got.Seed), '\n'), 0o600); err != nil {
+				return err
+			}
+			if err := os.WriteFile(qrFile, got.PNG, 0o600); err != nil {
+				return err
+			}
+			return encode(cmd, map[string]bool{"ok": true})
+		},
+	}
+	enroll.Flags().StringVar(&issuer, "issuer", "Veil", "otpauth issuer")
+	enroll.Flags().StringVar(&account, "account", "", "otpauth account, e.g. stripe")
+	enroll.Flags().StringVar(&outFile, "out-file", "", "seed file. never argv. then item add --totp-file")
+	enroll.Flags().StringVar(&qrFile, "qr-file", "", "otpauth QR PNG. not a screenshot of the seed")
+	c.AddCommand(enroll)
 	return c
 }
 

@@ -633,6 +633,65 @@ func TestCLIGenOutFileNotJSONSecret(t *testing.T) {
 	}
 }
 
+func TestCLITotpEnrollWritesFilesNotStdout(t *testing.T) {
+	home := t.TempDir()
+	seedFile := filepath.Join(home, "seed")
+	qrFile := filepath.Join(home, "qr.png")
+	out, err := run(t, home, "", "totp", "enroll", "--account", "stripe", "--out-file", seedFile, "--qr-file", qrFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed, err := os.ReadFile(seedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.TrimSpace(string(seed))) < 16 {
+		t.Fatalf("seed %q", seed)
+	}
+	if scrub.Contains([]byte(out), seed) || strings.Contains(out, "otpauth") {
+		t.Fatalf("enroll printed seed: %s", out)
+	}
+	st, err := os.Stat(seedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("seed mode %o", st.Mode().Perm())
+	}
+	png, err := os.ReadFile(qrFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(png, []byte("\x89PNG")) {
+		t.Fatal("qr is not png")
+	}
+	if _, err := run(t, home, "", "totp", "enroll", "--account", "stripe"); err == nil {
+		t.Fatal("enroll without files")
+	}
+}
+
+func TestCLITotpEnrollHasNoSeedArgv(t *testing.T) {
+	cmd := New("test")
+	for _, c := range cmd.Commands() {
+		if c.Name() != "totp" {
+			continue
+		}
+		for _, sub := range c.Commands() {
+			if sub.Name() != "enroll" {
+				continue
+			}
+			if sub.Flags().Lookup("seed") != nil || sub.Flags().Lookup("totp") != nil || sub.Flags().Lookup("otpauth") != nil {
+				t.Fatal("seed must not be argv")
+			}
+			if sub.Flags().Lookup("out-file") == nil || sub.Flags().Lookup("qr-file") == nil {
+				t.Fatal("missing file flags")
+			}
+			return
+		}
+	}
+	t.Fatal("missing totp enroll")
+}
+
 func TestCLIRejectsSecretOnArgvPattern(t *testing.T) {
 	cmd := New("test")
 	itemAdd := cmd.Commands()
