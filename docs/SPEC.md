@@ -122,16 +122,24 @@ The next slices, in this order, and nothing else until each is proven:
                          in create request, never in response. Fill path
                          /v1/fill/logins is human native-host only, not
                          OpenAPI, not MCP. Chrome URI fill is next.
-24 totp enroll            not written. `otpauth://` + QR to a file.
+24 human mint             written. `human login --out-file`. Hydra PKCE.
+                         ID token to disk. never stdout. Fill and owner
+                         HTTP use PWM_HUMAN_TOKEN_FILE, not the agent JWT.
+                         Live mint needs identity on origin (first-party
+                         Hydra client, Kratos, Keto). Not MCP.
+25 identity on origin      not written. Kratos+Keto+glue on Railway.
+                         Hydra URLS_LOGIN public. pwm PWM_KETO_*.
+                         Grants stay in the vault. Not Keto.
+26 totp enroll            not written. `otpauth://` + QR to a file.
                          seed `--out-file`, then item add --totp-file.
                          not MCP. not a screenshot of the seed.
-25 kratos MFA             not written. totp and/or webauthn on Kratos
+27 kratos MFA             not written. totp and/or webauthn on Kratos
                          so a human unlocking Veil is not password+email
                          only. Official Kratos methods. Not a DIY MFA.
-26 human grants           not written. family / small team: grant an item
+28 human grants           not written. family / small team: grant an item
                          to another Kratos human. Same grant object.
                          not a family vault. not collections.
-27 passkeys fill          not written. keepassxc-browser passkeys-*
+29 passkeys fill          not written. keepassxc-browser passkeys-*
                          after fill origin is proven.
 ```
 
@@ -524,6 +532,7 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
 - [x] One store. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` origin HTTP. `openApp` refuses a second sqlite. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
+- [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 
 ## Use what exists. Do not rewrite it.
 

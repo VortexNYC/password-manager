@@ -13,6 +13,8 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("PWM_OIDC_TOKEN_FILE")
 	_ = os.Unsetenv("PWM_ORIGIN")
 	_ = os.Unsetenv("PWM_HYDRA_SECRET_FILE")
-	_ = os.Unsetenv("PWM_AGENT")
+	_ = os.Unsetenv("PWM_HUMAN_TOKEN")
+	_ = os.Unsetenv("PWM_HUMAN_TOKEN_FILE")
+	_ = os.Unsetenv("PWM_LOGIN_NO_OPEN")
 	os.Exit(m.Run())
 }

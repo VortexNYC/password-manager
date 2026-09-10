@@ -573,6 +573,7 @@ func ShimOrigin(bin, home, origin string) string {
 	b.WriteString("#!/bin/sh\n")
 	if origin != "" {
 		b.WriteString("export PWM_ORIGIN=\"" + esc(origin) + "\"\n")
+		b.WriteString("export PWM_HUMAN_TOKEN_FILE=\"${PWM_HUMAN_TOKEN_FILE:-$HOME/.config/vortex/pwm-human.jwt}\"\n")
 	}
 	b.WriteString("exec \"" + esc(bin) + "\" fill --home \"" + esc(home) + "\"\n")
 	return b.String()

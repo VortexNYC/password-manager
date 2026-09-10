@@ -253,7 +253,7 @@ func originEvents(cmd *cobra.Command, tokenFile string) error {
 }
 
 func originItemList(cmd *cobra.Command) error {
-	tok, err := originTokenLive(cmd.Context(), "")
+	tok, err := originOwnerToken(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -272,7 +272,7 @@ func originItemList(cmd *cobra.Command) error {
 }
 
 func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind protocol.ItemKind, token, totpSeed []byte) error {
-	tok, err := originTokenLive(cmd.Context(), "")
+	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind pro
 }
 
 func originItemUpdate(cmd *cobra.Command, name, uri string, tags []string) error {
-	tok, err := originTokenLive(cmd.Context(), "")
+	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
@@ -321,7 +321,7 @@ func originItemUpdate(cmd *cobra.Command, name, uri string, tags []string) error
 }
 
 func originItemArchive(cmd *cobra.Command, name string) error {
-	tok, err := originTokenLive(cmd.Context(), "")
+	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
@@ -337,7 +337,7 @@ func originItemArchive(cmd *cobra.Command, name string) error {
 }
 
 func originItemDelete(cmd *cobra.Command, name string) error {
-	tok, err := originTokenLive(cmd.Context(), "")
+	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
@@ -353,7 +353,7 @@ func originItemDelete(cmd *cobra.Command, name string) error {
 }
 
 func originGrantAdd(cmd *cobra.Command, agent, item, level string, expires time.Duration) error {
-	tok, err := originTokenLive(cmd.Context(), "")
+	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
@@ -377,7 +377,7 @@ func originGrantAdd(cmd *cobra.Command, agent, item, level string, expires time.
 }
 
 func originGrantList(cmd *cobra.Command) error {
-	tok, err := originTokenLive(cmd.Context(), "")
+	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}

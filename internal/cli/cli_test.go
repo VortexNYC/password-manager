@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -922,7 +923,8 @@ func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
 	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
+	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
 	t.Setenv("PWM_OIDC_TOKEN", "")
 	home := t.TempDir()
 	secFile := filepath.Join(home, "sec")
@@ -1259,6 +1261,80 @@ func TestOriginDoesNotRemintFreshJWT(t *testing.T) {
 	}
 	if !strings.Contains(out, `"decision": "allow"`) {
 		t.Fatalf("use %s", out)
+	}
+}
+
+func TestCLIHumanLoginWritesTokenNotStdout(t *testing.T) {
+	const idTok = "jwt-human-id-token"
+	var hydraURL string
+	hydra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 hydraURL,
+				"authorization_endpoint": hydraURL + "/oauth2/auth",
+				"token_endpoint":         hydraURL + "/oauth2/token",
+				"jwks_uri":               hydraURL + "/keys",
+			})
+		case "/oauth2/auth":
+			redir := r.URL.Query().Get("redirect_uri")
+			state := r.URL.Query().Get("state")
+			http.Redirect(w, r, redir+"?code=ok&state="+state, http.StatusFound)
+		case "/oauth2/token":
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if r.Form.Get("code") == "" || r.Form.Get("code_verifier") == "" {
+				http.Error(w, "pkce", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "not-an-id-token",
+				"token_type":   "bearer",
+				"id_token":     idTok,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	hydraURL = hydra.URL
+	t.Cleanup(hydra.Close)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	redir := "http://" + ln.Addr().String() + "/oidc/callback"
+	_ = ln.Close()
+	t.Setenv("PWM_HYDRA_ISSUER", hydra.URL)
+	t.Setenv("PWM_HYDRA_REDIRECT", redir)
+	outFile := filepath.Join(t.TempDir(), "human.jwt")
+	cmd := New("test")
+	var out, errb bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+	cmd.SetContext(context.Background())
+	if err := humanLogin(cmd, outFile, func(authURL string) error {
+		res, err := http.Get(authURL)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+		_, _ = io.Copy(io.Discard, res.Body)
+		return nil
+	}); err != nil {
+		t.Fatal(err, errb.String())
+	}
+	got, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != idTok {
+		t.Fatalf("file %q", got)
+	}
+	if strings.Contains(out.String(), idTok) {
+		t.Fatal("cli printed the id token")
 	}
 }
 

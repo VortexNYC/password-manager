@@ -332,6 +332,16 @@ func humanCmd(home *string) *cobra.Command {
 	invite.Flags().StringVar(&codeFile, "code-file", "", "write the Kratos recovery code here. never argv.")
 	invite.Flags().StringVar(&tokenFile, "oidc-token-file", "", "owner Hydra ID token file. Env PWM_HUMAN_TOKEN. Never argv.")
 	_ = invite.MarkFlagRequired("code-file")
+	var outFile string
+	login := &cobra.Command{
+		Use:   "login",
+		Short: "Mint a Hydra ID token for this human. Writes --out-file. Never stdout.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return humanLogin(cmd, outFile, nil)
+		},
+	}
+	login.Flags().StringVar(&outFile, "out-file", "", "write the ID token here. never stdout.")
+	_ = login.MarkFlagRequired("out-file")
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List humans (Kratos identity ids, no email)",
@@ -369,7 +379,7 @@ func humanCmd(home *string) *cobra.Command {
 			return encode(cmd, humans)
 		},
 	}
-	c.AddCommand(invite, list)
+	c.AddCommand(invite, login, list)
 	return c
 }
 
@@ -972,6 +982,13 @@ func humanToken(tokenFile string) (string, error) {
 		}
 		return strings.TrimSpace(string(b)), nil
 	}
+	if f := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE")); f != "" {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
 	return strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN")), nil
 }
 
@@ -1170,7 +1187,7 @@ func fillCmd(home *string) *cobra.Command {
 		Short: "keepassxc-browser native host. Fill writes into the page. Agents never see the secret.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if originBase() != "" {
-				tok, err := originTokenLive(cmd.Context(), "")
+				tok, err := originHumanToken()
 				if err != nil {
 					return err
 				}

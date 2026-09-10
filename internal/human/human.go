@@ -6,7 +6,9 @@ package human
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -61,6 +63,43 @@ func New(cfg Config) (*Verifier, error) {
 
 func (v *Verifier) Issuer() string   { return v.issuer }
 func (v *Verifier) Audience() string { return v.audience }
+func (v *Verifier) Redirect() string { return v.redirect }
+
+func PKCE() (verifier, state string, err error) {
+	verifier = oauth2.GenerateVerifier()
+	b := make([]byte, 16)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", err
+	}
+	return verifier, hex.EncodeToString(b), nil
+}
+
+func (v *Verifier) oauth(ctx context.Context) (*oauth2.Config, error) {
+	p, err := v.oidc(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ep := p.Endpoint()
+	ep.AuthStyle = oauth2.AuthStyleInParams
+	return &oauth2.Config{
+		ClientID:    v.audience,
+		RedirectURL: v.redirect,
+		Endpoint:    ep,
+		Scopes:      []string{oidc.ScopeOpenID},
+	}, nil
+}
+
+// AuthCodeURL is the Hydra authorize URL. PKCE S256. The ID token is not here.
+func (v *Verifier) AuthCodeURL(ctx context.Context, state, verifier string) (string, error) {
+	if state == "" || verifier == "" {
+		return "", fmt.Errorf("human: missing pkce")
+	}
+	cfg, err := v.oauth(ctx)
+	if err != nil {
+		return "", err
+	}
+	return cfg.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)), nil
+}
 
 // Human verifies rawToken against the configured Hydra issuer. Subject is the human id.
 func (v *Verifier) Human(ctx context.Context, rawToken, orgID string) (protocol.Principal, error) {
@@ -107,17 +146,9 @@ func (v *Verifier) Exchange(ctx context.Context, code, verifier string) (string,
 	if code == "" || verifier == "" {
 		return "", fmt.Errorf("human: missing code")
 	}
-	p, err := v.oidc(ctx)
+	cfg, err := v.oauth(ctx)
 	if err != nil {
 		return "", err
-	}
-	ep := p.Endpoint()
-	ep.AuthStyle = oauth2.AuthStyleInParams
-	cfg := &oauth2.Config{
-		ClientID:    v.audience,
-		RedirectURL: v.redirect,
-		Endpoint:    ep,
-		Scopes:      []string{oidc.ScopeOpenID},
 	}
 	tok, err := cfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {

@@ -35,7 +35,7 @@ We do not run Oathkeeper, Keto as a grant engine, or a second user table.
 
 1Password. Individual / Families / Teams / startup <100. Agents are the wedge; humans in that same org still fill, TOTP, SSH, share. Not Infisical PKI. Not 1Password Enterprise.
 
-Laptop MCP adapter is written. `password-manager mcp stdio` against `https://veil.nyc`. Cursor live: `list_items` + `fetch` GitHub `/user` allow/200. Flue Uses Veil on Engineering. One store is written: origin HTTP owns item/grant/list; `PWM_ORIGIN` never opens sqlite. Fill native-host path is origin, human-only, not OpenAPI/MCP. Next: Chrome URI fill, TOTP enroll QR, Kratos MFA, human grants. Infisical backend issues #3–#6 stay (sandbox session, revoke tree, placeholders, honey).
+Laptop MCP adapter is written. `password-manager mcp stdio` against `https://veil.nyc`. Cursor live: `list_items` + `fetch` GitHub `/user` allow/200. Flue Uses Veil on Engineering. One store is written: origin HTTP owns item/grant/list; `PWM_ORIGIN` never opens sqlite. `human login --out-file` is the human mint. Fill and owner HTTP use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT. Next primitive: identity on origin (Kratos+Keto+glue on Railway). Honcho is wrong that they are already there. Not Chrome fill. Infisical backend issues #3–#6 stay after identity.
 
 OpenAPI factory. `docs/openapi/password-manager.openapi.json` is the contract. HTTP `/v1/items` and `/v1/use` (body + headers). CLI `use --body-file`. MCP `fetch` the same operation. Generated Go/TS/Python SDKs. Blume `/reference` via `apps/docs`. Never handwrite clients. No GetSecret.
 

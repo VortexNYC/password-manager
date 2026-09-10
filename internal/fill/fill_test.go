@@ -301,7 +301,10 @@ func TestInstallOriginBakesOriginNotToken(t *testing.T) {
 	if !bytes.Contains(shim, []byte("PWM_ORIGIN=\"https://veil.nyc\"")) {
 		t.Fatalf("%s", shim)
 	}
-	if bytes.Contains(shim, []byte("jwt")) || bytes.Contains(shim, []byte(secret)) {
+	if !bytes.Contains(shim, []byte("PWM_HUMAN_TOKEN_FILE")) {
+		t.Fatalf("shim missing human token file: %s", shim)
+	}
+	if bytes.Contains(shim, []byte(secret)) {
 		t.Fatal("token in shim")
 	}
 }
