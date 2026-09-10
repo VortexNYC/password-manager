@@ -6,21 +6,25 @@ The product is Veil. Repo and CLI stay `password-manager` in VortexNYC until a r
 
 ## Objective
 
-Developers have more agents than they have a way to say “this bot may be Stripe, that bot may not be Gmail.” This repo is that way.
+1Password is the company we are taking customers from. Not Infisical. Not Vault. Not Bitwarden-the-enterprise.
 
-Not a 1Password clone. The broker plane is items, agent principals, grants, and inject. It verifies a token. It does not issue one.
+Who: developers, their agents, solo people, families, small teams, startups under 100 people. Vortex is the first of those, not a different product.
+
+The wedge is agents: a bot may be Stripe and may not be Gmail. Humans in that same org still need logins, TOTP, fill, SSH, sharing. One protocol. Two grant levels. Secrets never enter the model.
+
+Not a 1Password clone. Same customers, different machine. The broker plane is items, principals (human and agent), grants, and inject. It verifies a token. It does not issue one.
 
 Humans live in a sibling plane in this same repo. That plane pins official Ory Kratos, Hydra, and Keto. It does not fork them and does not compile them into the broker.
 
 ## Doctrine
 
-First customer is Vortex agents on Flue, Codex, and Claude Code. Not a human leaving 1Password.
+Dogfood is Vortex (agents on Flue / Codex / Cursor, humans on this Mac). The market is everyone 1Password sells Individual / Families / Teams to, plus startups under 100. We do not build for 1Password Enterprise: SCIM, Privileged Access, Device Trust, AWS Secrets Manager sync, a 10k-seat admin console.
 
-The grant is the object. Use is the only way a secret is touched. Grants are per item. A bank is level 1 forever. A Stripe test key is level 2.
+The grant is the object. Use is the only way a secret is touched. Grants are per item. A bank is level 1 forever. A Stripe test key is level 2. A family member is a human principal with grants, not a second vault type.
 
 Go owns policy, crypto, grants, inject, CLI, MCP, API, and the daemon. A native shell may show a sheet, take a biometric, and forward the result. Face ID, passkeys, and autofill are not Go. Call it Go-only in the deck. Do not believe it in the repo.
 
-Do not become 1Password. Do not run Vaultwarden. Do not put this server on Workers.
+Do not become 1Password's architecture (vaults, Connect, `op`, import). Take their customers. Do not run Vaultwarden. Do not put this server on Workers.
 
 Take the patterns that work, and stop:
 
@@ -57,7 +61,7 @@ Passkeys: we are the authenticator when the site is someone else. Level 1 user v
 | oauth | Refresh stays in the broker. Inject the access token. | broker | Authsome; `golang.org/x/oauth2` |
 | humans | Sibling plane. Directory, issuer, identity-plane RBAC. | identity schema, login UI | Official Ory Kratos + Hydra + Keto images. Go clients for the glue. |
 
-Build order for what is missing: nothing. First customer is Vortex, one org. Do not start iOS. Do not invent a second company.
+Build order for what is missing: 1Password displacement for the people above. Vortex remains the only org in this vault until that is proven. Do not start iOS until fill on this Mac Uses origin items. Families live on phones — that is the limiter after Mac fill, not a reason to start an app this week. Do not invent a second org in sqlite to fake a market.
 
 ## How we fill the repo
 
@@ -111,9 +115,27 @@ The next slices, in this order, and nothing else until each is proven:
                          Cursor live: list_items + fetch GitHub /user
                          allow/200, token absent from the tool payload.
                          Codex/Devin laptop same. Not `${file:}`.
+23 one store              written. origin is the vault. PWM_ORIGIN CLI
+                         item/grant/list/fill HTTP. Never opens sqlite.
+                         PrincipalFromOIDC: bound agent, else human+Keto.
+                         POST /v1/items and /v1/grants are owner. Secret
+                         in create request, never in response. Fill path
+                         /v1/fill/logins is human native-host only, not
+                         OpenAPI, not MCP. Chrome URI fill is next.
+24 totp enroll            not written. `otpauth://` + QR to a file.
+                         seed `--out-file`, then item add --totp-file.
+                         not MCP. not a screenshot of the seed.
+25 kratos MFA             not written. totp and/or webauthn on Kratos
+                         so a human unlocking Veil is not password+email
+                         only. Official Kratos methods. Not a DIY MFA.
+26 human grants           not written. family / small team: grant an item
+                         to another Kratos human. Same grant object.
+                         not a family vault. not collections.
+27 passkeys fill          not written. keepassxc-browser passkeys-*
+                         after fill origin is proven.
 ```
 
-Screens exist. Do not restyle them. Do not add a Go web framework. Do not start iOS.
+Screens exist. Do not restyle them. Do not add a Go web framework. iOS after Mac fill Uses origin. Not this week.
 
 ## What the broker is
 
@@ -501,6 +523,7 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - [x] OpenAPI is the contract (`docs/openapi/password-manager.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
+- [x] One store. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` origin HTTP. `openApp` refuses a second sqlite. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
 
 ## Use what exists. Do not rewrite it.
 
@@ -520,4 +543,6 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 
 ## Open questions
 
-None. Product is Veil. Repo/CLI stay `password-manager`.
+None on the enemy. 1Password. Individual / Families / Teams / startup <100, plus the agents those people already run. Enterprise 1Password is not this product.
+
+Product is Veil. Repo/CLI stay `password-manager`.

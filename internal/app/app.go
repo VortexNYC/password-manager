@@ -14,6 +14,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/broker"
 	"github.com/vortexnyc/password-manager/internal/crypto"
 	"github.com/vortexnyc/password-manager/internal/device"
+	"github.com/vortexnyc/password-manager/internal/grant"
 	"github.com/vortexnyc/password-manager/internal/human"
 	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/inject"
@@ -345,6 +346,103 @@ func (a *App) BindWorkload(agentID, issuer, subject, audience string) (protocol.
 
 func (a *App) AgentFromOIDC(ctx context.Context, rawToken string) (protocol.Principal, error) {
 	return workload.New(a.Store).Agent(ctx, rawToken)
+}
+
+// PrincipalFromOIDC is origin identity. Bound agent first. Else Hydra human
+// plus Keto membership. Grants stay in the vault.
+func (a *App) PrincipalFromOIDC(ctx context.Context, rawToken string) (protocol.Principal, error) {
+	agent, err := a.AgentFromOIDC(ctx, rawToken)
+	if err == nil {
+		return agent, nil
+	}
+	if a.Human == nil {
+		return protocol.Principal{}, err
+	}
+	p, herr := a.Human.Human(ctx, rawToken, a.OrgID)
+	if herr != nil {
+		return protocol.Principal{}, err
+	}
+	if a.Members == nil {
+		return protocol.Principal{}, fmt.Errorf("app: not a member")
+	}
+	ok, merr := a.Members.IsMember(ctx, p.ID)
+	if merr != nil {
+		return protocol.Principal{}, merr
+	}
+	if !ok {
+		return protocol.Principal{}, fmt.Errorf("app: not a member")
+	}
+	return p, nil
+}
+
+func (a *App) ItemsForPrincipal(p protocol.Principal) ([]protocol.Item, error) {
+	if p.Kind == protocol.PrincipalHuman {
+		return a.Store.ListItems()
+	}
+	return a.ItemsForAgent(p.ID)
+}
+
+// FillEntry is native-host material. Not protocol.Item. Not MCP.
+type FillEntry struct {
+	Login    string
+	Name     string
+	Password string
+	UUID     string
+}
+
+func (a *App) FillLogins(p protocol.Principal, rawURL string) ([]FillEntry, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return nil, fmt.Errorf("app: fill is human")
+	}
+	items, err := a.ItemsForPrincipal(p)
+	if err != nil {
+		return nil, err
+	}
+	var out []FillEntry
+	for _, item := range items {
+		if !grant.HostAllowed(item, rawURL) {
+			continue
+		}
+		sec, err := a.Store.Secret(item.ID)
+		if err != nil {
+			continue
+		}
+		env := material.Unpack([]byte(sec))
+		pass := env.Token
+		if pass == "" {
+			pass = string(sec)
+		}
+		out = append(out, FillEntry{
+			Login:    item.Name,
+			Name:     item.Name,
+			Password: pass,
+			UUID:     item.ID,
+		})
+	}
+	if out == nil {
+		out = []FillEntry{}
+	}
+	return out, nil
+}
+
+func (a *App) FillTOTP(p protocol.Principal, itemID string, now time.Time) (string, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return "", fmt.Errorf("app: fill is human")
+	}
+	item, err := a.Store.Item(itemID)
+	if err != nil || !item.HasTOTP {
+		return "", fmt.Errorf("app: no totp")
+	}
+	sec, err := a.Store.Secret(item.ID)
+	if err != nil {
+		return "", err
+	}
+	env := material.Unpack([]byte(sec))
+	code, err := material.Mint(env.TOTP, now)
+	if err != nil || code == "" {
+		return "", fmt.Errorf("app: no totp")
+	}
+	return code, nil
 }
 
 func (a *App) AddGrant(agentID, itemID string, level protocol.GrantLevel) (protocol.Grant, error) {

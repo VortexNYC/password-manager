@@ -251,3 +251,146 @@ func originEvents(cmd *cobra.Command, tokenFile string) error {
 	}
 	return encode(cmd, out.Events)
 }
+
+func originItemList(cmd *cobra.Command) error {
+	tok, err := originTokenLive(cmd.Context(), "")
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodGet, "/v1/items", tok, nil)
+	if err != nil {
+		return err
+	}
+	var out publicapi.ItemsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	if out.Items == nil {
+		out.Items = []protocol.Item{}
+	}
+	return encode(cmd, out.Items)
+}
+
+func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind protocol.ItemKind, token, totpSeed []byte) error {
+	tok, err := originTokenLive(cmd.Context(), "")
+	if err != nil {
+		return err
+	}
+	in := publicapi.CreateItemRequest{
+		Name:     name,
+		URI:      uri,
+		Tags:     tags,
+		Kind:     string(kind),
+		Secret:   string(token),
+		TOTPSeed: string(totpSeed),
+	}
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodPost, "/v1/items", tok, payload)
+	if err != nil {
+		return err
+	}
+	var item protocol.Item
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return err
+	}
+	return encode(cmd, item)
+}
+
+func originItemUpdate(cmd *cobra.Command, name, uri string, tags []string) error {
+	tok, err := originTokenLive(cmd.Context(), "")
+	if err != nil {
+		return err
+	}
+	in := publicapi.UpdateItemRequest{URI: uri, Tags: tags}
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodPatch, "/v1/items/"+name, tok, payload)
+	if err != nil {
+		return err
+	}
+	var item protocol.Item
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return err
+	}
+	return encode(cmd, item)
+}
+
+func originItemArchive(cmd *cobra.Command, name string) error {
+	tok, err := originTokenLive(cmd.Context(), "")
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodPost, "/v1/items/"+name+"/archive", tok, nil)
+	if err != nil {
+		return err
+	}
+	var out map[string]bool
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	return encode(cmd, out)
+}
+
+func originItemDelete(cmd *cobra.Command, name string) error {
+	tok, err := originTokenLive(cmd.Context(), "")
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodDelete, "/v1/items/"+name, tok, nil)
+	if err != nil {
+		return err
+	}
+	var out map[string]bool
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	return encode(cmd, out)
+}
+
+func originGrantAdd(cmd *cobra.Command, agent, item, level string, expires time.Duration) error {
+	tok, err := originTokenLive(cmd.Context(), "")
+	if err != nil {
+		return err
+	}
+	in := publicapi.CreateGrantRequest{Agent: agent, Item: item, Level: level}
+	if expires > 0 {
+		in.Expires = expires.String()
+	}
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodPost, "/v1/grants", tok, payload)
+	if err != nil {
+		return err
+	}
+	var out publicapi.GrantView
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	return encode(cmd, out)
+}
+
+func originGrantList(cmd *cobra.Command) error {
+	tok, err := originTokenLive(cmd.Context(), "")
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodGet, "/v1/grants", tok, nil)
+	if err != nil {
+		return err
+	}
+	var out publicapi.GrantsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	if out.Grants == nil {
+		out.Grants = []publicapi.GrantView{}
+	}
+	return encode(cmd, out.Grants)
+}

@@ -9,7 +9,8 @@
     { "url": "https://veil.nyc" }
   ],
   "tags": [
-    { "name": "Agent", "description": "Bearer is the agent. listItems is metadata. useItem injects. Never GetSecret." }
+    { "name": "Agent", "description": "Bearer is the agent. listItems is metadata. useItem injects. Never GetSecret." },
+    { "name": "Owner", "description": "Bearer is a Keto member human. Create items and grants. Secret may be sent, never returned." }
   ],
   "security": [{ "bearerAuth": [] }],
   "paths": {
@@ -53,10 +54,10 @@
       "get": {
         "operationId": "listItems",
         "tags": ["Agent"],
-        "summary": "Items this agent may Use. Names and URIs. Never secrets.",
+        "summary": "Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.",
         "responses": {
           "200": {
-            "description": "Granted items",
+            "description": "Items",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ItemsResponse" }
@@ -64,6 +65,138 @@
             }
           },
           "401": { "description": "missing or invalid Bearer" }
+        }
+      },
+      "post": {
+        "operationId": "createItem",
+        "tags": ["Owner"],
+        "summary": "Create an item. Secret is in the request over TLS. Never in the response. Not MCP.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateItemRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item metadata. No secret.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Item" }
+              }
+            }
+          },
+          "400": { "description": "bad request" },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot create items" }
+        }
+      }
+    },
+    "/v1/items/{name}": {
+      "patch": {
+        "operationId": "updateItem",
+        "tags": ["Owner"],
+        "summary": "Replace URIs and tags. No secret.",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateItemRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item metadata",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Item" }
+              }
+            }
+          },
+          "400": { "description": "bad request" },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot update items" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteItem",
+        "tags": ["Owner"],
+        "summary": "Remove the item and its grants. Not MCP.",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "deleted" },
+          "400": { "description": "bad request" },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot delete items" }
+        }
+      }
+    },
+    "/v1/items/{name}/archive": {
+      "post": {
+        "operationId": "archiveItem",
+        "tags": ["Owner"],
+        "summary": "Hide from Use and list. History stays.",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "archived" },
+          "400": { "description": "bad request" },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot archive items" }
+        }
+      }
+    },
+    "/v1/grants": {
+      "get": {
+        "operationId": "listGrants",
+        "tags": ["Owner"],
+        "summary": "Grants in this org. No secrets. Not MCP.",
+        "responses": {
+          "200": {
+            "description": "Grants",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GrantsResponse" }
+              }
+            }
+          },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot list grants" }
+        }
+      },
+      "post": {
+        "operationId": "createGrant",
+        "tags": ["Owner"],
+        "summary": "Grant an agent Use on an item. Not MCP.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateGrantRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Grant" }
+              }
+            }
+          },
+          "400": { "description": "bad request" },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot create grants" }
         }
       }
     },
@@ -119,7 +252,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Hydra client_credentials JWT or bound OIDC. Identity is the agent. The host is not identity."
+        "description": "Hydra JWT. Identity is the bound agent or a Keto member human. The host is not identity."
       }
     },
     "schemas": {
@@ -211,6 +344,64 @@
           "events": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/AuditEvent" }
+          }
+        }
+      },
+      "CreateItemRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "uri": { "type": "string" },
+          "uris": { "type": "array", "items": { "type": "string" } },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "kind": { "type": "string", "enum": ["api_key", "oauth", "ssh", "file"] },
+          "secret": { "type": "string", "description": "Vault material. Request only. Never returned." },
+          "totp_seed": { "type": "string", "description": "TOTP seed. Request only. Never returned." }
+        }
+      },
+      "UpdateItemRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "uri": { "type": "string" },
+          "uris": { "type": "array", "items": { "type": "string" } },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "CreateGrantRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent", "item", "level"],
+        "properties": {
+          "agent": { "type": "string" },
+          "item": { "type": "string" },
+          "level": { "type": "string", "enum": ["level1", "level2"] },
+          "expires": { "type": "string", "description": "Go duration. Empty is forever." }
+        }
+      },
+      "Grant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "org_id", "agent_id", "item_id", "level"],
+        "properties": {
+          "id": { "type": "string" },
+          "org_id": { "type": "string" },
+          "agent_id": { "type": "string" },
+          "item_id": { "type": "string" },
+          "level": { "type": "string" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "GrantsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["grants"],
+        "properties": {
+          "grants": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Grant" }
           }
         }
       }

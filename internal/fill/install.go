@@ -6,11 +6,15 @@ import (
 )
 
 func Install(bin, vaultHome, userHome string) error {
+	return InstallOrigin(bin, vaultHome, userHome, "")
+}
+
+func InstallOrigin(bin, vaultHome, userHome, origin string) error {
 	if err := os.MkdirAll(vaultHome, 0o700); err != nil {
 		return err
 	}
 	shim := filepath.Join(vaultHome, "native-host")
-	if err := os.WriteFile(shim, []byte(Shim(bin, vaultHome)), 0o755); err != nil {
+	if err := os.WriteFile(shim, []byte(ShimOrigin(bin, vaultHome, origin)), 0o755); err != nil {
 		return err
 	}
 	chromeDir := filepath.Join(userHome, "Library/Application Support/Google/Chrome/NativeMessagingHosts")

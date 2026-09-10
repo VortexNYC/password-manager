@@ -7,6 +7,7 @@
 package fill
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -15,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,8 +27,7 @@ import (
 	"golang.org/x/crypto/nacl/box"
 
 	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/grant"
-	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/protocol"
 )
 
 const (
@@ -38,7 +39,10 @@ const (
 )
 
 type Host struct {
-	App *app.App
+	App    *app.App
+	Dir    string
+	Origin string
+	Token  string
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -61,6 +65,12 @@ type envelope struct {
 
 func New(a *app.App) *Host {
 	h := &Host{App: a, sessions: map[string]*session{}}
+	h.loadAssoc()
+	return h
+}
+
+func NewOrigin(dir, origin, token string) *Host {
+	h := &Host{Dir: dir, Origin: strings.TrimRight(origin, "/"), Token: token, sessions: map[string]*session{}}
 	h.loadAssoc()
 	return h
 }
@@ -259,34 +269,20 @@ type loginEntry struct {
 }
 
 func (h *Host) logins(rawURL string) loginReply {
-	items, err := h.App.Store.ListItems()
+	if h.Origin != "" {
+		return h.originLogins(rawURL)
+	}
+	if h.App == nil {
+		return loginReply{Count: "0", Entries: []loginEntry{}, Success: "false", Hash: h.hash(), Version: Version}
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: h.App.HumanID, OrgID: h.App.OrgID}
+	got, err := h.App.FillLogins(human, rawURL)
 	if err != nil {
 		return loginReply{Count: "0", Entries: []loginEntry{}, Success: "false", Hash: h.hash(), Version: Version}
 	}
-	var entries []loginEntry
-	for _, item := range items {
-		if !grant.HostAllowed(item, rawURL) {
-			continue
-		}
-		sec, err := h.App.Store.Secret(item.ID)
-		if err != nil {
-			continue
-		}
-		env := material.Unpack([]byte(sec))
-		pass := env.Token
-		if pass == "" {
-			pass = string(sec)
-		}
-		login := item.Name
-		entries = append(entries, loginEntry{
-			Login:    login,
-			Name:     item.Name,
-			Password: pass,
-			UUID:     item.ID,
-		})
-	}
-	if entries == nil {
-		entries = []loginEntry{}
+	entries := make([]loginEntry, 0, len(got))
+	for _, e := range got {
+		entries = append(entries, loginEntry{Login: e.Login, Name: e.Name, Password: e.Password, UUID: e.UUID})
 	}
 	return loginReply{
 		Count:   strconv.Itoa(len(entries)),
@@ -297,20 +293,46 @@ func (h *Host) logins(rawURL string) loginReply {
 	}
 }
 
+func (h *Host) originLogins(rawURL string) loginReply {
+	empty := loginReply{Count: "0", Entries: []loginEntry{}, Success: "false", Hash: h.hash(), Version: Version}
+	payload, err := json.Marshal(map[string]string{"url": rawURL})
+	if err != nil {
+		return empty
+	}
+	raw, err := h.originPOST("/v1/fill/logins", payload)
+	if err != nil {
+		return empty
+	}
+	var out struct {
+		Entries []loginEntry `json:"entries"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return empty
+	}
+	if out.Entries == nil {
+		out.Entries = []loginEntry{}
+	}
+	return loginReply{
+		Count:   strconv.Itoa(len(out.Entries)),
+		Entries: out.Entries,
+		Success: "true",
+		Hash:    h.hash(),
+		Version: Version,
+	}
+}
+
 func (h *Host) totp(uuid string) map[string]string {
 	if uuid == "" {
 		return failMap("missing uuid")
 	}
-	item, err := h.App.Store.Item(uuid)
-	if err != nil || !item.HasTOTP {
+	if h.Origin != "" {
+		return h.originTOTP(uuid)
+	}
+	if h.App == nil {
 		return failMap("no totp")
 	}
-	sec, err := h.App.Store.Secret(item.ID)
-	if err != nil {
-		return failMap("no totp")
-	}
-	env := material.Unpack([]byte(sec))
-	code, err := material.Mint(env.TOTP, time.Now())
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: h.App.HumanID, OrgID: h.App.OrgID}
+	code, err := h.App.FillTOTP(human, uuid, time.Now())
 	if err != nil || code == "" {
 		return failMap("no totp")
 	}
@@ -319,6 +341,50 @@ func (h *Host) totp(uuid string) map[string]string {
 		"version": Version,
 		"success": "true",
 	}
+}
+
+func (h *Host) originTOTP(uuid string) map[string]string {
+	payload, err := json.Marshal(map[string]string{"uuid": uuid})
+	if err != nil {
+		return failMap("no totp")
+	}
+	raw, err := h.originPOST("/v1/fill/totp", payload)
+	if err != nil {
+		return failMap("no totp")
+	}
+	var out struct {
+		TOTP string `json:"totp"`
+	}
+	if json.Unmarshal(raw, &out) != nil || out.TOTP == "" {
+		return failMap("no totp")
+	}
+	return map[string]string{
+		"totp":    out.TOTP,
+		"version": Version,
+		"success": "true",
+	}
+}
+
+func (h *Host) originPOST(path string, body []byte) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodPost, h.Origin+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+h.Token)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("fill origin: http %d", res.StatusCode)
+	}
+	return raw, nil
 }
 
 func (h *Host) knownKey(keys []assocKey) bool {
@@ -337,8 +403,22 @@ func (h *Host) knownKey(keys []assocKey) bool {
 }
 
 func (h *Host) hash() string {
-	sum := sha256.Sum256([]byte("pwm:" + h.App.OrgID))
+	sum := sha256.Sum256([]byte("pwm:" + h.orgID()))
 	return hex.EncodeToString(sum[:])
+}
+
+func (h *Host) orgID() string {
+	if h.App != nil && h.App.OrgID != "" {
+		return h.App.OrgID
+	}
+	return "origin"
+}
+
+func (h *Host) dir() string {
+	if h.App != nil && h.App.Dir != "" {
+		return h.App.Dir
+	}
+	return h.Dir
 }
 
 func (h *Host) reply(s *session, nonce [24]byte, plain []byte) []byte {
@@ -416,10 +496,10 @@ type assocDisk struct {
 }
 
 func (h *Host) loadAssoc() {
-	if h.App == nil || h.App.Dir == "" {
+	if h.dir() == "" {
 		return
 	}
-	raw, err := os.ReadFile(filepath.Join(h.App.Dir, assocFile))
+	raw, err := os.ReadFile(filepath.Join(h.dir(), assocFile))
 	if err != nil {
 		return
 	}
@@ -431,14 +511,14 @@ func (h *Host) loadAssoc() {
 }
 
 func (h *Host) saveAssoc(key string) {
-	if h.App == nil || h.App.Dir == "" {
+	if h.dir() == "" {
 		return
 	}
 	raw, err := json.Marshal(assocDisk{ID: assocID, Key: key})
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(h.App.Dir, assocFile), raw, 0o600)
+	_ = os.WriteFile(filepath.Join(h.dir(), assocFile), raw, 0o600)
 }
 
 func ChromeOrigin() string {
@@ -484,5 +564,16 @@ func ManifestFirefox(hostPath string) []byte {
 }
 
 func Shim(bin, home string) string {
-	return "#!/bin/sh\nexec \"" + strings.ReplaceAll(bin, `"`, `\"`) + "\" fill --home \"" + strings.ReplaceAll(home, `"`, `\"`) + "\"\n"
+	return ShimOrigin(bin, home, "")
+}
+
+func ShimOrigin(bin, home, origin string) string {
+	esc := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	if origin != "" {
+		b.WriteString("export PWM_ORIGIN=\"" + esc(origin) + "\"\n")
+	}
+	b.WriteString("exec \"" + esc(bin) + "\" fill --home \"" + esc(home) + "\"\n")
+	return b.String()
 }

@@ -107,6 +107,9 @@ func openOrInitApp(home string) (*app.App, error) {
 }
 
 func loadApp(home string, initEmpty bool) (*app.App, error) {
+	if originBase() != "" {
+		return nil, fmt.Errorf("PWM_ORIGIN is set; origin is the vault")
+	}
 	dir, err := resolveHome(home)
 	if err != nil {
 		return nil, err
@@ -161,6 +164,9 @@ func initCmd(home *string) *cobra.Command {
 		Use:   "init",
 		Short: "Create a local vault (org of one)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return fmt.Errorf("PWM_ORIGIN is set; origin is the vault")
+			}
 			dir, err := resolveHome(*home)
 			if err != nil {
 				return err
@@ -276,6 +282,9 @@ func deviceCmd(home *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if originBase() != "" {
+				return fmt.Errorf("PWM_ORIGIN is set; origin is the vault")
+			}
 			if err := app.Accept(dir, priv, blob); err != nil {
 				return err
 			}
@@ -338,6 +347,12 @@ func humanCmd(home *string) *cobra.Command {
 					}
 					return encode(cmd, humans)
 				}
+			}
+			if originBase() != "" {
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("human list: keto")
 			}
 			a, err := openApp(*home)
 			if err != nil {
@@ -418,6 +433,12 @@ func itemCmd(home *string) *cobra.Command {
 					return err
 				}
 			}
+			if originBase() != "" {
+				if attachFile != "" || sshFile != "" || refreshFile != "" {
+					return fmt.Errorf("origin: item add is --secret-file/--totp-file")
+				}
+				return originItemAdd(cmd, args[0], uri, tags, kind, token, totpSeed)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -459,6 +480,9 @@ func itemCmd(home *string) *cobra.Command {
 		Use:   "list",
 		Short: "List items (no secrets)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originItemList(cmd)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -479,6 +503,9 @@ func itemCmd(home *string) *cobra.Command {
 		Short: "Replace URIs and tags. Snapshots history. No secret on argv.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originItemUpdate(cmd, args[0], uri, tags)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -502,6 +529,9 @@ func itemCmd(home *string) *cobra.Command {
 		Short: "Hide from Use and list. History stays.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originItemArchive(cmd, args[0])
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -518,6 +548,9 @@ func itemCmd(home *string) *cobra.Command {
 		Short: "Remove the item and its grants.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originItemDelete(cmd, args[0])
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -779,6 +812,9 @@ func grantCmd(home *string) *cobra.Command {
 		Use:   "add",
 		Short: "Grant an agent Use on an item (level1 or level2)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originGrantAdd(cmd, agentName, itemName, level, expires)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -807,6 +843,9 @@ func grantCmd(home *string) *cobra.Command {
 		Use:   "list",
 		Short: "List grants",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originGrantList(cmd)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -1130,6 +1169,20 @@ func fillCmd(home *string) *cobra.Command {
 		Use:   "fill",
 		Short: "keepassxc-browser native host. Fill writes into the page. Agents never see the secret.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				tok, err := originTokenLive(cmd.Context(), "")
+				if err != nil {
+					return err
+				}
+				dir, err := resolveHome(*home)
+				if err != nil {
+					return err
+				}
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					return err
+				}
+				return fill.NewOrigin(dir, originBase(), tok).Serve(cmd.InOrStdin(), cmd.OutOrStdout())
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -1154,7 +1207,7 @@ func fillCmd(home *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := fill.Install(bin, dir, user); err != nil {
+			if err := fill.InstallOrigin(bin, dir, user, originBase()); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), fill.NativeHostName)

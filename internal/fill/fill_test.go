@@ -5,6 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -278,6 +281,61 @@ func TestGetTOTPMintsCodeNotSeed(t *testing.T) {
 	}
 	if got["totp"] == seed {
 		t.Fatal("returned the seed")
+	}
+}
+
+func TestInstallOriginBakesOriginNotToken(t *testing.T) {
+	user := t.TempDir()
+	vaultDir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "password-manager")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallOrigin(bin, vaultDir, user, "https://veil.nyc"); err != nil {
+		t.Fatal(err)
+	}
+	shim, err := os.ReadFile(filepath.Join(vaultDir, "native-host"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(shim, []byte("PWM_ORIGIN=\"https://veil.nyc\"")) {
+		t.Fatalf("%s", shim)
+	}
+	if bytes.Contains(shim, []byte("jwt")) || bytes.Contains(shim, []byte(secret)) {
+		t.Fatal("token in shim")
+	}
+}
+
+func TestGetLoginsFromOrigin(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer human" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/v1/fill/logins" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"entries":[{"login":"stripe","name":"stripe","password":"sk_live_FILL_SECRET","uuid":"stripe"}]}`)
+	}))
+	t.Cleanup(origin.Close)
+	h := NewOrigin(t.TempDir(), origin.URL, "human")
+	c := newClient(t)
+	c.handshake(t, h)
+	inner, _ := json.Marshal(map[string]string{"action": "associate", "key": c.idKey, "idKey": c.idKey})
+	_ = c.send(t, h, inner)
+	req, _ := json.Marshal(struct {
+		Action string     `json:"action"`
+		URL    string     `json:"url"`
+		Keys   []assocKey `json:"keys"`
+	}{Action: "get-logins", URL: "https://dashboard.stripe.com", Keys: []assocKey{{ID: assocID, Key: c.idKey}}})
+	var got loginReply
+	if err := json.Unmarshal(c.send(t, h, req), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Success != "true" || len(got.Entries) != 1 || got.Entries[0].Password != secret {
+		t.Fatalf("%+v", got)
 	}
 }
 

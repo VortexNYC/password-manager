@@ -887,6 +887,96 @@ func TestCLIMCPConfigPublicURL(t *testing.T) {
 	}
 }
 
+func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
+	var sawCreate, sawList, sawGrant bool
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer jwt-not-a-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/items":
+			sawCreate = true
+			raw, _ := io.ReadAll(r.Body)
+			if !scrub.Contains(raw, []byte(secret)) {
+				t.Fatal("origin create missing secret")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"github","org_id":"org","name":"github","kind":"api_key","owner":{"kind":"org","id":"org"},"uris":["https://api.github.com"]}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/items":
+			sawList = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"items":[{"id":"github","org_id":"org","name":"github","kind":"api_key","owner":{"kind":"org","id":"org"},"uris":["https://api.github.com"]}]}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/grants":
+			sawGrant = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"claude:github","org_id":"org","agent_id":"claude","item_id":"github","level":"level2"}`)
+		default:
+			http.Error(w, "nope", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
+	t.Setenv("PWM_OIDC_TOKEN", "")
+	home := t.TempDir()
+	secFile := filepath.Join(home, "sec")
+	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, home, "", "item", "add", "github", "--uri", "https://api.github.com", "--secret-file", secFile)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !sawCreate {
+		t.Fatal("did not hit origin POST /v1/items")
+	}
+	if scrub.Contains([]byte(out), []byte(secret)) {
+		t.Fatal("cli origin item add printed secret")
+	}
+	out, err = run(t, home, "", "item", "list")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !sawList {
+		t.Fatal("did not hit origin GET /v1/items")
+	}
+	if !strings.Contains(out, `"name": "github"`) {
+		t.Fatalf("list %s", out)
+	}
+	out, err = run(t, home, "", "grant", "add", "--agent", "claude", "--item", "github", "--level", "level2")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !sawGrant {
+		t.Fatal("did not hit origin POST /v1/grants")
+	}
+}
+
+func TestCLIOriginRefusesSecondVault(t *testing.T) {
+	t.Setenv("PWM_ORIGIN", "https://veil.nyc")
+	home := t.TempDir()
+	out, err := run(t, home, "", "init")
+	if err == nil {
+		t.Fatalf("init with origin: %s", out)
+	}
+	if !strings.Contains(err.Error(), "origin is the vault") {
+		t.Fatal(err)
+	}
+	out, err = run(t, home, "", "serve")
+	if err == nil {
+		t.Fatalf("serve with origin: %s", out)
+	}
+	if !strings.Contains(err.Error(), "origin is the vault") {
+		t.Fatal(err)
+	}
+}
+
 func TestCLIOriginUseAndAudit(t *testing.T) {
 	var sawUse, sawEvents bool
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

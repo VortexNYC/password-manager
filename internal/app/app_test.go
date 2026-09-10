@@ -496,3 +496,41 @@ func copyVaultWithoutMaster(t *testing.T, src, dst string) {
 		}
 	}
 }
+
+func TestFillLoginsHumanOnly(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.AddItem("stripe", "https://dashboard.stripe.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	got, err := a.FillLogins(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Password != secret {
+		t.Fatalf("%+v", got)
+	}
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}
+	if _, err := a.FillLogins(agent, "https://dashboard.stripe.com"); err == nil {
+		t.Fatal("agent fill")
+	}
+	items, err := a.ItemsForPrincipal(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("agent list leaked secret")
+	}
+}

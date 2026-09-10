@@ -1,15 +1,23 @@
 # Prior art
 
+The company we are taking customers from is **1Password**. Solo, families, small teams, startups under 100, developers, agents. We take their inject / SSH agent / fill / TOTP shape. We do not take Connect, `op` as GetSecret, vaults-as-ACL, AWS Secrets Manager sync, Privileged Access, or Device Trust.
+
 Reviewing open source and using it under its license is legal. Being inspired by a product's patterns, solutions, and methods is legal. Copying their source into this tree is not.
 
 Ideas we take. Code we do not copy. Licenses we respect.
 
 | Source | License | What we take | What we leave |
 |---|---|---|---|
-| [Infisical Agent Vault](https://github.com/Infisical/agent-vault) | MIT | Agent as a named principal. Discover by name, never by value. Inject at HTTP edge. Scrub responses. `vault run` env into a child. | Their MITM/CA, Gorm, proposals UI, Infisical product coupling. |
+| [Infisical](https://github.com/Infisical/infisical) | MIT (`ee/` is paid) | Machine identity as a principal with many auth methods (Universal Auth = client_credentials; OIDC/JWT/K8s/AWS/GCP/Azure/SPIFFE/TLS). Temporary access with TTL. Approval policy on *changes*. Audit log stream. Honey tokens (decoy credential that alerts on Use). Dynamic secret + rotation as a *pattern* (mint ephemeral, revoke). Gateway: reach private resources without inbound. | Dashboard, folders/environments as vaults, secret sync into GitHub/Vercel (that is GetSecret), PKI/CA, KMS encrypt API, PAM/session recording, secret scanning CLI, Gorm/TS monolith, becoming Teleport. |
+| [Infisical Agent Vault](https://github.com/Infisical/agent-vault) | MIT (`ee/` is paid) | Agent as a named principal. Discover by name, never by value. Inject at HTTP edge. Scrub responses. `vault run` env into a child. Dummy placeholders (`__github_pat__`) so an SDK will start; the proxy substitutes. Orchestrator mints a short-lived session token for a sandbox (`sessions.create`, `vaultRole=proxy`) and passes only `HTTPS_PROXY` + CA. Broker on a different host from the agent. Postgres when more than one instance. | Their MITM/CA (we use goproxy), Gorm, management UI, default-allow unmatched hosts (we fail closed), Infisical product coupling. |
 | [Infisical Agent Proxy](https://infisical.com/docs/documentation/platform/agent-proxy/quickstart/credentials) | proprietary product | Placeholder substitution. Local proxy vs hosted proxy as the same protocol. | Their dashboard. |
 | [OneCLI](https://github.com/onecli/onecli) | see repo | Per-agent rules at the network layer. Audit the request, not the secret. Bitwarden as a *source*, not the data model. | Rust/TS stack, Cognito. |
-| [Bitwarden Agent Access](https://github.com/bitwarden/agent-access) | see repo | JIT request for one item. `run` injects env into a child. TOTP lives on the item; we mint at inject and never return the code. | Returning `{password, totp}` to the caller. Pairing that requires a laptop for cloud agents. |
+| [Bitwarden Server](https://github.com/bitwarden/server) | AGPL + Bitwarden license | Split Identity / Api / Events (we already split Ory vs broker). Machine Secrets Manager: service account + scoped secret, not a human vault. Event ingest as its own plane. | User/org/collection vaults. Client-side E2E for the agent inject path (origin must decrypt to inject). Admin/Billing/SCIM/SSO consoles. Vaultwarden. Send as a product. PAM/session recording. |
+| [Bitwarden Agent Access](https://github.com/bitwarden/agent-access) | Apache-2.0 | JIT request for one item. Fine-grained, user-mediated, just-in-time. `run` injects env into a child. TOTP lives on the item; we mint at inject and never return the code. Protocol v0: Noise E2E over a relay that sees only ciphertext. | Returning `{password, totp}` to the caller. Pairing that requires a laptop for cloud agents. A public relay. Becoming a Noise/WebSocket product. |
+| [HashiCorp Vault](https://github.com/hashicorp/vault) | BSL | Lease on issued material: TTL, renew, revoke. Revoke a *tree* (everything this agent read) for incident response. Dynamic secrets: broker mints, broker revokes. Auth methods as plugins mapped onto an existing principal (AppRole ≈ Hydra client_credentials; AWS/K8s/JWT ≈ workload OIDC). Response wrapping: one-time token that unwraps into a Use session. Audit every Use. | Becoming a PKI CA. Transit-as-a-product. Consul/Raft. Importing `github.com/hashicorp/vault` as a library (they forbid it). Path-ACL instead of per-item grants. UI. Enterprise namespaces. |
+| [KeePassXC](https://github.com/keepassxreboot/keepassxc) | GPL-2 or GPL-3 | Field references between items (we already do `${NAME}` / `pwm://` only inside inject). Entry history. TOTP on the item, mint at use. SSH agent socket; Add/Remove refused. Browser fill is a native host, not the vault. | KDBX as the store. Groups. Auto-Type. YubiKey as vault unlock. Secret Service. HIBP/health reports. Import from 1Password. The desktop app. |
+| [Buttercup](https://github.com/buttercup/buttercup-desktop) | GPL-3.0 | Encrypted vault *file* plus a dumb blob backend (fs / WebDAV). Desktop holds keys; extension never does. | Dead project (archived 2025). `.bcup`. Dropbox/Drive sync. Their Electron app. |
+| [AuthPass](https://github.com/authpass/authpass) | GPL-3.0 | KeePass file as a portable ciphertext blob; cloud is just where the file sits (Drive, Dropbox, WebDAV). Biometric unlock of the local key. | Flutter. KDBX. Becoming a KeePass client. iOS/Android. Autofill as the product. |
 | [1Password Agentic Autofill](https://www.1password.dev/agentic-autofill) | proprietary | HITL approval names the item. Fill happens outside the model. | Always-level-1. Browser-only. Closed. |
 | [Aside](https://aside.com/features/password-manager) | proprietary | Passkey + TOTP completed for the agent without exposing material. | Their browser. Crude always/never policy. |
 | [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/what-are-agent-identities) | proprietary | Agent is a directory object with an owner. Workload federation: trust an external issuer, map subject to a principal. | Entra tokens only. Not a vault. Becoming an IdP. |
@@ -20,6 +28,36 @@ Ideas we take. Code we do not copy. Licenses we respect.
 | [Ory Keto](https://github.com/ory/keto) | Apache-2.0 | Identity-plane owner/member. Pin the official image. | Grant tuples. Compiling Keto into the broker. |
 | [Ory Elements](https://github.com/ory/elements) | Apache-2.0 | Screens in `identity/login` only. Follows the identity schema. | Using it inside the broker. Auth.js. |
 | [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser) | GPL-3.0 | The fill wire. Thin extension, native messaging, local process answers. Passkeys included. | Their extension in this tree. KeePassXC as the vault. `gkpxc` — that is a client of their database. |
+
+## 1Password OSS list (2026-09-10)
+
+Source: [opensourcealternative.to/alternativesto/1password](https://opensourcealternative.to/alternativesto/1password) — five names: Vault, KeePassXC, Bitwarden, Buttercup, AuthPass. Plus [Infisical/infisical](https://github.com/Infisical/infisical) as requested.
+
+That list is a 1Password clone roundup. Most of it is a human vault, a file format, or a desktop. Veil is not that architecture. The company we attack is 1Password. Backend gold we still take from Infisical (platform + Agent Vault) and Vault is sandbox session, revoke-tree, placeholders, honey — not their PKI/PAM.
+
+### Already true here
+
+- Inject at the edge; agent never receives the secret. Unknown hosts fail closed (`internal/proxy`).
+- Agent principal + Hydra `client_credentials`. Workload OIDC maps onto an existing agent.
+- Grant per item, level 1 vs 2. Grant expiry. No collections, no folders-as-vaults.
+- `${NAME}` / `pwm://` expand only inside `run --inject`. Unknown refs fail closed.
+- TOTP minted at Use. SSH agent socket. Item history. Audit events without secrets.
+- Origin is Railway. Laptop is a cloud agent of that origin.
+
+### Backend patterns still missing (this order, nothing else)
+
+1. **Sandbox session mint** (Infisical Agent Vault `sessions.create`). An orchestrator (Flue, Devin, Daytona) mints a short-lived, vault-scoped token and hands the sandbox only `HTTPS_PROXY` + CA. The 1h agent JWT is the long-lived principal. The sandbox does not get that JWT.
+2. **Revoke tree** (Vault). One command: this agent may not Use anything, and every grant it holds is dead. Incident response. We can delete a grant today; we cannot kill the principal’s whole tree.
+3. **Dummy placeholders** (Infisical `__github_pat__`). Some SDKs refuse to start with an empty `GITHUB_TOKEN`. `run --inject` already sets real env in a child. Placeholders are for processes that must *see* a value before the proxy rewrites the wire. Same protocol as inject; do not add GetSecret.
+4. **Honey item** (Infisical honey tokens). An item whose URI is a tripwire. Use is always deny + alert. No secret worth stealing.
+
+### Do not add
+
+- Dynamic AWS/Postgres secret engines until Vortex has that problem. Static API keys are the first customer.
+- Secret sync to GitHub/Vercel/AWS SM. That is GetSecret into someone else’s store.
+- PKI, KMS, PAM, session recording, Teleport.
+- KDBX, `.bcup`, collections, Send, Vaultwarden, a public Bitwarden-style relay.
+- Importing HashiCorp Vault as a Go module.
 
 If a library already does the job, depend on it:
 

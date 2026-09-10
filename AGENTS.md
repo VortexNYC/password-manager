@@ -2,7 +2,7 @@
 
 The product is **Veil**. Forever. Repo and CLI stay `password-manager` in VortexNYC until a rename. Agents say Veil, not PWM, not password-manager.
 
-This is an agent-first credential broker. Read `docs/SPEC.md` and `docs/prior-art.md` before writing code.
+This is an agent-first credential broker that takes 1Password's customers: developers, agents, solo users, families, small teams, startups under 100. Read `docs/SPEC.md` and `docs/prior-art.md` before writing code.
 
 ## Ory \*
 
@@ -33,13 +33,13 @@ We do not run Oathkeeper, Keto as a grant engine, or a second user table.
 
 ## Current slice
 
-Laptop MCP adapter. `password-manager mcp stdio` against `https://veil.nyc`. Cursor live: `list_items` + `fetch` GitHub `/user` allow/200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint, never the JWT in MCP JSON.
+1Password. Individual / Families / Teams / startup <100. Agents are the wedge; humans in that same org still fill, TOTP, SSH, share. Not Infisical PKI. Not 1Password Enterprise.
 
-Flue (flue-cf-teammate) is a cloud client of the same origin: `defineMcpConnection` `veil` → `https://veil.nyc/mcp`, Hydra `client_credentials` as `agent-flue`, remint in `auth()`. Worker secret `VEIL_HYDRA_SECRET`. Mounted on every top-level agent via `useSharedTools()`.
+Laptop MCP adapter is written. `password-manager mcp stdio` against `https://veil.nyc`. Cursor live: `list_items` + `fetch` GitHub `/user` allow/200. Flue Uses Veil on Engineering. One store is written: origin HTTP owns item/grant/list; `PWM_ORIGIN` never opens sqlite. Fill native-host path is origin, human-only, not OpenAPI/MCP. Next: Chrome URI fill, TOTP enroll QR, Kratos MFA, human grants. Infisical backend issues #3–#6 stay (sandbox session, revoke tree, placeholders, honey).
 
 OpenAPI factory. `docs/openapi/password-manager.openapi.json` is the contract. HTTP `/v1/items` and `/v1/use` (body + headers). CLI `use --body-file`. MCP `fetch` the same operation. Generated Go/TS/Python SDKs. Blume `/reference` via `apps/docs`. Never handwrite clients. No GetSecret.
 
-Item lifecycle and secret refs. `${NAME}` / `pwm://name` resolve only inside `run --inject` and child env. Archive, delete, tags, history, file BLOB (owner write to disk), grant `--expires`, owner `audit`, `gen`. MCP agent tools are still only `list_items` + `fetch`. No vaults. No 1Password. No iOS.
+Item lifecycle and secret refs. `${NAME}` / `pwm://name` resolve only inside `run --inject` and child env. Archive, delete, tags, history, file BLOB (owner write to disk), grant `--expires`, owner `audit`, `gen`. MCP agent tools are still only `list_items` + `fetch`. No 1Password vaults/Connect/`op`. No iOS until fill origin is proven.
 
 Cloud coding agents hit `https://veil.nyc/mcp`. Same Streamable HTTP. Bearer after `agent bind` / `agent hydra`. Mint at `https://id.veil.nyc` (Hydra public: token+JWKS). Not admin. Origin is Railway. Cloudflare is DNS only (grey-cloud CNAME). Not Tunnel. Not Workers. `pwm.vortex.nyc` is leftover Mini.
 
