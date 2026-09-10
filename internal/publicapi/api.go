@@ -51,12 +51,14 @@ type CreateItemRequest struct {
 	Kind     string   `json:"kind,omitempty"`
 	Secret   string   `json:"secret,omitempty"`
 	TOTPSeed string   `json:"totp_seed,omitempty"`
+	Login    string   `json:"login,omitempty"`
 }
 
 type UpdateItemRequest struct {
-	URI  string   `json:"uri,omitempty"`
-	URIs []string `json:"uris,omitempty"`
-	Tags []string `json:"tags,omitempty"`
+	URI   string   `json:"uri,omitempty"`
+	URIs  []string `json:"uris,omitempty"`
+	Tags  []string `json:"tags,omitempty"`
+	Login string   `json:"login,omitempty"`
 }
 
 type CreateGrantRequest struct {
@@ -158,6 +160,7 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 		Tags:     in.Tags,
 		Kind:     protocol.ItemKind(in.Kind),
 		Token:    []byte(in.Secret),
+		Login:    in.Login,
 		TOTPSeed: []byte(in.TOTPSeed),
 	})
 	if err != nil {
@@ -180,7 +183,7 @@ func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 	if in.URI != "" {
 		uris = []string{in.URI}
 	}
-	item, err := s.App.UpdateItem(r.PathValue("name"), uris, in.Tags)
+	item, err := s.App.UpdateItem(r.PathValue("name"), uris, in.Tags, in.Login)
 	if err != nil {
 		http.Error(w, "update failed", http.StatusBadRequest)
 		return

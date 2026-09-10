@@ -14,7 +14,7 @@ func InstallOrigin(bin, vaultHome, userHome, origin string) error {
 		return err
 	}
 	shim := filepath.Join(vaultHome, "native-host")
-	if err := os.WriteFile(shim, []byte(ShimOrigin(bin, vaultHome, origin)), 0o755); err != nil {
+	if err := os.WriteFile(shim, []byte(ShimOrigin(bin, vaultHome, userHome, origin)), 0o755); err != nil {
 		return err
 	}
 	chromeDir := filepath.Join(userHome, "Library/Application Support/Google/Chrome/NativeMessagingHosts")

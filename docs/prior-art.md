@@ -27,7 +27,7 @@ Ideas we take. Code we do not copy. Licenses we respect.
 | [Ory Hydra](https://github.com/ory/hydra) | Apache-2.0 | Issuer. Login and consent are a hole we fill. | fosite. Compiling Hydra into the broker. |
 | [Ory Keto](https://github.com/ory/keto) | Apache-2.0 | Identity-plane owner/member. Pin the official image. | Grant tuples. Compiling Keto into the broker. |
 | [Ory Elements](https://github.com/ory/elements) | Apache-2.0 | Screens in `identity/login` only. Follows the identity schema. | Using it inside the broker. Auth.js. |
-| [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser) | GPL-3.0 | The fill wire. Thin extension, native messaging, local process answers. Passkeys included. | Their extension in this tree. KeePassXC as the vault. `gkpxc` — that is a client of their database. |
+| [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser) | GPL-3.0 | The fill wire we speak in slice 26. Native messaging, local process answers. Passkeys included. | Their source in this tree. KeePassXC as the vault. Shipping their listing as the Veil product. `gkpxc` — that is a client of their database. |
 
 ## 1Password OSS list (2026-09-10)
 

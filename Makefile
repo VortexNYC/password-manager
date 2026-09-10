@@ -1,4 +1,4 @@
-.PHONY: test vet fmt tidy ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live
+.PHONY: test vet fmt tidy ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live prove-fill
 
 test:
 	env -u PWM_HYDRA_ISSUER -u PWM_HYDRA_ADMIN -u PWM_HOME -u PWM_OIDC_TOKEN -u PWM_ORIGIN -u PWM_OIDC_TOKEN_FILE -u PWM_HYDRA_SECRET_FILE -u PWM_AGENT go test ./...
@@ -50,6 +50,9 @@ prove-identity: identity-up
 
 prove-live:
 	./scripts/prove-live.sh
+
+prove-fill:
+	./scripts/prove-fill.sh
 
 login:
 	pnpm --filter identity-login dev

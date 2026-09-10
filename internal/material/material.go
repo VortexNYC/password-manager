@@ -27,6 +27,7 @@ const (
 type Envelope struct {
 	V         int    `json:"v"`
 	Token     string `json:"token,omitempty"`
+	Login     string `json:"login,omitempty"`
 	TOTP      string `json:"totp,omitempty"`
 	Refresh   string `json:"refresh,omitempty"`
 	TokenURL  string `json:"token_url,omitempty"`
@@ -62,6 +63,19 @@ func Pack(token, totpSeed []byte) ([]byte, error) {
 		Token: string(trim(token)),
 		TOTP:  strings.ToUpper(string(trim(totpSeed))),
 	})
+}
+
+// WithLogin puts the fill username in the sealed blob. Empty login leaves raw
+// unchanged. Item list and MCP never see this field.
+func WithLogin(raw []byte, login string) ([]byte, error) {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return raw, nil
+	}
+	env := Unpack(raw)
+	env.V = Version
+	env.Login = login
+	return pack(env)
 }
 
 func PackOAuth(refresh, tokenURL, clientID, clientSecret []byte) ([]byte, error) {
@@ -161,6 +175,9 @@ func ScrubList(env Envelope, extra ...[]byte) [][]byte {
 	var out [][]byte
 	if env.Token != "" {
 		out = append(out, []byte(env.Token))
+	}
+	if env.Login != "" {
+		out = append(out, []byte(env.Login))
 	}
 	if env.TOTP != "" {
 		out = append(out, []byte(env.TOTP))

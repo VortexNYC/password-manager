@@ -13,6 +13,9 @@ tags:
 - description: Bearer is the agent. listItems is metadata. useItem injects. Never
     GetSecret.
   name: Agent
+- description: "Bearer is a Keto member human. Create items and grants. Secret may\
+    \ be sent, never returned."
+  name: Owner
 paths:
   /health:
     get:
@@ -51,12 +54,157 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ItemsResponse"
-          description: Granted items
+          description: Items
         "401":
           description: missing or invalid Bearer
-      summary: Items this agent may Use. Names and URIs. Never secrets.
+      summary: "Items this principal may see. Agent: granted. Human: the org. Names\
+        \ and URIs. Never secrets."
       tags:
       - Agent
+    post:
+      operationId: createItem
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateItemRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+          description: Item metadata. No secret.
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot create items
+      summary: Create an item. Secret is in the request over TLS. Never in the response.
+        Not MCP.
+      tags:
+      - Owner
+  /v1/items/{name}:
+    delete:
+      operationId: deleteItem
+      parameters:
+      - explode: false
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          description: deleted
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot delete items
+      summary: Remove the item and its grants. Not MCP.
+      tags:
+      - Owner
+    patch:
+      operationId: updateItem
+      parameters:
+      - explode: false
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateItemRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+          description: Item metadata
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot update items
+      summary: "Replace URIs, tags, and fill username. No secret."
+      tags:
+      - Owner
+  /v1/items/{name}/archive:
+    post:
+      operationId: archiveItem
+      parameters:
+      - explode: false
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          description: archived
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot archive items
+      summary: Hide from Use and list. History stays.
+      tags:
+      - Owner
+  /v1/grants:
+    get:
+      operationId: listGrants
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantsResponse"
+          description: Grants
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot list grants
+      summary: Grants in this org. No secrets. Not MCP.
+      tags:
+      - Owner
+    post:
+      operationId: createGrant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGrantRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grant"
+          description: Grant
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot create grants
+      summary: Grant an agent Use on an item. Not MCP.
+      tags:
+      - Owner
   /v1/use:
     post:
       operationId: useItem
@@ -338,10 +486,163 @@ components:
           default: null
       required:
       - events
+    CreateItemRequest:
+      additionalProperties: false
+      example:
+        name: name
+        uri: uri
+        uris:
+        - uris
+        - uris
+        tags:
+        - tags
+        - tags
+        kind: api_key
+        secret: secret
+        totp_seed: totp_seed
+        login: login
+      properties:
+        name:
+          type: string
+        uri:
+          type: string
+        uris:
+          items:
+            type: string
+          type: array
+          default: null
+        tags:
+          items:
+            type: string
+          type: array
+          default: null
+        kind:
+          enum:
+          - api_key
+          - oauth
+          - ssh
+          - file
+          type: string
+        secret:
+          description: Vault material. Request only. Never returned.
+          type: string
+        totp_seed:
+          description: TOTP seed. Request only. Never returned.
+          type: string
+        login:
+          description: Fill username. Request only. Sealed. Never returned. Not MCP.
+          type: string
+      required:
+      - name
+    UpdateItemRequest:
+      additionalProperties: false
+      example:
+        uri: uri
+        uris:
+        - uris
+        - uris
+        tags:
+        - tags
+        - tags
+        login: login
+      properties:
+        uri:
+          type: string
+        uris:
+          items:
+            type: string
+          type: array
+          default: null
+        tags:
+          items:
+            type: string
+          type: array
+          default: null
+        login:
+          description: Fill username. Request only. Sealed. Never returned. Does not
+            rotate the secret.
+          type: string
+    CreateGrantRequest:
+      additionalProperties: false
+      example:
+        agent: agent
+        item: item
+        level: level1
+        expires: expires
+      properties:
+        agent:
+          type: string
+        item:
+          type: string
+        level:
+          enum:
+          - level1
+          - level2
+          type: string
+        expires:
+          description: Go duration. Empty is forever.
+          type: string
+      required:
+      - agent
+      - item
+      - level
+    Grant:
+      additionalProperties: false
+      example:
+        id: id
+        org_id: org_id
+        agent_id: agent_id
+        item_id: item_id
+        level: level
+        expires_at: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        org_id:
+          type: string
+        agent_id:
+          type: string
+        item_id:
+          type: string
+        level:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+      required:
+      - agent_id
+      - id
+      - item_id
+      - level
+      - org_id
+    GrantsResponse:
+      additionalProperties: false
+      example:
+        grants:
+        - id: id
+          org_id: org_id
+          agent_id: agent_id
+          item_id: item_id
+          level: level
+          expires_at: 2000-01-23T04:56:07.000+00:00
+        - id: id
+          org_id: org_id
+          agent_id: agent_id
+          item_id: item_id
+          level: level
+          expires_at: 2000-01-23T04:56:07.000+00:00
+      properties:
+        grants:
+          items:
+            $ref: "#/components/schemas/Grant"
+          type: array
+          default: null
+      required:
+      - grants
   securitySchemes:
     bearerAuth:
       bearerFormat: JWT
-      description: Hydra client_credentials JWT or bound OIDC. Identity is the agent.
+      description: Hydra JWT. Identity is the bound agent or a Keto member human.
         The host is not identity.
       scheme: bearer
       type: http

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -129,6 +130,9 @@ func humanLogin(cmd *cobra.Command, outFile string, visit func(string) error) er
 func openBrowser(rawURL string) error {
 	if os.Getenv("PWM_LOGIN_NO_OPEN") == "1" {
 		return nil
+	}
+	if runtime.GOOS == "darwin" {
+		return exec.Command("open", "-a", "Google Chrome", rawURL).Start()
 	}
 	return exec.Command("open", rawURL).Start()
 }

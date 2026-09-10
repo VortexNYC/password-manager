@@ -19,6 +19,7 @@ __version__ = "0.1.0"
 # Define package exports
 __all__ = [
     "AgentApi",
+    "OwnerApi",
     "ApiResponse",
     "ApiClient",
     "Configuration",
@@ -29,16 +30,22 @@ __all__ = [
     "ApiAttributeError",
     "ApiException",
     "AuditEvent",
+    "CreateGrantRequest",
+    "CreateItemRequest",
     "EventsResponse",
+    "Grant",
+    "GrantsResponse",
     "Item",
     "ItemsResponse",
     "Owner",
+    "UpdateItemRequest",
     "UseRequest",
     "UseResponse",
 ]
 
 # import apis into sdk package
 from vortex_pwm.api.agent_api import AgentApi as AgentApi
+from vortex_pwm.api.owner_api import OwnerApi as OwnerApi
 
 # import ApiClient
 from vortex_pwm.api_response import ApiResponse as ApiResponse
@@ -53,10 +60,15 @@ from vortex_pwm.exceptions import ApiException as ApiException
 
 # import models into sdk package
 from vortex_pwm.models.audit_event import AuditEvent as AuditEvent
+from vortex_pwm.models.create_grant_request import CreateGrantRequest as CreateGrantRequest
+from vortex_pwm.models.create_item_request import CreateItemRequest as CreateItemRequest
 from vortex_pwm.models.events_response import EventsResponse as EventsResponse
+from vortex_pwm.models.grant import Grant as Grant
+from vortex_pwm.models.grants_response import GrantsResponse as GrantsResponse
 from vortex_pwm.models.item import Item as Item
 from vortex_pwm.models.items_response import ItemsResponse as ItemsResponse
 from vortex_pwm.models.owner import Owner as Owner
+from vortex_pwm.models.update_item_request import UpdateItemRequest as UpdateItemRequest
 from vortex_pwm.models.use_request import UseRequest as UseRequest
 from vortex_pwm.models.use_response import UseResponse as UseResponse
 

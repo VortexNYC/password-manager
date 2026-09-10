@@ -296,6 +296,14 @@ func TestCLIFillNeedsVault(t *testing.T) {
 	}
 }
 
+func TestCLIFillInstallRequiresOrigin(t *testing.T) {
+	t.Setenv("PWM_ORIGIN", "")
+	home := t.TempDir()
+	if _, err := run(t, home, "", "fill", "install"); err == nil {
+		t.Fatal("installed native host without PWM_ORIGIN")
+	}
+}
+
 func TestCLIServeNeedsVault(t *testing.T) {
 	home := t.TempDir()
 	if _, err := run(t, home, "", "serve"); err == nil {
@@ -361,6 +369,39 @@ func TestCLIItemAddTOTPNeverPrintsSeedOrCode(t *testing.T) {
 	}
 	if scrub.Contains([]byte(out), []byte(sawTOTP)) {
 		t.Fatalf("cli printed minted code: %s", out)
+	}
+}
+
+func TestCLIItemLoginNotInList(t *testing.T) {
+	const login = "stripe@example.com"
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	secFile := filepath.Join(home, "sec")
+	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	addOut, err := run(t, home, "", "item", "add", "stripe", "--uri", "https://dashboard.stripe.com", "--secret-file", secFile, "--login", login)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains([]byte(addOut), []byte(login)) || scrub.Contains([]byte(addOut), []byte(secret)) {
+		t.Fatalf("item add printed login or secret: %s", addOut)
+	}
+	listOut, err := run(t, home, "", "item", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains([]byte(listOut), []byte(login)) {
+		t.Fatalf("list printed login: %s", listOut)
+	}
+	updOut, err := run(t, home, "", "item", "update", "stripe", "--login", "other@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains([]byte(updOut), []byte("other@example.com")) {
+		t.Fatalf("update printed login: %s", updOut)
 	}
 }
 
@@ -903,6 +944,9 @@ func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
 			if !scrub.Contains(raw, []byte(secret)) {
 				t.Fatal("origin create missing secret")
 			}
+			if !bytes.Contains(raw, []byte("user@example.com")) {
+				t.Fatal("origin create missing login")
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"id":"github","org_id":"org","name":"github","kind":"api_key","owner":{"kind":"org","id":"org"},"uris":["https://api.github.com"]}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/items":
@@ -931,7 +975,7 @@ func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
 	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, home, "", "item", "add", "github", "--uri", "https://api.github.com", "--secret-file", secFile)
+	out, err := run(t, home, "", "item", "add", "github", "--uri", "https://api.github.com", "--secret-file", secFile, "--login", "user@example.com")
 	if err != nil {
 		t.Fatal(err, out)
 	}
@@ -940,6 +984,9 @@ func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
 	}
 	if scrub.Contains([]byte(out), []byte(secret)) {
 		t.Fatal("cli origin item add printed secret")
+	}
+	if strings.Contains(out, "user@example.com") {
+		t.Fatal("cli origin item add printed login")
 	}
 	out, err = run(t, home, "", "item", "list")
 	if err != nil {

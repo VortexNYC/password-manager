@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/broker"
@@ -188,6 +189,7 @@ type ItemOpts struct {
 	Tags         []string
 	Kind         protocol.ItemKind
 	Token        []byte
+	Login        string
 	TOTPSeed     []byte
 	Refresh      []byte
 	TokenURL     string
@@ -250,13 +252,17 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 	if err != nil {
 		return protocol.Item{}, err
 	}
+	blob, err = material.WithLogin(blob, opts.Login)
+	if err != nil {
+		return protocol.Item{}, err
+	}
 	if err := a.Store.PutItem(item, store.Secret(blob)); err != nil {
 		return protocol.Item{}, err
 	}
 	return item, nil
 }
 
-func (a *App) UpdateItem(name string, uris, tags []string) (protocol.Item, error) {
+func (a *App) UpdateItem(name string, uris, tags []string, login string) (protocol.Item, error) {
 	item, err := a.Store.Item(name)
 	if err != nil {
 		return protocol.Item{}, err
@@ -271,7 +277,14 @@ func (a *App) UpdateItem(name string, uris, tags []string) (protocol.Item, error
 	if tags != nil {
 		item.Tags = tags
 	}
-	if err := a.Store.PutItem(item, secret); err != nil {
+	raw := []byte(secret)
+	if strings.TrimSpace(login) != "" {
+		raw, err = material.WithLogin([]byte(secret), login)
+		if err != nil {
+			return protocol.Item{}, err
+		}
+	}
+	if err := a.Store.PutItem(item, store.Secret(raw)); err != nil {
 		return protocol.Item{}, err
 	}
 	return item, nil
@@ -383,6 +396,8 @@ func (a *App) ItemsForPrincipal(p protocol.Principal) ([]protocol.Item, error) {
 }
 
 // FillEntry is native-host material. Not protocol.Item. Not MCP.
+// Login is the fill username from the sealed envelope. Empty if unset.
+// Never fall back to item.Name.
 type FillEntry struct {
 	Login    string
 	Name     string
@@ -413,7 +428,7 @@ func (a *App) FillLogins(p protocol.Principal, rawURL string) ([]FillEntry, erro
 			pass = string(sec)
 		}
 		out = append(out, FillEntry{
-			Login:    item.Name,
+			Login:    env.Login,
 			Name:     item.Name,
 			Password: pass,
 			UUID:     item.ID,

@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetHealthData, GetHealthResponses, GetOpenApiData, GetOpenApiResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListItemsData, ListItemsErrors, ListItemsResponses, UseItemData, UseItemErrors, UseItemResponses } from './types.gen';
+import type { ArchiveItemData, ArchiveItemErrors, ArchiveItemResponses, CreateGrantData, CreateGrantErrors, CreateGrantResponses, CreateItemData, CreateItemErrors, CreateItemResponses, DeleteItemData, DeleteItemErrors, DeleteItemResponses, GetHealthData, GetHealthResponses, GetOpenApiData, GetOpenApiResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGrantsData, ListGrantsErrors, ListGrantsResponses, ListItemsData, ListItemsErrors, ListItemsResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UseItemData, UseItemErrors, UseItemResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -29,12 +29,78 @@ export const getHealth = <ThrowOnError extends boolean = false>(options?: Option
 export const getOpenApi = <ThrowOnError extends boolean = false>(options?: Options<GetOpenApiData, ThrowOnError>): RequestResult<GetOpenApiResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetOpenApiResponses, unknown, ThrowOnError>({ url: '/openapi.json', ...options });
 
 /**
- * Items this agent may Use. Names and URIs. Never secrets.
+ * Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.
  */
 export const listItems = <ThrowOnError extends boolean = false>(options?: Options<ListItemsData, ThrowOnError>): RequestResult<ListItemsResponses, ListItemsErrors, ThrowOnError> => (options?.client ?? client).get<ListItemsResponses, ListItemsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/v1/items',
     ...options
+});
+
+/**
+ * Create an item. Secret is in the request over TLS. Never in the response. Not MCP.
+ */
+export const createItem = <ThrowOnError extends boolean = false>(options: Options<CreateItemData, ThrowOnError>): RequestResult<CreateItemResponses, CreateItemErrors, ThrowOnError> => (options.client ?? client).post<CreateItemResponses, CreateItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/items',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Remove the item and its grants. Not MCP.
+ */
+export const deleteItem = <ThrowOnError extends boolean = false>(options: Options<DeleteItemData, ThrowOnError>): RequestResult<DeleteItemResponses, DeleteItemErrors, ThrowOnError> => (options.client ?? client).delete<DeleteItemResponses, DeleteItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/items/{name}',
+    ...options
+});
+
+/**
+ * Replace URIs, tags, and fill username. No secret.
+ */
+export const updateItem = <ThrowOnError extends boolean = false>(options: Options<UpdateItemData, ThrowOnError>): RequestResult<UpdateItemResponses, UpdateItemErrors, ThrowOnError> => (options.client ?? client).patch<UpdateItemResponses, UpdateItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/items/{name}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Hide from Use and list. History stays.
+ */
+export const archiveItem = <ThrowOnError extends boolean = false>(options: Options<ArchiveItemData, ThrowOnError>): RequestResult<ArchiveItemResponses, ArchiveItemErrors, ThrowOnError> => (options.client ?? client).post<ArchiveItemResponses, ArchiveItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/items/{name}/archive',
+    ...options
+});
+
+/**
+ * Grants in this org. No secrets. Not MCP.
+ */
+export const listGrants = <ThrowOnError extends boolean = false>(options?: Options<ListGrantsData, ThrowOnError>): RequestResult<ListGrantsResponses, ListGrantsErrors, ThrowOnError> => (options?.client ?? client).get<ListGrantsResponses, ListGrantsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/grants',
+    ...options
+});
+
+/**
+ * Grant an agent Use on an item. Not MCP.
+ */
+export const createGrant = <ThrowOnError extends boolean = false>(options: Options<CreateGrantData, ThrowOnError>): RequestResult<CreateGrantResponses, CreateGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateGrantResponses, CreateGrantErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/grants',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**

@@ -74,6 +74,59 @@ export type EventsResponse = {
     events: Array<AuditEvent>;
 };
 
+export type CreateItemRequest = {
+    name: string;
+    uri?: string;
+    uris?: Array<string>;
+    tags?: Array<string>;
+    kind?: 'api_key' | 'oauth' | 'ssh' | 'file';
+    /**
+     * Vault material. Request only. Never returned.
+     */
+    secret?: string;
+    /**
+     * TOTP seed. Request only. Never returned.
+     */
+    totp_seed?: string;
+    /**
+     * Fill username. Request only. Sealed. Never returned. Not MCP.
+     */
+    login?: string;
+};
+
+export type UpdateItemRequest = {
+    uri?: string;
+    uris?: Array<string>;
+    tags?: Array<string>;
+    /**
+     * Fill username. Request only. Sealed. Never returned. Does not rotate the secret.
+     */
+    login?: string;
+};
+
+export type CreateGrantRequest = {
+    agent: string;
+    item: string;
+    level: 'level1' | 'level2';
+    /**
+     * Go duration. Empty is forever.
+     */
+    expires?: string;
+};
+
+export type Grant = {
+    id: string;
+    org_id: string;
+    agent_id: string;
+    item_id: string;
+    level: string;
+    expires_at?: string;
+};
+
+export type GrantsResponse = {
+    grants: Array<Grant>;
+};
+
 export type GetHealthData = {
     body?: never;
     path?: never;
@@ -124,12 +177,196 @@ export type ListItemsErrors = {
 
 export type ListItemsResponses = {
     /**
-     * Granted items
+     * Items
      */
     200: ItemsResponse;
 };
 
 export type ListItemsResponse = ListItemsResponses[keyof ListItemsResponses];
+
+export type CreateItemData = {
+    body: CreateItemRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/items';
+};
+
+export type CreateItemErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot create items
+     */
+    403: unknown;
+};
+
+export type CreateItemResponses = {
+    /**
+     * Item metadata. No secret.
+     */
+    200: Item;
+};
+
+export type CreateItemResponse = CreateItemResponses[keyof CreateItemResponses];
+
+export type DeleteItemData = {
+    body?: never;
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/v1/items/{name}';
+};
+
+export type DeleteItemErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot delete items
+     */
+    403: unknown;
+};
+
+export type DeleteItemResponses = {
+    /**
+     * deleted
+     */
+    200: unknown;
+};
+
+export type UpdateItemData = {
+    body: UpdateItemRequest;
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/v1/items/{name}';
+};
+
+export type UpdateItemErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot update items
+     */
+    403: unknown;
+};
+
+export type UpdateItemResponses = {
+    /**
+     * Item metadata
+     */
+    200: Item;
+};
+
+export type UpdateItemResponse = UpdateItemResponses[keyof UpdateItemResponses];
+
+export type ArchiveItemData = {
+    body?: never;
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/v1/items/{name}/archive';
+};
+
+export type ArchiveItemErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot archive items
+     */
+    403: unknown;
+};
+
+export type ArchiveItemResponses = {
+    /**
+     * archived
+     */
+    200: unknown;
+};
+
+export type ListGrantsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/grants';
+};
+
+export type ListGrantsErrors = {
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot list grants
+     */
+    403: unknown;
+};
+
+export type ListGrantsResponses = {
+    /**
+     * Grants
+     */
+    200: GrantsResponse;
+};
+
+export type ListGrantsResponse = ListGrantsResponses[keyof ListGrantsResponses];
+
+export type CreateGrantData = {
+    body: CreateGrantRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/grants';
+};
+
+export type CreateGrantErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot create grants
+     */
+    403: unknown;
+};
+
+export type CreateGrantResponses = {
+    /**
+     * Grant
+     */
+    200: Grant;
+};
+
+export type CreateGrantResponse = CreateGrantResponses[keyof CreateGrantResponses];
 
 export type UseItemData = {
     body: UseRequest;

@@ -170,3 +170,56 @@ func TestFillPathNotInOpenAPI(t *testing.T) {
 		t.Fatal("fill is GetSecret; not on the generated contract")
 	}
 }
+
+func TestFillLoginIsUsernameNotName(t *testing.T) {
+	const login = "stripe@example.com"
+	a := testApp(t)
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name:   "stripe",
+		URI:    "https://dashboard.stripe.com",
+		Secret: secret,
+		Login:  login,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(login)) || scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("create echoed login or secret")
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(login)) {
+		t.Fatal("list leaked login")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://dashboard.stripe.com/login"})
+	if code != http.StatusOK {
+		t.Fatalf("fill %d %s", code, raw)
+	}
+	var got FillLoginsResponse
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Entries) != 1 || got.Entries[0].Login != login || got.Entries[0].Name != "stripe" || got.Entries[0].Password != secret {
+		t.Fatalf("%+v", got)
+	}
+	code, raw = doJSON(t, srv, http.MethodPatch, "/v1/items/stripe", "human", UpdateItemRequest{Login: "other@example.com"})
+	if code != http.StatusOK {
+		t.Fatalf("update %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte("other@example.com")) {
+		t.Fatal("update echoed login")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://dashboard.stripe.com/login"})
+	if code != http.StatusOK {
+		t.Fatalf("fill after update %d %s", code, raw)
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Entries) != 1 || got.Entries[0].Login != "other@example.com" || got.Entries[0].Password != secret {
+		t.Fatalf("update rotated or missed login: %+v", got)
+	}
+}

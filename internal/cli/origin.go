@@ -271,7 +271,7 @@ func originItemList(cmd *cobra.Command) error {
 	return encode(cmd, out.Items)
 }
 
-func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind protocol.ItemKind, token, totpSeed []byte) error {
+func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind protocol.ItemKind, token, totpSeed []byte, login string) error {
 	tok, err := originHumanToken()
 	if err != nil {
 		return err
@@ -283,6 +283,7 @@ func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind pro
 		Kind:     string(kind),
 		Secret:   string(token),
 		TOTPSeed: string(totpSeed),
+		Login:    login,
 	}
 	payload, err := json.Marshal(in)
 	if err != nil {
@@ -299,12 +300,12 @@ func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind pro
 	return encode(cmd, item)
 }
 
-func originItemUpdate(cmd *cobra.Command, name, uri string, tags []string) error {
+func originItemUpdate(cmd *cobra.Command, name, uri string, tags []string, login string) error {
 	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
-	in := publicapi.UpdateItemRequest{URI: uri, Tags: tags}
+	in := publicapi.UpdateItemRequest{URI: uri, Tags: tags, Login: login}
 	payload, err := json.Marshal(in)
 	if err != nil {
 		return err

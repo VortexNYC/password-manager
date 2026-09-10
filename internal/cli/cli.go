@@ -390,7 +390,7 @@ type inviteDTO struct {
 
 func itemCmd(home *string) *cobra.Command {
 	c := &cobra.Command{Use: "item", Short: "Items (metadata only on list)"}
-	var uri, secretFile, totpFile, refreshFile, clientSecretFile, tokenURL, clientID, sshFile, attachFile, mime string
+	var uri, secretFile, totpFile, refreshFile, clientSecretFile, tokenURL, clientID, sshFile, attachFile, mime, login string
 	var tags []string
 	add := &cobra.Command{
 		Use:   "add NAME",
@@ -447,7 +447,7 @@ func itemCmd(home *string) *cobra.Command {
 				if attachFile != "" || sshFile != "" || refreshFile != "" {
 					return fmt.Errorf("origin: item add is --secret-file/--totp-file")
 				}
-				return originItemAdd(cmd, args[0], uri, tags, kind, token, totpSeed)
+				return originItemAdd(cmd, args[0], uri, tags, kind, token, totpSeed, login)
 			}
 			a, err := openApp(*home)
 			if err != nil {
@@ -460,6 +460,7 @@ func itemCmd(home *string) *cobra.Command {
 				Tags:         tags,
 				Kind:         kind,
 				Token:        token,
+				Login:        login,
 				TOTPSeed:     totpSeed,
 				Refresh:      refresh,
 				TokenURL:     tokenURL,
@@ -477,6 +478,7 @@ func itemCmd(home *string) *cobra.Command {
 	}
 	add.Flags().StringVar(&uri, "uri", "", "host this item may be used against, e.g. https://api.stripe.com")
 	add.Flags().StringSliceVar(&tags, "tag", nil, "owner label. not ACL")
+	add.Flags().StringVar(&login, "login", "", "fill username. sealed. not list. not MCP")
 	add.Flags().StringVar(&secretFile, "secret-file", "", "file containing the API key (`-` for stdin)")
 	add.Flags().StringVar(&sshFile, "ssh-file", "", "OpenSSH/PEM private key file. Never argv. Kind becomes ssh.")
 	add.Flags().StringVar(&totpFile, "totp-file", "", "file containing the TOTP seed, never the 6-digit code")
@@ -514,7 +516,7 @@ func itemCmd(home *string) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if originBase() != "" {
-				return originItemUpdate(cmd, args[0], uri, tags)
+				return originItemUpdate(cmd, args[0], uri, tags, login)
 			}
 			a, err := openApp(*home)
 			if err != nil {
@@ -525,7 +527,7 @@ func itemCmd(home *string) *cobra.Command {
 			if uri != "" {
 				uris = []string{uri}
 			}
-			item, err := a.UpdateItem(args[0], uris, tags)
+			item, err := a.UpdateItem(args[0], uris, tags, login)
 			if err != nil {
 				return err
 			}
@@ -534,6 +536,7 @@ func itemCmd(home *string) *cobra.Command {
 	}
 	update.Flags().StringVar(&uri, "uri", "", "replace autofill hosts with this one URI")
 	update.Flags().StringSliceVar(&tags, "tag", nil, "replace tags")
+	update.Flags().StringVar(&login, "login", "", "set fill username. does not rotate the secret")
 	archive := &cobra.Command{
 		Use:   "archive NAME",
 		Short: "Hide from Use and list. History stays.",
@@ -1187,10 +1190,6 @@ func fillCmd(home *string) *cobra.Command {
 		Short: "keepassxc-browser native host. Fill writes into the page. Agents never see the secret.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if originBase() != "" {
-				tok, err := originHumanToken()
-				if err != nil {
-					return err
-				}
 				dir, err := resolveHome(*home)
 				if err != nil {
 					return err
@@ -1198,20 +1197,25 @@ func fillCmd(home *string) *cobra.Command {
 				if err := os.MkdirAll(dir, 0o700); err != nil {
 					return err
 				}
-				return fill.NewOrigin(dir, originBase(), tok).Serve(cmd.InOrStdin(), cmd.OutOrStdout())
+				tok, _ := originHumanToken()
+				return fill.NewOrigin(dir, originBase(), tok).Serve(os.Stdin, os.Stdout)
 			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
-			return fill.New(a).Serve(cmd.InOrStdin(), cmd.OutOrStdout())
+			return fill.New(a).Serve(os.Stdin, os.Stdout)
 		},
 	}
 	c.AddCommand(&cobra.Command{
 		Use:   "install",
 		Short: "Install the native messaging host for the keepassxc-browser extension. Does not copy the extension.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			origin := originBase()
+			if origin == "" {
+				return fmt.Errorf("fill install: PWM_ORIGIN is required")
+			}
 			dir, err := resolveHome(*home)
 			if err != nil {
 				return err
@@ -1224,7 +1228,7 @@ func fillCmd(home *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := fill.InstallOrigin(bin, dir, user, originBase()); err != nil {
+			if err := fill.InstallOrigin(bin, dir, user, origin); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), fill.NativeHostName)

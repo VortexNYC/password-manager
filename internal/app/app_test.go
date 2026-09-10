@@ -518,6 +518,9 @@ func TestFillLoginsHumanOnly(t *testing.T) {
 	if len(got) != 1 || got[0].Password != secret {
 		t.Fatalf("%+v", got)
 	}
+	if got[0].Login != "" {
+		t.Fatalf("unset login must stay empty, not item name: %+v", got)
+	}
 	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}
 	if _, err := a.FillLogins(agent, "https://dashboard.stripe.com"); err == nil {
 		t.Fatal("agent fill")
@@ -532,5 +535,52 @@ func TestFillLoginsHumanOnly(t *testing.T) {
 	}
 	if scrub.Contains(raw, []byte(secret)) {
 		t.Fatal("agent list leaked secret")
+	}
+}
+
+func TestFillLoginsUsesEnvelopeLoginNotName(t *testing.T) {
+	const login = "stripe@example.com"
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.PutItem(ItemOpts{
+		Name:  "stripe",
+		URI:   "https://dashboard.stripe.com",
+		Token: []byte(secret),
+		Login: login,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	got, err := a.FillLogins(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Login != login || got[0].Name != "stripe" || got[0].Password != secret {
+		t.Fatalf("%+v", got)
+	}
+	if _, err := a.UpdateItem("stripe", nil, nil, "other@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.FillLogins(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Login != "other@example.com" || got[0].Password != secret {
+		t.Fatalf("update rotated or missed login: %+v", got)
+	}
+	items, err := a.Store.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(login)) || scrub.Contains(raw, []byte("other@example.com")) {
+		t.Fatal("item list leaked login")
 	}
 }

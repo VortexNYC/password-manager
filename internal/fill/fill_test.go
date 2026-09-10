@@ -68,6 +68,12 @@ func (c *client) handshake(t *testing.T, h *Host) {
 	if got.PublicKey == "" {
 		t.Fatalf("%+v", got)
 	}
+	var n [24]byte
+	copy(n[:], nonce)
+	want := bumpNonce(n)
+	if got.Nonce != base64.StdEncoding.EncodeToString(want[:]) {
+		t.Fatalf("nonce %q", got.Nonce)
+	}
 	k, err := b64key(got.PublicKey)
 	if err != nil {
 		t.Fatal(err)
@@ -103,6 +109,13 @@ func (c *client) send(t *testing.T, h *Host, inner []byte) []byte {
 	if !ok {
 		t.Fatal("decrypt failed")
 	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(plain, &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["nonce"]) != `"`+env.Nonce+`"` {
+		t.Fatalf("inner nonce %s want %s", body["nonce"], env.Nonce)
+	}
 	return plain
 }
 
@@ -113,7 +126,12 @@ func vault(t *testing.T) *app.App {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
-	if _, err := a.AddItem("stripe", "https://dashboard.stripe.com", []byte(secret)); err != nil {
+	if _, err := a.PutItem(app.ItemOpts{
+		Name:  "stripe",
+		URI:   "https://dashboard.stripe.com",
+		Token: []byte(secret),
+		Login: "stripe@example.com",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return a
@@ -158,6 +176,9 @@ func TestGetLoginsFillsMatchingURI(t *testing.T) {
 	if got.Entries[0].Password != secret {
 		t.Fatal("fill did not write the password to the extension")
 	}
+	if got.Entries[0].Login != "stripe@example.com" || got.Entries[0].Name != "stripe" {
+		t.Fatalf("login must be username, not item name: %+v", got.Entries[0])
+	}
 	items, err := a.Store.ListItems()
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +189,9 @@ func TestGetLoginsFillsMatchingURI(t *testing.T) {
 	}
 	if scrub.Contains(raw, []byte(secret)) {
 		t.Fatal("item list leaked the secret")
+	}
+	if scrub.Contains(raw, []byte("stripe@example.com")) {
+		t.Fatal("item list leaked login")
 	}
 }
 
@@ -218,6 +242,26 @@ func TestNativeFramingRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := Read(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(msg) {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestWriteToPipeDoesNotSync(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	msg := []byte(`{"success":"true"}`)
+	if err := Write(w, msg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,6 +347,9 @@ func TestInstallOriginBakesOriginNotToken(t *testing.T) {
 	}
 	if !bytes.Contains(shim, []byte("PWM_HUMAN_TOKEN_FILE")) {
 		t.Fatalf("shim missing human token file: %s", shim)
+	}
+	if !bytes.Contains(shim, []byte("export HOME=")) {
+		t.Fatalf("shim missing HOME: %s", shim)
 	}
 	if bytes.Contains(shim, []byte(secret)) {
 		t.Fatal("token in shim")

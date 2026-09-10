@@ -34,6 +34,24 @@ func TestUnpackRawTokenCompat(t *testing.T) {
 	}
 }
 
+func TestWithLoginUpgradesPlainToken(t *testing.T) {
+	raw, err := WithLogin([]byte("sk_live_plain"), "user@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := Unpack(raw)
+	if env.V != 1 || env.Token != "sk_live_plain" || env.Login != "user@example.com" {
+		t.Fatalf("%+v", env)
+	}
+	unchanged, err := WithLogin([]byte("sk_live_plain"), "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged) != "sk_live_plain" {
+		t.Fatalf("%q", unchanged)
+	}
+}
+
 func TestPackRoundTrip(t *testing.T) {
 	raw, err := Pack([]byte("sk_live"), []byte(seed))
 	if err != nil {

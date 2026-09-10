@@ -343,10 +343,13 @@ The vault secret is never in the response.
 }
 
 function assertNoGetSecret(): void {
+  // Ban a GetSecret *operation*. OpenAPI Generator names CreateItemRequest
+  // field accessors GetSecret / get_secret; those are not the product.
   const symbol = /\b(GetSecret|getSecret|get_secret)\s*\(/;
+  const api = /(?:^|\/)(?:api_[^/]+\.go|sdk\.gen\.ts|[^/]+_api\.py)$/;
   for (const root of [typeScriptOutput, pythonOutput, goOutput]) {
     for (const path of listFiles(root)) {
-      if (!/\.(go|py|ts)$/.test(path)) {
+      if (!api.test(path.replaceAll("\\", "/"))) {
         continue;
       }
       if (symbol.test(readFileSync(path, "utf8"))) {

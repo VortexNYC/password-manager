@@ -1,5 +1,7 @@
-// Package fill is the keepassxc-browser native host. We speak their wire.
-// We do not vendor the extension and we do not use KeePassXC as the vault.
+// Package fill is the native host. We speak the keepassxc-browser wire
+// (slice 26 store listing). Customers get a Veil extension (slice 37).
+// We do not copy that extension into this tree and we do not use KeePassXC
+// as the vault.
 //
 // Wire: Chrome native messaging (uint32 LE + JSON) and TweetNaCl box
 // (golang.org/x/crypto/nacl/box). Fill writes into the page. The password
@@ -113,11 +115,29 @@ func Write(w io.Writer, raw []byte) error {
 	return err
 }
 
+func fillDebug(msg string) {
+	if os.Getenv("PWM_FILL_DEBUG") == "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(home, ".password-manager", "fill-debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(time.Now().Format(time.RFC3339) + " " + msg + "\n")
+	_ = f.Close()
+}
+
 func (h *Host) Handle(raw []byte) []byte {
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
+		fillDebug("bad json")
 		return []byte(`{"success":"false","error":"bad json"}`)
 	}
+	fillDebug("action=" + env.Action + " nonce=" + env.Nonce)
 	switch env.Action {
 	case "change-public-keys":
 		return h.changeKeys(env)
@@ -131,6 +151,10 @@ func (h *Host) changeKeys(env envelope) []byte {
 	if err != nil || env.ClientID == "" {
 		return []byte(`{"action":"change-public-keys","success":"false"}`)
 	}
+	nonce, err := b64nonce(env.Nonce)
+	if err != nil {
+		return []byte(`{"action":"change-public-keys","success":"false"}`)
+	}
 	ourPub, priv, err := box.GenerateKey(rand.Reader)
 	if err != nil {
 		return []byte(`{"action":"change-public-keys","success":"false"}`)
@@ -138,19 +162,18 @@ func (h *Host) changeKeys(env envelope) []byte {
 	h.mu.Lock()
 	h.sessions[env.ClientID] = &session{client: pub, pub: *ourPub, priv: *priv}
 	h.mu.Unlock()
-	out := envelope{
-		Action:    "change-public-keys",
-		PublicKey: base64.StdEncoding.EncodeToString(ourPub[:]),
-	}
+	next := bumpNonce(nonce)
 	raw, _ := json.Marshal(struct {
 		Action    string `json:"action"`
 		Version   string `json:"version"`
 		PublicKey string `json:"publicKey"`
+		Nonce     string `json:"nonce"`
 		Success   string `json:"success"`
 	}{
-		Action:    out.Action,
+		Action:    "change-public-keys",
 		Version:   Version,
-		PublicKey: out.PublicKey,
+		PublicKey: base64.StdEncoding.EncodeToString(ourPub[:]),
+		Nonce:     base64.StdEncoding.EncodeToString(next[:]),
 		Success:   "true",
 	})
 	return raw
@@ -161,14 +184,17 @@ func (h *Host) encrypted(env envelope) []byte {
 	s := h.sessions[env.ClientID]
 	h.mu.Unlock()
 	if s == nil {
+		fillDebug("no session")
 		return []byte(`{"success":"false","error":"no session"}`)
 	}
 	nonce, err := b64nonce(env.Nonce)
 	if err != nil {
+		fillDebug("bad nonce")
 		return fail(env.Action, "bad nonce")
 	}
 	plain, ok := box.Open(nil, mustB64(env.Message), &nonce, &s.client, &s.priv)
 	if !ok {
+		fillDebug("decrypt fail")
 		return fail(env.Action, "decrypt")
 	}
 	var inner struct {
@@ -181,7 +207,13 @@ func (h *Host) encrypted(env envelope) []byte {
 		Keys   []assocKey `json:"keys"`
 	}
 	if err := json.Unmarshal(plain, &inner); err != nil {
-		return h.reply(s, nonce, mustJSON(failMap("bad message")))
+		fillDebug("bad inner json")
+		return h.reply(s, nonce, env.Action, mustJSON(failMap("bad message")))
+	}
+	fillDebug("inner=" + inner.Action)
+	action := inner.Action
+	if action == "" {
+		action = env.Action
 	}
 	var body map[string]string
 	switch inner.Action {
@@ -193,15 +225,15 @@ func (h *Host) encrypted(env envelope) []byte {
 		body = h.testAssociate(inner.ID, inner.Key)
 	case "get-logins":
 		if !h.knownKey(inner.Keys) {
-			return h.reply(s, nonce, mustJSON(failMap("not associated")))
+			return h.reply(s, nonce, action, mustJSON(failMap("not associated")))
 		}
-		return h.reply(s, nonce, mustJSON(h.logins(inner.URL)))
+		return h.reply(s, nonce, action, mustJSON(h.logins(inner.URL)))
 	case "get-totp":
 		body = h.totp(inner.UUID)
 	default:
 		body = failMap("unknown action")
 	}
-	return h.reply(s, nonce, mustJSON(body))
+	return h.reply(s, nonce, action, mustJSON(body))
 }
 
 type assocKey struct {
@@ -211,7 +243,7 @@ type assocKey struct {
 
 func (h *Host) hashBody() map[string]string {
 	return map[string]string{
-		"action":  "hash",
+		"action":  "get-databasehash",
 		"hash":    h.hash(),
 		"version": Version,
 		"success": "true",
@@ -421,17 +453,42 @@ func (h *Host) dir() string {
 	return h.Dir
 }
 
-func (h *Host) reply(s *session, nonce [24]byte, plain []byte) []byte {
+func withNonce(plain []byte, nonce string) []byte {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(plain, &obj); err != nil {
+		return plain
+	}
+	raw, err := json.Marshal(nonce)
+	if err != nil {
+		return plain
+	}
+	obj["nonce"] = raw
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return plain
+	}
+	return out
+}
+
+func (h *Host) reply(s *session, nonce [24]byte, action string, plain []byte) []byte {
 	next := bumpNonce(nonce)
-	boxed := box.Seal(nil, plain, &next, &s.client, &s.priv)
-	raw, err := json.Marshal(envelope{
-		Action:  "get-logins",
+	nonceB64 := base64.StdEncoding.EncodeToString(next[:])
+	boxed := box.Seal(nil, withNonce(plain, nonceB64), &next, &s.client, &s.priv)
+	raw, err := json.Marshal(struct {
+		Action  string `json:"action"`
+		Message string `json:"message"`
+		Nonce   string `json:"nonce"`
+		Success string `json:"success"`
+	}{
+		Action:  action,
 		Message: base64.StdEncoding.EncodeToString(boxed),
-		Nonce:   base64.StdEncoding.EncodeToString(next[:]),
+		Nonce:   nonceB64,
+		Success: "true",
 	})
 	if err != nil {
-		return fail("", "marshal")
+		return fail(action, "marshal")
 	}
+	fillDebug("reply action=" + action + " nonce=" + nonceB64)
 	return raw
 }
 
@@ -564,17 +621,24 @@ func ManifestFirefox(hostPath string) []byte {
 }
 
 func Shim(bin, home string) string {
-	return ShimOrigin(bin, home, "")
+	return ShimOrigin(bin, home, "", "")
 }
 
-func ShimOrigin(bin, home, origin string) string {
+func ShimOrigin(bin, vaultHome, userHome, origin string) string {
 	esc := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
+	if userHome != "" {
+		b.WriteString("export HOME=\"" + esc(userHome) + "\"\n")
+	}
 	if origin != "" {
 		b.WriteString("export PWM_ORIGIN=\"" + esc(origin) + "\"\n")
-		b.WriteString("export PWM_HUMAN_TOKEN_FILE=\"${PWM_HUMAN_TOKEN_FILE:-$HOME/.config/vortex/pwm-human.jwt}\"\n")
+		token := "$HOME/.config/vortex/pwm-human.jwt"
+		if userHome != "" {
+			token = userHome + "/.config/vortex/pwm-human.jwt"
+		}
+		b.WriteString("export PWM_HUMAN_TOKEN_FILE=\"" + esc(token) + "\"\n")
 	}
-	b.WriteString("exec \"" + esc(bin) + "\" fill --home \"" + esc(home) + "\"\n")
+	b.WriteString("exec \"" + esc(bin) + "\" fill --home \"" + esc(vaultHome) + "\"\n")
 	return b.String()
 }

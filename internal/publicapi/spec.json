@@ -98,7 +98,7 @@
       "patch": {
         "operationId": "updateItem",
         "tags": ["Owner"],
-        "summary": "Replace URIs and tags. No secret.",
+        "summary": "Replace URIs, tags, and fill username. No secret.",
         "parameters": [
           { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
         ],
@@ -358,7 +358,8 @@
           "tags": { "type": "array", "items": { "type": "string" } },
           "kind": { "type": "string", "enum": ["api_key", "oauth", "ssh", "file"] },
           "secret": { "type": "string", "description": "Vault material. Request only. Never returned." },
-          "totp_seed": { "type": "string", "description": "TOTP seed. Request only. Never returned." }
+          "totp_seed": { "type": "string", "description": "TOTP seed. Request only. Never returned." },
+          "login": { "type": "string", "description": "Fill username. Request only. Sealed. Never returned. Not MCP." }
         }
       },
       "UpdateItemRequest": {
@@ -367,7 +368,8 @@
         "properties": {
           "uri": { "type": "string" },
           "uris": { "type": "array", "items": { "type": "string" } },
-          "tags": { "type": "array", "items": { "type": "string" } }
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "login": { "type": "string", "description": "Fill username. Request only. Sealed. Never returned. Does not rotate the secret." }
         }
       },
       "CreateGrantRequest": {

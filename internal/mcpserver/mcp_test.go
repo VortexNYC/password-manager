@@ -33,7 +33,8 @@ func TestMCPFetchDoesNotReturnSecret(t *testing.T) {
 		_, _ = io.WriteString(w, r.Header.Get("Authorization"))
 	}))
 	t.Cleanup(upstream.Close)
-	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+	const login = "stripe@example.com"
+	if _, err := a.PutItem(app.ItemOpts{Name: "stripe", URI: upstream.URL, Token: []byte(secret), Login: login}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.AddAgent("claude"); err != nil {
@@ -68,6 +69,9 @@ func TestMCPFetchDoesNotReturnSecret(t *testing.T) {
 	}
 	if scrub.Contains(list, []byte(secret)) {
 		t.Fatal("list_items leaked secret")
+	}
+	if scrub.Contains(list, []byte(login)) {
+		t.Fatal("list_items leaked login")
 	}
 }
 
