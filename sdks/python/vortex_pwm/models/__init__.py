@@ -13,6 +13,8 @@
 """  # noqa: E501
 
 # import models into model package
+from vortex_pwm.models.audit_event import AuditEvent
+from vortex_pwm.models.events_response import EventsResponse
 from vortex_pwm.models.item import Item
 from vortex_pwm.models.items_response import ItemsResponse
 from vortex_pwm.models.owner import Owner

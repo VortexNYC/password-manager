@@ -1,9 +1,11 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +13,9 @@ import (
 	"time"
 
 	"github.com/pquerna/otp/totp"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
@@ -546,5 +551,74 @@ func TestChildEnvMintsTOTPNotSeed(t *testing.T) {
 	mustNoLeak(t, events)
 	if scrub.Contains(mustJSON(t, events), []byte(seed)) {
 		t.Fatal("seed in audit")
+	}
+}
+
+func TestUseLogHasNoSecret(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	b, agent, _, upstream, _ := setup(t, protocol.Level2)
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1/customers?token=" + secret},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("decision=%s", got.Decision)
+	}
+	line := buf.String()
+	if strings.Contains(line, secret) {
+		t.Fatal("secret in slog")
+	}
+	if !strings.Contains(line, `"item":"stripe-live"`) || !strings.Contains(line, `"decision":"allow"`) {
+		t.Fatalf("log=%s", line)
+	}
+	if strings.Contains(line, "token=") {
+		t.Fatal("query in slog")
+	}
+}
+
+func TestUseSpanHasNoSecret(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	b, agent, _, upstream, _ := setup(t, protocol.Level2)
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1/customers?token=" + secret},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("decision=%s", got.Decision)
+	}
+	ended := sr.Ended()
+	if len(ended) < 2 {
+		t.Fatalf("spans=%d", len(ended))
+	}
+	var sawUse bool
+	for _, sp := range ended {
+		for _, a := range sp.Attributes() {
+			if strings.Contains(a.Value.AsString(), secret) || strings.Contains(a.Value.AsString(), "token=") {
+				t.Fatalf("secret in span %s %s=%s", sp.Name(), a.Key, a.Value.AsString())
+			}
+		}
+		if sp.Name() == "use" {
+			sawUse = true
+		}
+	}
+	if !sawUse {
+		t.Fatal("missing use span")
 	}
 }

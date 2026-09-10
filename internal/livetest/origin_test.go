@@ -83,6 +83,16 @@ func TestOrigin(t *testing.T) {
 			t.Fatalf("github decision=%s status=%d login_set=%t", out.Decision, out.Status, out.GitHubLogin != "")
 		}
 	})
+	t.Run("events", func(t *testing.T) {
+		code, body := get(t, client, origin+"/v1/events", jwt)
+		assertNoLeak(t, body)
+		if code != 200 {
+			t.Fatalf("events http=%d", code)
+		}
+		if !strings.Contains(string(body), `"item_id":"github"`) {
+			t.Fatalf("events missing github: %s", clip(body))
+		}
+	})
 	t.Run("use_linear", func(t *testing.T) {
 		out := useJSON(t, client, origin, jwt, map[string]any{
 			"item": "linear", "url": "https://api.linear.app/graphql", "method": "POST",

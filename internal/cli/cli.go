@@ -1,5 +1,6 @@
-// Package cli is the human surface. Cobra, stdin for secrets, no `get` that
-// prints material — same shape as MeowPass. Agents use MCP, not these commands.
+// Package cli is the human surface and the origin HTTP client (PWM_ORIGIN).
+// Cobra, stdin for secrets, no `get` that prints material — same shape as MeowPass.
+// Production agents use MCP. Dogfood and humans use these commands against origin.
 package cli
 
 import (
@@ -7,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,6 +27,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/human"
 	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/mcpserver"
+	"github.com/vortexnyc/password-manager/internal/otelsetup"
 	"github.com/vortexnyc/password-manager/internal/passgen"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/proxy"
@@ -830,6 +833,9 @@ func useCmd(home *string) *cobra.Command {
 		Use:   "use",
 		Short: "Fetch as an agent. Secret is injected; it is not printed.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originUse(cmd, tokenFile, itemName, rawURL, method, headers, bodyFile)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -1036,10 +1042,14 @@ func parseInject(spec string) (src, dest string, err error) {
 }
 
 func auditCmd(home *string) *cobra.Command {
-	return &cobra.Command{
+	var tokenFile string
+	c := &cobra.Command{
 		Use:   "audit",
-		Short: "Owner event log. No secrets. Not MCP.",
+		Short: "Grant events for this actor. No secrets. Not MCP.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originEvents(cmd, tokenFile)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
@@ -1055,6 +1065,8 @@ func auditCmd(home *string) *cobra.Command {
 			return encode(cmd, events)
 		},
 	}
+	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for PWM_ORIGIN. Never argv.")
+	return c
 }
 
 func genCmd() *cobra.Command {
@@ -1196,6 +1208,19 @@ func mcpCmd(home *string) *cobra.Command {
 			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			publicURL = mcpPublicURL(publicURL, listen)
 			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
+			slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+				ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+					if a.Key == slog.LevelKey {
+						a.Value = slog.StringValue(strings.ToLower(a.Value.String()))
+					}
+					return a
+				},
+			})))
+			otelStop, err := otelsetup.Start(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer func() { _ = otelStop(context.Background()) }()
 			srv := &http.Server{Addr: listen, Handler: mcpserver.Mux(a, publicURL, issuer)}
 			fmt.Fprintln(cmd.OutOrStdout(), publicURL)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -1223,6 +1248,26 @@ func mcpCmd(home *string) *cobra.Command {
 				return err
 			}
 			return encode(cmd, cfg)
+		},
+	})
+	c.AddCommand(&cobra.Command{
+		Use:   "stdio",
+		Short: "Laptop MCP for Cursor. Same tools as origin. Token from file, never argv.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer stop()
+			return runOriginMCPStdio(ctx)
+		},
+	})
+	c.AddCommand(&cobra.Command{
+		Use:   "laptop",
+		Short: "Print Cursor MCP stdio block. No secrets.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			origin := originBase()
+			if origin == "" {
+				origin = "https://veil.nyc"
+			}
+			return encode(cmd, mcpserver.LaptopConfig(origin))
 		},
 	})
 	return c

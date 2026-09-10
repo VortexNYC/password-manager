@@ -27,6 +27,7 @@ import (
 	"github.com/elazarl/goproxy/ext/auth"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/broker"
 	"github.com/vortexnyc/password-manager/internal/grant"
 	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
@@ -188,7 +189,7 @@ func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request
 			Reason:   "lookup_failed",
 		})
 	}
-	_ = s.App.Store.AppendAudit(protocol.AuditEvent{
+	event := protocol.AuditEvent{
 		Time:       s.now(),
 		OrgID:      s.Agent.OrgID,
 		AgentID:    s.Agent.ID,
@@ -197,7 +198,9 @@ func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request
 		Decision:   dec.Decision,
 		Reason:     dec.Reason,
 		ApprovalID: dec.ApprovalID,
-	})
+	}
+	_ = s.App.Store.AppendAudit(event)
+	broker.LogEvent(event, item.Name, destURL(req), 0)
 	if dec.Decision != protocol.DecisionAllow {
 		status := http.StatusForbidden
 		return nil, jsonResp(req, status, protocol.UseResult{Decision: dec.Decision, Reason: dec.Reason})

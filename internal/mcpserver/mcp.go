@@ -11,6 +11,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -56,6 +57,7 @@ func New(a *app.App) *mcp.Server {
 		if items == nil {
 			items = []protocol.Item{}
 		}
+		slog.Info("mcp", "tool", "list_items", "agent", agentID, "n", len(items))
 		return nil, ListOut{Items: items}, nil
 	})
 	mcp.AddTool(server, &mcp.Tool{

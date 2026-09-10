@@ -34,6 +34,10 @@ type ItemsResponse struct {
 	Items []protocol.Item `json:"items"`
 }
 
+type EventsResponse struct {
+	Events []protocol.AuditEvent `json:"events"`
+}
+
 func Mount(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /openapi.json", spec)
 	mux.HandleFunc("GET /v1/items", func(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +90,27 @@ func Mount(mux *http.ServeMux, a *app.App) {
 		}
 		writeJSON(w, out)
 	})
+	mux.HandleFunc("GET /v1/events", func(w http.ResponseWriter, r *http.Request) {
+		p, ok := requireAgent(w, r, a)
+		if !ok {
+			return
+		}
+		all, err := a.Store.Audit()
+		if err != nil {
+			http.Error(w, "audit failed", http.StatusBadRequest)
+			return
+		}
+		mine := make([]protocol.AuditEvent, 0, len(all))
+		for _, e := range all {
+			if e.AgentID == p.ID {
+				mine = append(mine, e)
+			}
+		}
+		if n := len(mine); n > 100 {
+			mine = mine[n-100:]
+		}
+		writeJSON(w, EventsResponse{Events: mine})
+	})
 }
 
 func requireAgent(w http.ResponseWriter, r *http.Request, a *app.App) (protocol.Principal, bool) {
@@ -106,7 +131,7 @@ func bearer(h string) string {
 	return strings.TrimSpace(h[len(p):])
 }
 
-func writeJSON[T ItemsResponse | UseResponse](w http.ResponseWriter, v T) {
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }

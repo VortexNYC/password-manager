@@ -59,6 +59,21 @@ export type UseResponse = {
     body?: string;
 };
 
+export type AuditEvent = {
+    time: string;
+    org_id: string;
+    agent_id: string;
+    item_id: string;
+    action: string;
+    decision: 'allow' | 'deny' | 'need_approval';
+    reason?: string;
+    approval_id?: string;
+};
+
+export type EventsResponse = {
+    events: Array<AuditEvent>;
+};
+
 export type GetHealthData = {
     body?: never;
     path?: never;
@@ -142,3 +157,26 @@ export type UseItemResponses = {
 };
 
 export type UseItemResponse = UseItemResponses[keyof UseItemResponses];
+
+export type ListEventsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/events';
+};
+
+export type ListEventsErrors = {
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+};
+
+export type ListEventsResponses = {
+    /**
+     * Recent events for the Bearer agent
+     */
+    200: EventsResponse;
+};
+
+export type ListEventsResponse = ListEventsResponses[keyof ListEventsResponses];

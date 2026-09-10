@@ -93,6 +93,24 @@
           "401": { "description": "missing or invalid Bearer" }
         }
       }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "listEvents",
+        "tags": ["Agent"],
+        "summary": "This agent's grant events. Decision, item, action. Never secrets. Not MCP.",
+        "responses": {
+          "200": {
+            "description": "Recent events for the Bearer agent",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventsResponse" }
+              }
+            }
+          },
+          "401": { "description": "missing or invalid Bearer" }
+        }
+      }
     }
   },
   "components": {
@@ -168,6 +186,32 @@
           "approval_id": { "type": "string" },
           "status": { "type": "integer" },
           "body": { "type": "string", "description": "Upstream body with vault secrets scrubbed." }
+        }
+      },
+      "AuditEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["time", "org_id", "agent_id", "item_id", "action", "decision"],
+        "properties": {
+          "time": { "type": "string", "format": "date-time" },
+          "org_id": { "type": "string" },
+          "agent_id": { "type": "string" },
+          "item_id": { "type": "string" },
+          "action": { "type": "string" },
+          "decision": { "type": "string", "enum": ["allow", "deny", "need_approval"] },
+          "reason": { "type": "string" },
+          "approval_id": { "type": "string" }
+        }
+      },
+      "EventsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["events"],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AuditEvent" }
+          }
         }
       }
     }

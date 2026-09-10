@@ -2,11 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,10 +17,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/vortexnyc/password-manager/internal/device"
+	"github.com/vortexnyc/password-manager/internal/mcpserver"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
@@ -878,6 +884,291 @@ func TestCLIMCPConfigPublicURL(t *testing.T) {
 	}
 	if scrub.Contains([]byte(out), []byte(secret)) {
 		t.Fatal("mcp config leaked secret")
+	}
+}
+
+func TestCLIOriginUseAndAudit(t *testing.T) {
+	var sawUse, sawEvents bool
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/use":
+			sawUse = true
+			raw, _ := io.ReadAll(r.Body)
+			if scrub.Contains(raw, []byte(secret)) {
+				t.Fatal("origin use request leaked secret")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"decision":"allow","status":200,"body":"ok"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
+			sawEvents = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"events":[{"time":"2026-09-10T00:00:00Z","org_id":"org","agent_id":"cursor","item_id":"github","action":"fetch","decision":"allow"}]}`)
+		default:
+			http.Error(w, "nope", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	out, err := run(t, home, "", "use", "--oidc-token-file", tok, "--item", "github", "--url", "https://api.github.com/user")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !sawUse {
+		t.Fatal("did not hit origin /v1/use")
+	}
+	if !strings.Contains(out, `"decision": "allow"`) {
+		t.Fatalf("use %s", out)
+	}
+	if scrub.Contains([]byte(out), []byte(secret)) {
+		t.Fatal("cli origin use leaked secret")
+	}
+	out, err = run(t, home, "", "audit", "--oidc-token-file", tok)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !sawEvents {
+		t.Fatal("did not hit origin /v1/events")
+	}
+	if !strings.Contains(out, `"item_id": "github"`) {
+		t.Fatalf("audit %s", out)
+	}
+}
+
+func TestMCPStdioOriginListAndFetch(t *testing.T) {
+	var sawList, sawUse bool
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer jwt-not-a-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/items":
+			sawList = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"items":[{"id":"github","name":"github","uris":["https://api.github.com"]}]}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/use":
+			sawUse = true
+			raw, _ := io.ReadAll(r.Body)
+			if scrub.Contains(raw, []byte(secret)) {
+				t.Fatal("stdio fetch request leaked secret")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"decision":"allow","status":200,"body":"{\"login\":\"vortex\"}"}`)
+		default:
+			http.Error(w, "nope", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("PWM_OIDC_TOKEN", "jwt-not-a-secret")
+	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	pr, pw := io.Pipe()
+	cr, cw := io.Pipe()
+	t.Cleanup(func() { _ = pr.Close(); _ = pw.Close(); _ = cr.Close(); _ = cw.Close() })
+	errc := make(chan error, 1)
+	go func() {
+		errc <- originMCPServer().Run(ctx, &mcp.IOTransport{Reader: pr, Writer: cw})
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	cs, err := client.Connect(ctx, &mcp.IOTransport{Reader: cr, Writer: pw}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	list, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_items"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.IsError {
+		t.Fatalf("list_items error: %+v", list)
+	}
+	listRaw, err := json.Marshal(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(listRaw, []byte(secret)) {
+		t.Fatal("stdio list leaked secret")
+	}
+	if !bytes.Contains(listRaw, []byte("github")) {
+		t.Fatalf("list missing github: %s", listRaw)
+	}
+
+	fetch, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "fetch",
+		Arguments: mcpserver.FetchIn{Item: "github", URL: "https://api.github.com/user"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetch.IsError {
+		t.Fatalf("fetch error: %+v", fetch)
+	}
+	fetchRaw, err := json.Marshal(fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(fetchRaw, []byte(secret)) {
+		t.Fatal("stdio fetch leaked secret")
+	}
+	if !bytes.Contains(fetchRaw, []byte(`"decision":"allow"`)) {
+		t.Fatalf("fetch %s", fetchRaw)
+	}
+	if !sawList || !sawUse {
+		t.Fatalf("origin hits list=%t use=%t", sawList, sawUse)
+	}
+}
+
+func TestCLIMCPLaptopNoSecret(t *testing.T) {
+	home := t.TempDir()
+	out, err := run(t, home, "", "mcp", "laptop")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !strings.Contains(out, `"mcp"`) || !strings.Contains(out, `"stdio"`) {
+		t.Fatalf("laptop %s", out)
+	}
+	if scrub.Contains([]byte(out), []byte(secret)) {
+		t.Fatal("mcp laptop leaked secret")
+	}
+}
+
+func testJWT(sub string, exp time.Time) string {
+	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"sub":%q,"exp":%d}`, sub, exp.Unix())))
+	return hdr + "." + payload + ".sig"
+}
+
+func TestJWTNeedsRefresh(t *testing.T) {
+	if jwtNeedsRefresh("jwt-not-a-secret") {
+		t.Fatal("opaque token must not remint")
+	}
+	if jwtNeedsRefresh(testJWT("agent-cursor", time.Now().Add(time.Hour))) {
+		t.Fatal("fresh jwt remint")
+	}
+	if !jwtNeedsRefresh(testJWT("agent-cursor", time.Now().Add(-time.Minute))) {
+		t.Fatal("expired jwt skipped")
+	}
+}
+
+func TestOriginRemintsExpiredJWT(t *testing.T) {
+	const hydraSecret = "hydra-agent-secret"
+	fresh := testJWT("agent-cursor", time.Now().Add(time.Hour))
+	var minted int
+	hydra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth2/token" {
+			http.NotFound(w, r)
+			return
+		}
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != "agent-cursor" || pass != hydraSecret {
+			http.Error(w, "auth", http.StatusUnauthorized)
+			return
+		}
+		minted++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": fresh,
+			"token_type":   "bearer",
+			"expires_in":   3600,
+		})
+	}))
+	t.Cleanup(hydra.Close)
+	var sawAuth string
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/use" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		sawAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"decision":"allow","status":200,"body":"ok"}`)
+	}))
+	t.Cleanup(origin.Close)
+
+	dir := t.TempDir()
+	tok := filepath.Join(dir, "cursor.jwt")
+	sec := filepath.Join(dir, "cursor.hydra")
+	if err := os.WriteFile(tok, []byte(testJWT("agent-cursor", time.Now().Add(-time.Hour))+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sec, []byte(hydraSecret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("PWM_HYDRA_ISSUER", hydra.URL)
+	t.Setenv("PWM_HYDRA_SECRET_FILE", sec)
+	t.Setenv("PWM_AGENT", "cursor")
+	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
+	t.Setenv("PWM_OIDC_TOKEN", "")
+
+	out, err := run(t, t.TempDir(), "", "use", "--item", "github", "--url", "https://api.github.com/user")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if minted != 1 {
+		t.Fatalf("minted %d", minted)
+	}
+	if sawAuth != "Bearer "+fresh {
+		t.Fatalf("auth %q", sawAuth)
+	}
+	got, err := os.ReadFile(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != fresh {
+		t.Fatal("did not persist reminted jwt")
+	}
+	if scrub.Contains([]byte(out), []byte(hydraSecret)) {
+		t.Fatal("cli printed hydra secret")
+	}
+}
+
+func TestOriginDoesNotRemintFreshJWT(t *testing.T) {
+	fresh := testJWT("agent-cursor", time.Now().Add(time.Hour))
+	hydra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("hydra token endpoint must not be called")
+	}))
+	t.Cleanup(hydra.Close)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+fresh {
+			http.Error(w, "auth", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"decision":"allow","status":200,"body":"ok"}`)
+	}))
+	t.Cleanup(origin.Close)
+	dir := t.TempDir()
+	tok := filepath.Join(dir, "cursor.jwt")
+	if err := os.WriteFile(tok, []byte(fresh+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("PWM_HYDRA_ISSUER", hydra.URL)
+	t.Setenv("PWM_HYDRA_SECRET_FILE", filepath.Join(dir, "missing.hydra"))
+	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
+	t.Setenv("PWM_OIDC_TOKEN", "")
+	out, err := run(t, t.TempDir(), "", "use", "--item", "github", "--url", "https://api.github.com/user")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !strings.Contains(out, `"decision": "allow"`) {
+		t.Fatalf("use %s", out)
 	}
 }
 

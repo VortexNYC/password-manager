@@ -33,9 +33,11 @@ We do not run Oathkeeper, Keto as a grant engine, or a second user table.
 
 ## Current slice
 
-OpenAPI factory. `docs/openapi/password-manager.openapi.json` is the contract. HTTP `/v1/items` and `/v1/use` (body + headers). CLI `use --body-file`. MCP `fetch` the same operation. Generated Go/TS/Python SDKs. Blume `/reference` via `apps/docs`. Never handwrite clients. No GetSecret.
+Laptop MCP adapter. `password-manager mcp stdio` against `https://veil.nyc`. Cursor live: `list_items` + `fetch` GitHub `/user` allow/200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint, never the JWT in MCP JSON.
 
-Mint helper: `agent token NAME --secret-file --out-file`. JWT to disk. Never stdout. Then one live agent Bearer to `POST /v1/use`.
+Flue (flue-cf-teammate) is a cloud client of the same origin: `defineMcpConnection` `veil` → `https://veil.nyc/mcp`, Hydra `client_credentials` as `agent-flue`, remint in `auth()`. Worker secret `VEIL_HYDRA_SECRET`. Mounted on every top-level agent via `useSharedTools()`.
+
+OpenAPI factory. `docs/openapi/password-manager.openapi.json` is the contract. HTTP `/v1/items` and `/v1/use` (body + headers). CLI `use --body-file`. MCP `fetch` the same operation. Generated Go/TS/Python SDKs. Blume `/reference` via `apps/docs`. Never handwrite clients. No GetSecret.
 
 Item lifecycle and secret refs. `${NAME}` / `pwm://name` resolve only inside `run --inject` and child env. Archive, delete, tags, history, file BLOB (owner write to disk), grant `--expires`, owner `audit`, `gen`. MCP agent tools are still only `list_items` + `fetch`. No vaults. No 1Password. No iOS.
 

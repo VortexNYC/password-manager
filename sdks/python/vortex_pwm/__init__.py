@@ -28,6 +28,8 @@ __all__ = [
     "ApiKeyError",
     "ApiAttributeError",
     "ApiException",
+    "AuditEvent",
+    "EventsResponse",
     "Item",
     "ItemsResponse",
     "Owner",
@@ -50,6 +52,8 @@ from vortex_pwm.exceptions import ApiAttributeError as ApiAttributeError
 from vortex_pwm.exceptions import ApiException as ApiException
 
 # import models into sdk package
+from vortex_pwm.models.audit_event import AuditEvent as AuditEvent
+from vortex_pwm.models.events_response import EventsResponse as EventsResponse
 from vortex_pwm.models.item import Item as Item
 from vortex_pwm.models.items_response import ItemsResponse as ItemsResponse
 from vortex_pwm.models.owner import Owner as Owner

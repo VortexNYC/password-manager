@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetHealthData, GetHealthResponses, GetOpenApiData, GetOpenApiResponses, ListItemsData, ListItemsErrors, ListItemsResponses, UseItemData, UseItemErrors, UseItemResponses } from './types.gen';
+import type { GetHealthData, GetHealthResponses, GetOpenApiData, GetOpenApiResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListItemsData, ListItemsErrors, ListItemsResponses, UseItemData, UseItemErrors, UseItemResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -48,4 +48,13 @@ export const useItem = <ThrowOnError extends boolean = false>(options: Options<U
         'Content-Type': 'application/json',
         ...options.headers
     }
+});
+
+/**
+ * This agent's grant events. Decision, item, action. Never secrets. Not MCP.
+ */
+export const listEvents = <ThrowOnError extends boolean = false>(options?: Options<ListEventsData, ThrowOnError>): RequestResult<ListEventsResponses, ListEventsErrors, ThrowOnError> => (options?.client ?? client).get<ListEventsResponses, ListEventsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/events',
+    ...options
 });

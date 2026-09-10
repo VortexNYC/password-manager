@@ -153,12 +153,12 @@ type UseResult struct {
 }
 
 type AuditEvent struct {
-	Time       time.Time
-	OrgID      string
-	AgentID    string
-	ItemID     string
-	Action     ActionKind
-	Decision   Decision
-	Reason     string
-	ApprovalID string
+	Time       time.Time  `json:"time"`
+	OrgID      string     `json:"org_id"`
+	AgentID    string     `json:"agent_id"`
+	ItemID     string     `json:"item_id"`
+	Action     ActionKind `json:"action"`
+	Decision   Decision   `json:"decision"`
+	Reason     string     `json:"reason,omitempty"`
+	ApprovalID string     `json:"approval_id,omitempty"`
 }

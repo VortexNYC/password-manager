@@ -30,4 +30,5 @@ If a library already does the job, depend on it:
 - OIDC verify: `github.com/coreos/go-oidc/v3` — the broker does not issue tokens
 - OAuth refresh: `golang.org/x/oauth2`
 - SSH agent: `golang.org/x/crypto/ssh/agent`
+- Logs: `log/slog` JSON to stderr. Railway HTTP logs (`railway logs --http`) are the request log. Traces: `otelhttp` + OTLP HTTP. Sink is PostHog (`/i/v1/traces`, org already has it). Skip `/health` and `/ready`. No query string, no Authorization, no body on spans. Not zap. Not a collector we run. Not Langfuse.
 - Humans: pinned Ory Kratos + Hydra + Keto. Glue is their Go clients. Screens are Ory Elements in `identity/login` only. Not Zitadel. Not Better Auth. Not a fork of Ory. Not Oathkeeper. Not Talos. Not their agent-security product. Grants are not Keto tuples.

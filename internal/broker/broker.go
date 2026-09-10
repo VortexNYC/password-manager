@@ -11,8 +11,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/vortexnyc/password-manager/internal/grant"
 	"github.com/vortexnyc/password-manager/internal/material"
@@ -69,10 +76,18 @@ func (b *Broker) client() *http.Client {
 
 // Use performs an action for an agent. It never puts a secret on UseResult.
 func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol.UseRequest) (protocol.UseResult, error) {
+	ctx, span := otel.Tracer("veil").Start(ctx, "use")
+	defer span.End()
 	now := b.now()
 	item, err := b.Store.Item(req.ItemID)
 	if err != nil {
-		return protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "item_not_found"}, nil
+		dec := protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "item_not_found"}
+		LogEvent(protocol.AuditEvent{
+			Time: now, OrgID: agent.OrgID, AgentID: agent.ID, ItemID: req.ItemID,
+			Action: req.Action, Decision: dec.Decision, Reason: dec.Reason,
+		}, req.ItemID, "", 0)
+		spanUse(span, agent.ID, req.ItemID, dec, 0, "")
+		return dec, nil
 	}
 	g, err := b.Store.GrantFor(agent.ID, req.ItemID)
 	if err != nil {
@@ -108,7 +123,13 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		Reason:     dec.Reason,
 		ApprovalID: dec.ApprovalID,
 	}
-	defer func() { _ = b.Store.AppendAudit(event) }()
+	host := hostPath(target)
+	status := 0
+	defer func() {
+		_ = b.Store.AppendAudit(event)
+		LogEvent(event, item.Name, host, status)
+		spanUse(span, agent.ID, item.Name, dec, status, host)
+	}()
 
 	if dec.Decision != protocol.DecisionAllow {
 		return dec, nil
@@ -133,6 +154,7 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		event.Reason = dec.Reason
 		return dec, err
 	}
+	status = fr.Status
 	hide := material.ScrubList(env, secret, []byte(code), []byte(access))
 	fr.Body = scrub.Bytes(fr.Body, hide...)
 	for k, vs := range fr.Header {
@@ -151,6 +173,12 @@ func (b *Broker) fetch(ctx context.Context, f *protocol.Fetch, env material.Enve
 	if method == "" {
 		method = http.MethodGet
 	}
+	ctx, span := otel.Tracer("veil").Start(ctx, "upstream")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("http.request.method", method),
+		attribute.String("veil.host", hostPath(f.URL)),
+	)
 	var body io.Reader
 	if len(f.Body) > 0 {
 		body = bytes.NewReader(f.Body)
@@ -177,9 +205,11 @@ func (b *Broker) fetch(ctx context.Context, f *protocol.Fetch, env material.Enve
 	}
 	res, err := b.client().Do(req)
 	if err != nil {
+		span.SetStatus(codes.Error, "upstream")
 		return nil, "", "", err
 	}
 	defer res.Body.Close()
+	span.SetAttributes(attribute.Int("http.response.status_code", res.StatusCode))
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
 		return nil, "", "", err
@@ -206,7 +236,60 @@ func (b *Broker) Approve(human protocol.Principal, grantID string, ttl time.Dura
 	if err := b.Store.PutApproval(a); err != nil {
 		return protocol.Approval{}, err
 	}
+	slog.Info("approve", "human", human.ID, "grant", grantID)
 	return a, nil
+}
+
+// LogEvent writes a grant event to slog. No secrets, no query string, no body.
+// HTTP request logs are Railway (`railway logs --http`). This is the grant line.
+func LogEvent(e protocol.AuditEvent, item, host string, status int) {
+	attrs := []any{
+		"agent", e.AgentID,
+		"item", item,
+		"action", string(e.Action),
+		"decision", string(e.Decision),
+	}
+	if e.Reason != "" {
+		attrs = append(attrs, "reason", e.Reason)
+	}
+	if host != "" {
+		if h := hostPath(host); h != "" {
+			host = h
+		}
+		attrs = append(attrs, "host", host)
+	}
+	if status > 0 {
+		attrs = append(attrs, "status", status)
+	}
+	slog.Info("use", attrs...)
+}
+
+func hostPath(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host + u.Path
+}
+
+func spanUse(span trace.Span, agent, item string, dec protocol.UseResult, status int, host string) {
+	span.SetAttributes(
+		attribute.String("veil.agent", agent),
+		attribute.String("veil.item", item),
+		attribute.String("veil.decision", string(dec.Decision)),
+	)
+	if dec.Reason != "" {
+		span.SetAttributes(attribute.String("veil.reason", dec.Reason))
+	}
+	if host != "" {
+		span.SetAttributes(attribute.String("veil.host", host))
+	}
+	if status > 0 {
+		span.SetAttributes(attribute.Int("http.response.status_code", status))
+	}
+	if dec.Decision != protocol.DecisionAllow {
+		span.SetStatus(codes.Error, dec.Reason)
+	}
 }
 
 // AssertNoSecret marshals v and fails the test helper contract if secret appears.

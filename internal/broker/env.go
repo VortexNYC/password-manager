@@ -64,6 +64,7 @@ func (b *Broker) ChildEnv(ctx context.Context, agent protocol.Principal) ([]stri
 		}
 		if dec.Decision != protocol.DecisionAllow {
 			_ = b.Store.AppendAudit(event)
+			LogEvent(event, item.Name, "", 0)
 			continue
 		}
 		secret, err := b.Store.Secret(item.ID)
@@ -78,6 +79,7 @@ func (b *Broker) ChildEnv(ctx context.Context, agent protocol.Principal) ([]stri
 				event.Decision = protocol.DecisionDeny
 				event.Reason = "oauth_failed"
 				_ = b.Store.AppendAudit(event)
+				LogEvent(event, item.Name, "", 0)
 				continue
 			}
 			val = access
@@ -86,6 +88,7 @@ func (b *Broker) ChildEnv(ctx context.Context, agent protocol.Principal) ([]stri
 			event.Decision = protocol.DecisionDeny
 			event.Reason = "empty_secret"
 			_ = b.Store.AppendAudit(event)
+			LogEvent(event, item.Name, "", 0)
 			continue
 		}
 		pairs = append(pairs, EnvName(item.Name)+"="+val)
@@ -96,6 +99,7 @@ func (b *Broker) ChildEnv(ctx context.Context, agent protocol.Principal) ([]stri
 			}
 		}
 		_ = b.Store.AppendAudit(event)
+		LogEvent(event, item.Name, "", 0)
 	}
 	return pairs, nil
 }

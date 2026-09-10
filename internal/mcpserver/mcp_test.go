@@ -303,6 +303,41 @@ func TestRESTUsePOSTBodyDoesNotReturnSecret(t *testing.T) {
 	if !bytes.Contains(listOut, []byte("stripe")) {
 		t.Fatalf("%s", listOut)
 	}
+
+	evReq, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evReq.Header.Set("Authorization", "Bearer "+tok)
+	evRes, err := http.DefaultClient.Do(evReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer evRes.Body.Close()
+	evOut, err := io.ReadAll(evRes.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evRes.StatusCode != http.StatusOK {
+		t.Fatalf("events %d %s", evRes.StatusCode, evOut)
+	}
+	if scrub.Contains(evOut, []byte(secret)) {
+		t.Fatal("events leaked secret")
+	}
+	if !bytes.Contains(evOut, []byte(`"agent_id":"claude"`)) {
+		t.Fatalf("events missing agent: %s", evOut)
+	}
+	if !bytes.Contains(evOut, []byte(`"decision":"allow"`)) {
+		t.Fatalf("events missing decision: %s", evOut)
+	}
+	noAuth, err := http.Get(ts.URL + "/v1/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noAuth.Body.Close()
+	if noAuth.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("events no bearer %d", noAuth.StatusCode)
+	}
 }
 
 func TestReadyFailsWhenIssuerDown(t *testing.T) {

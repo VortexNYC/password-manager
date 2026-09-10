@@ -81,6 +81,22 @@ paths:
         secret is never in the response.
       tags:
       - Agent
+  /v1/events:
+    get:
+      operationId: listEvents
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventsResponse"
+          description: Recent events for the Bearer agent
+        "401":
+          description: missing or invalid Bearer
+      summary: "This agent's grant events. Decision, item, action. Never secrets.\
+        \ Not MCP."
+      tags:
+      - Agent
 components:
   schemas:
     Item:
@@ -254,6 +270,74 @@ components:
           type: string
       required:
       - decision
+    AuditEvent:
+      additionalProperties: false
+      example:
+        time: 2000-01-23T04:56:07.000+00:00
+        org_id: org_id
+        agent_id: agent_id
+        item_id: item_id
+        action: action
+        decision: allow
+        reason: reason
+        approval_id: approval_id
+      properties:
+        time:
+          format: date-time
+          type: string
+        org_id:
+          type: string
+        agent_id:
+          type: string
+        item_id:
+          type: string
+        action:
+          type: string
+        decision:
+          enum:
+          - allow
+          - deny
+          - need_approval
+          type: string
+        reason:
+          type: string
+        approval_id:
+          type: string
+      required:
+      - action
+      - agent_id
+      - decision
+      - item_id
+      - org_id
+      - time
+    EventsResponse:
+      additionalProperties: false
+      example:
+        events:
+        - time: 2000-01-23T04:56:07.000+00:00
+          org_id: org_id
+          agent_id: agent_id
+          item_id: item_id
+          action: action
+          decision: allow
+          reason: reason
+          approval_id: approval_id
+        - time: 2000-01-23T04:56:07.000+00:00
+          org_id: org_id
+          agent_id: agent_id
+          item_id: item_id
+          action: action
+          decision: allow
+          reason: reason
+          approval_id: approval_id
+      properties:
+        events:
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+          type: array
+          default: null
+      required:
+      - events
   securitySchemes:
     bearerAuth:
       bearerFormat: JWT

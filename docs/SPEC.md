@@ -107,6 +107,10 @@ The next slices, in this order, and nothing else until each is proven:
                          Never handwrite clients. No GetSecret.
 21 mint helper            written. agent token --secret-file --out-file.
                          JWT to disk. never stdout. live POST /v1/use.
+22 laptop MCP adapter     written. `mcp stdio` against origin HTTP.
+                         Cursor live: list_items + fetch GitHub /user
+                         allow/200, token absent from the tool payload.
+                         Codex/Devin laptop same. Not `${file:}`.
 ```
 
 Screens exist. Do not restyle them. Do not add a Go web framework. Do not start iOS.
@@ -198,9 +202,14 @@ use
   inject             goproxy + child env   built. vault run never prints
                      ${NAME} / pwm://      written. `run --inject src:dest`. fail closed
   share              Grant.ExpiresAt     written. `grant add --expires`. forever if unset
-  mcp / cli          this process          built. Streamable HTTP.
-                                           Bearer is the agent. not stdio.
-                                           cloud is the same URL.
+  mcp / cli          this process          built. Streamable HTTP is origin.
+                                           Bearer is the agent. cloud is that URL.
+                                           Cursor cannot interpolate Bearer;
+                                           `mcp stdio` is the laptop adapter
+                                           over origin HTTP. not a second protocol.
+                                           stale Hydra JWT is reminted via
+                                           client_credentials from PWM_HYDRA_SECRET_FILE.
+                                           not OAuth refresh_token. not ory/mcp.
   scrub / audit      this process          built. `audit` is owner CLI. not MCP
   passgen            crypto/rand           written. CLI `gen`. not MCP. not a vault item
 
@@ -478,7 +487,7 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - [x] Org: agent owner is the human id. Who may create a grant is that owner. Planted `self` stays the laptop stand-in.
 - [x] One org id: `protocol.LocalOrgID` is the vault OrgID, Kratos `organization_id`, and the Keto object. A second company is not this product yet.
 - [x] Invites are Kratos: glue `CreateIdentity` + `CreateRecoveryCodeForIdentity`. CLI `human invite --code-file`. Owner-gated after bootstrap (`--oidc-token-file` / `PWM_HUMAN_TOKEN`). Email and recovery code never enter sqlite. ApproveOIDC requires Keto membership. organization_id is stamped. Keto owner/member is written by glue.
-- [x] Remote MCP is Streamable HTTP. Bearer is Hydra JWT / bound OIDC. `mcp config` prints url+header template, never the token. RFC 9728 metadata points at Hydra. cursor, devin, pi, opencode each fetch. JSON has no secret. No bearer is 401.
+- [x] Remote MCP is Streamable HTTP. Bearer is Hydra JWT / bound OIDC. `mcp config` prints url+header template, never the token. RFC 9728 metadata points at Hydra. Cloud agents fetch that URL. JSON has no secret. No bearer is 401. Cursor (no env interpolation) uses `mcp stdio` / `mcp laptop` against origin HTTP. Token file, never mcp.json. Laptop remints a stale JWT with `client_credentials` (`PWM_HYDRA_SECRET_FILE`). Agent clients stay `client_credentials` only. Not `@ory/mcp-oauth-provider`. Not auth-code as the human.
 - [x] Cloud MCP is `https://veil.nyc/mcp`. Railway origin. Cloudflare DNS only, not Tunnel, not Workers. `GET /health` is 200. No bearer on `/mcp` is 401. Flue, Codex, and Cloudflare Agents are principals; Bearer is still the agent.
 - [x] Hydra public mint is `https://id.veil.nyc` (token, JWKS, discovery). Not admin `:4445`. Not Kratos. Issuer in the JWT matches. RFC 9728 points there. Cloud agents `client_credentials` then Bearer to `/mcp`. Secret never in MCP JSON.
 - [x] Origin is the Mac Mini. Hydra and the broker run there. Cloudflare Tunnel points at that machine. The laptop is not a second public Hydra.
@@ -486,11 +495,12 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - [x] Item update, archive, delete, tags, extra URIs. Archived items are hidden from Use, list, fill, MCP. History is `item_versions` (sealed). Restore copies the sealed blob.
 - [x] File items are a sealed BLOB. Owner `item write --out-file`. Not MCP. Not child env.
 - [x] Grant expiry is `Grant.ExpiresAt` (`grant add --expires`). Zero is forever. Not a second share type.
-- [x] Owner `audit` lists events. No secret in JSON. Not an MCP tool.
+- [x] Owner `audit` lists events. No secret in JSON. Not an MCP tool. Origin `GET /v1/events` is this agent's events. `PWM_ORIGIN` makes CLI `use`/`audit` the same HTTP contract as the SDK.
 - [x] `gen` is human CLI `crypto/rand`. `--out-file` or stdout. Not MCP. Not a vault item until `item add`.
 - [x] No vaults. No 1Password Connect/op/import. No scoped Connect-style token. MCP stays `list_items` + `fetch`.
 - [x] OpenAPI is the contract (`docs/openapi/password-manager.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
+- [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
 
 ## Use what exists. Do not rewrite it.
 
