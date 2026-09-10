@@ -28,12 +28,12 @@ func TestConfigIsRemoteNoSecret(t *testing.T) {
 }
 
 func TestConfigIncludesIssuer(t *testing.T) {
-	t.Setenv("PWM_HYDRA_ISSUER", "https://id.vortex.nyc")
-	got, err := Config("https://pwm.vortex.nyc/mcp")
+	t.Setenv("PWM_HYDRA_ISSUER", "https://id.veil.nyc")
+	got, err := Config("https://veil.nyc/mcp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Issuer != "https://id.vortex.nyc" {
+	if got.Issuer != "https://id.veil.nyc" {
 		t.Fatalf("issuer %q", got.Issuer)
 	}
 }

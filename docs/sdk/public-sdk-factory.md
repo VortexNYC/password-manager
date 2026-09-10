@@ -1,4 +1,4 @@
-# Vortex Password Manager SDK factory
+# Veil SDK factory
 
 Same shape as Payments. Do not handwrite language clients.
 

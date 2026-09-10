@@ -10,7 +10,7 @@ pip install vortex-pwm-sdk
 import os
 import vortex_pwm
 
-configuration = vortex_pwm.Configuration(host="https://pwm.vortex.nyc")
+configuration = vortex_pwm.Configuration(host="https://veil.nyc")
 configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
 client = vortex_pwm.ApiClient(configuration)
 api = vortex_pwm.AgentApi(client)

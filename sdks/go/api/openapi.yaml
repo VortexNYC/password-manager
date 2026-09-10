@@ -3,10 +3,10 @@ info:
   description: "Agent credential broker. Use injects the secret at the edge. Responses\
     \ never include vault material. CLI, MCP, and generated SDKs are projections of\
     \ this contract."
-  title: Vortex Password Manager
+  title: Veil
   version: 0.1.0
 servers:
-- url: https://pwm.vortex.nyc
+- url: https://veil.nyc
 security:
 - bearerAuth: []
 tags:

@@ -827,6 +827,8 @@ func TestCLIDevicePairOpensSecondHomeAndDoesNotPrintMaster(t *testing.T) {
 }
 
 func TestCLIMCPConfigNoSecret(t *testing.T) {
+	t.Setenv("PORT", "")
+	t.Setenv("PWM_MCP_URL", "")
 	home := t.TempDir()
 	out, err := run(t, home, "", "mcp", "config")
 	if err != nil {
@@ -850,14 +852,28 @@ func TestCLIMCPConfigNoSecret(t *testing.T) {
 	}
 }
 
-func TestCLIMCPConfigPublicURL(t *testing.T) {
-	t.Setenv("PWM_MCP_URL", "https://pwm.vortex.nyc/mcp")
+func TestCLIMCPConfigRailwayPORT(t *testing.T) {
+	t.Setenv("PORT", "4461")
+	t.Setenv("PWM_MCP_URL", "https://pwm-production.up.railway.app/mcp")
 	home := t.TempDir()
 	out, err := run(t, home, "", "mcp", "config")
 	if err != nil {
 		t.Fatal(err, out)
 	}
-	if !strings.Contains(out, "https://pwm.vortex.nyc/mcp") {
+	if !strings.Contains(out, "https://pwm-production.up.railway.app/mcp") {
+		t.Fatalf("url %s", out)
+	}
+}
+
+func TestCLIMCPConfigPublicURL(t *testing.T) {
+	t.Setenv("PORT", "")
+	t.Setenv("PWM_MCP_URL", "https://veil.nyc/mcp")
+	home := t.TempDir()
+	out, err := run(t, home, "", "mcp", "config")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !strings.Contains(out, "https://veil.nyc/mcp") {
 		t.Fatalf("url %s", out)
 	}
 	if scrub.Contains([]byte(out), []byte(secret)) {

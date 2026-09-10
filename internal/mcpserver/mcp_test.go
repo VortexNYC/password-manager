@@ -151,6 +151,15 @@ func TestCodingAgentsFetchOverRemoteMCP(t *testing.T) {
 		t.Fatal("health leaked secret")
 	}
 
+	ready, err := http.Get(ts.URL + "/ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Body.Close()
+	if ready.StatusCode != http.StatusOK {
+		t.Fatalf("ready %d", ready.StatusCode)
+	}
+
 	specRes, err := http.Get(ts.URL + "/openapi.json")
 	if err != nil {
 		t.Fatal(err)
@@ -293,6 +302,32 @@ func TestRESTUsePOSTBodyDoesNotReturnSecret(t *testing.T) {
 	}
 	if !bytes.Contains(listOut, []byte("stripe")) {
 		t.Fatalf("%s", listOut)
+	}
+}
+
+func TestReadyFailsWhenIssuerDown(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	ts := httptest.NewServer(Mux(a, "http://pwm.test/mcp", "http://127.0.0.1:1"))
+	t.Cleanup(ts.Close)
+	health, err := http.Get(ts.URL + "/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer health.Body.Close()
+	if health.StatusCode != http.StatusOK {
+		t.Fatalf("health is liveness, got %d", health.StatusCode)
+	}
+	ready, err := http.Get(ts.URL + "/ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Body.Close()
+	if ready.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("ready %d", ready.StatusCode)
 	}
 }
 

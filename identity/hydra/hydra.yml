@@ -10,7 +10,7 @@ serve:
 
 urls:
   self:
-    # Compose sets URLS_SELF_ISSUER. Public mint is https://id.vortex.nyc (token+JWKS). Not admin.
+    # Compose sets URLS_SELF_ISSUER. Public mint is https://id.veil.nyc (token+JWKS). Not admin.
     issuer: http://127.0.0.1:4444
   login: http://127.0.0.1:4433/self-service/login/browser
   # skip_consent still redirects here with skip=true. Glue accepts without a screen.

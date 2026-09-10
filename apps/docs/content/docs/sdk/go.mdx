@@ -18,7 +18,7 @@ import (
 )
 
 cfg := vortexpwm.NewConfiguration()
-cfg.Host = "pwm.vortex.nyc"
+cfg.Host = "veil.nyc"
 cfg.Scheme = "https"
 cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
 

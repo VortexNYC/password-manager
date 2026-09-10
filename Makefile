@@ -1,4 +1,4 @@
-.PHONY: test vet fmt tidy ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow
+.PHONY: test vet fmt tidy ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live
 
 test:
 	env -u PWM_HYDRA_ISSUER -u PWM_HYDRA_ADMIN -u PWM_HOME -u PWM_OIDC_TOKEN go test ./...
@@ -47,6 +47,9 @@ identity-up: identity-env
 
 prove-identity: identity-up
 	go test -tags live ./identity/glue -count=1 -timeout 3m
+
+prove-live:
+	./scripts/prove-live.sh
 
 login:
 	pnpm --filter identity-login dev

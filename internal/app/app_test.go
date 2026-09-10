@@ -20,6 +20,51 @@ import (
 
 const secret = "sk_live_APP_TEST_SECRET"
 
+func TestOpenOrInitCreatesVaultWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	a, err := OpenOrInit(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := os.Stat(filepath.Join(dir, dbFile)); err != nil {
+		t.Fatal(err)
+	}
+	b, err := OpenOrInit(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+}
+
+func TestOpenEmptyDirIsTheRailwayMasterKeyMiss(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Open(dir)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "master.key") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestOpenOrInitStrayVaultDBWithoutKeys(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, dbFile), []byte("not-a-vault"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := OpenOrInit(dir)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("misleading Railway crash: %v", err)
+	}
+	if !strings.Contains(err.Error(), dbFile) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestInitUseApprovePersists(t *testing.T) {
 	dir := t.TempDir()
 	a, err := Init(dir)

@@ -1,16 +1,16 @@
 import { defineConfig } from "blume";
 
 export default defineConfig({
-  title: "Vortex Password Manager",
+  title: "Veil",
   description:
     "Agent credential broker. Use injects. The model never holds the secret.",
   logo: {
     image: {
       light: "/logo-light.svg",
       dark: "/logo-dark.svg",
-      alt: "Vortex",
+      alt: "Veil",
     },
-    text: "PWM",
+    text: "Veil",
     href: "/",
   },
   github: {
@@ -62,9 +62,9 @@ export default defineConfig({
     mcp: {
       enabled: true,
       route: "/mcp",
-      name: "Vortex Password Manager Docs",
+      name: "Veil Docs",
       instructions:
-        "Documentation for Vortex Password Manager, the agent credential broker. OpenAPI is the contract. listItems and useItem never return vault secrets. MCP tools list_items and fetch are the same operations.",
+        "Documentation for Veil, the agent credential broker. OpenAPI is the contract. listItems and useItem never return vault secrets. MCP tools list_items and fetch are the same operations.",
     },
   },
   seo: {

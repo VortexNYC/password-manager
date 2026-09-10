@@ -1,5 +1,5 @@
 /*
-Vortex Password Manager
+Veil
 
 Agent credential broker. Use injects the secret at the edge. Responses never include vault material. CLI, MCP, and generated SDKs are projections of this contract.
 
@@ -93,7 +93,7 @@ func NewConfiguration() *Configuration {
 		Debug:            false,
 		Servers:          ServerConfigurations{
 			{
-				URL: "https://pwm.vortex.nyc",
+				URL: "https://veil.nyc",
 				Description: "No description provided",
 			},
 		},

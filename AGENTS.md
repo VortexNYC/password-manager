@@ -1,4 +1,6 @@
-# password-manager — agent contract
+# Veil — agent contract
+
+The product is **Veil**. Forever. Repo and CLI stay `password-manager` in VortexNYC until a rename. Agents say Veil, not PWM, not password-manager.
 
 This is an agent-first credential broker. Read `docs/SPEC.md` and `docs/prior-art.md` before writing code.
 
@@ -35,8 +37,8 @@ OpenAPI factory. `docs/openapi/password-manager.openapi.json` is the contract. H
 
 Mint helper: `agent token NAME --secret-file --out-file`. JWT to disk. Never stdout. Then one live agent Bearer to `POST /v1/use`.
 
-Item lifecycle and secret refs. `${NAME}` / `pwm://name` resolve only inside `run --inject` and child env. Archive, delete, tags, history, file BLOB (owner write to disk), grant `--expires`, owner `audit`, `gen`. MCP agent tools are still only `list_items` + `fetch`. No vaults. No 1Password. No iOS. No Railway this slice.
+Item lifecycle and secret refs. `${NAME}` / `pwm://name` resolve only inside `run --inject` and child env. Archive, delete, tags, history, file BLOB (owner write to disk), grant `--expires`, owner `audit`, `gen`. MCP agent tools are still only `list_items` + `fetch`. No vaults. No 1Password. No iOS.
 
-Cloud coding agents hit `https://pwm.vortex.nyc/mcp`. Same Streamable HTTP. Bearer after `agent bind` / `agent hydra`. Mint at `https://id.vortex.nyc` (Hydra public: token+JWKS). Not admin. Origin is the Mac Mini (Hydra + broker together). Cloudflare Tunnel, not Workers.
+Cloud coding agents hit `https://veil.nyc/mcp`. Same Streamable HTTP. Bearer after `agent bind` / `agent hydra`. Mint at `https://id.veil.nyc` (Hydra public: token+JWKS). Not admin. Origin is Railway. Cloudflare is DNS only (grey-cloud CNAME). Not Tunnel. Not Workers. `pwm.vortex.nyc` is leftover Mini.
 
 Keto is membership truth. Invite is owner-gated after bootstrap. Master is wrapped (`device.key` + `wraps/`), not a plaintext `master.key`. If Hydra is configured, Approve is ApproveOIDC. Login is Kratos `oauth2_provider`, not a glue HTTP hop. Hydra consent skip still needs glue AcceptConsent.

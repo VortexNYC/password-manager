@@ -1,4 +1,4 @@
-# Vortex Password Manager TypeScript SDK
+# Veil TypeScript SDK
 
 Generated from `docs/openapi/password-manager.openapi.json`. Do not handwrite clients.
 
@@ -6,7 +6,7 @@ Generated from `docs/openapi/password-manager.openapi.json`. Do not handwrite cl
 import { createClient, listItems, useItem } from "@vortex-api/pwm-sdk";
 
 const client = createClient({
-  baseUrl: "https://pwm.vortex.nyc",
+  baseUrl: "https://veil.nyc",
   headers: { Authorization: `Bearer ${process.env.PWM_OIDC_TOKEN}` },
 });
 

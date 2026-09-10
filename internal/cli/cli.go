@@ -36,7 +36,7 @@ func New(version string) *cobra.Command {
 	var home string
 	root := &cobra.Command{
 		Use:           "password-manager",
-		Short:         "Agent-first credential broker. Agents never hold secrets.",
+		Short:         "Veil. Agents never hold secrets.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
@@ -96,11 +96,24 @@ func glueFromEnv() (*glue.Glue, error) {
 }
 
 func openApp(home string) (*app.App, error) {
+	return loadApp(home, false)
+}
+
+func openOrInitApp(home string) (*app.App, error) {
+	return loadApp(home, true)
+}
+
+func loadApp(home string, initEmpty bool) (*app.App, error) {
 	dir, err := resolveHome(home)
 	if err != nil {
 		return nil, err
 	}
-	a, err := app.Open(dir)
+	var a *app.App
+	if initEmpty {
+		a, err = app.OpenOrInit(dir)
+	} else {
+		a, err = app.Open(dir)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1175,11 +1188,12 @@ func mcpCmd(home *string) *cobra.Command {
 		Use:   "mcp",
 		Short: "Serve Streamable HTTP MCP. Bearer is the agent. Tools cannot return secrets.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := openApp(*home)
+			a, err := openOrInitApp(*home)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
+			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			publicURL = mcpPublicURL(publicURL, listen)
 			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
 			srv := &http.Server{Addr: listen, Handler: mcpserver.Mux(a, publicURL, issuer)}
@@ -1203,6 +1217,7 @@ func mcpCmd(home *string) *cobra.Command {
 		Use:   "config",
 		Short: "Print remote MCP config. No secrets.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			cfg, err := mcpserver.Config(mcpPublicURL(publicURL, listen))
 			if err != nil {
 				return err

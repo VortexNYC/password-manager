@@ -40,7 +40,7 @@ type ListOut struct {
 }
 
 func New(a *app.App) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "password-manager", Version: "0.0.1"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "veil", Version: "0.0.1"}, nil)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_items",
 		Description: "List items this agent may Use. Names and URIs only. Never secrets.",

@@ -15,6 +15,7 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
+    restart: unless-stopped
 
   kratos-migrate:
     image: oryd/kratos:v26.2.0

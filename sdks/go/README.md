@@ -1,4 +1,4 @@
-# Vortex Password Manager Go SDK
+# Veil Go SDK
 
 Generated from `docs/openapi/password-manager.openapi.json`. Do not handwrite clients.
 
@@ -20,7 +20,7 @@ import (
 
 func main() {
 	cfg := vortexpwm.NewConfiguration()
-	cfg.Host = "pwm.vortex.nyc"
+	cfg.Host = "veil.nyc"
 	cfg.Scheme = "https"
 	cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
 	client := vortexpwm.NewAPIClient(cfg)

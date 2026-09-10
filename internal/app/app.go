@@ -109,6 +109,29 @@ func Open(dir string) (*App, error) {
 	return finish(dir, cfg, s)
 }
 
+func hasKeyMaterial(dir string) bool {
+	if hasWraps(dir) {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(dir, keyFile))
+	return err == nil
+}
+
+// OpenOrInit opens an existing vault, or creates one when there is no key material.
+// A stray vault.db without wraps or master.key is not "empty" — Init would hit ErrExists
+// and Open would print the misleading master.key miss that Railway crash-looped on.
+func OpenOrInit(dir string) (*App, error) {
+	if hasKeyMaterial(dir) {
+		return Open(dir)
+	}
+	if _, err := os.Stat(filepath.Join(dir, dbFile)); err == nil {
+		return nil, fmt.Errorf("app: %s exists without wraps/ or master.key", dbFile)
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return Init(dir)
+}
+
 func finish(dir string, cfg config, s store.Store) (*App, error) {
 	a := &App{
 		Dir:     dir,

@@ -212,7 +212,7 @@ function writePackageMetadata(version: string): void {
       {
         name: "@vortex-api/pwm-sdk",
         version,
-        description: "Generated TypeScript SDK for Vortex Password Manager. Use injects. Never GetSecret.",
+        description: "Generated TypeScript SDK for Veil. Use injects. Never GetSecret.",
         license: "MIT",
         type: "module",
         sideEffects: false,
@@ -230,7 +230,7 @@ function writePackageMetadata(version: string): void {
   );
   writeFileSync(
     resolve(typeScriptOutput, "README.md"),
-    `# Vortex Password Manager TypeScript SDK
+    `# Veil TypeScript SDK
 
 Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite clients.
 
@@ -238,7 +238,7 @@ Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite 
 import { createClient, listItems, useItem } from "@vortex-api/pwm-sdk";
 
 const client = createClient({
-  baseUrl: "https://pwm.vortex.nyc",
+  baseUrl: "https://veil.nyc",
   headers: { Authorization: \`Bearer \${process.env.PWM_OIDC_TOKEN}\` },
 });
 
@@ -259,7 +259,7 @@ The vault secret is never in the response.
     `[project]
 name = "vortex-pwm-sdk"
 version = "${version}"
-description = "Generated Python SDK for Vortex Password Manager. Use injects. Never GetSecret."
+description = "Generated Python SDK for Veil. Use injects. Never GetSecret."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
@@ -292,7 +292,7 @@ pip install vortex-pwm-sdk
 import os
 import vortex_pwm
 
-configuration = vortex_pwm.Configuration(host="https://pwm.vortex.nyc")
+configuration = vortex_pwm.Configuration(host="https://veil.nyc")
 configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
 client = vortex_pwm.ApiClient(configuration)
 api = vortex_pwm.AgentApi(client)
@@ -307,7 +307,7 @@ The vault secret is never in the response.
   writeFileSync(resolve(goOutput, "LICENSE"), MIT);
   writeFileSync(
     resolve(goOutput, "README.md"),
-    `# Vortex Password Manager Go SDK
+    `# Veil Go SDK
 
 Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite clients.
 
@@ -329,7 +329,7 @@ import (
 
 func main() {
 	cfg := vortexpwm.NewConfiguration()
-	cfg.Host = "pwm.vortex.nyc"
+	cfg.Host = "veil.nyc"
 	cfg.Scheme = "https"
 	cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
 	client := vortexpwm.NewAPIClient(cfg)

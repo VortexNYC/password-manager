@@ -1,5 +1,5 @@
 """
-    Vortex Password Manager
+    Veil
 
     Agent credential broker. Use injects the secret at the edge. Responses never include vault material. CLI, MCP, and generated SDKs are projections of this contract.
 
@@ -215,7 +215,7 @@ class Configuration:
     ) -> None:
         """Constructor
         """
-        self._base_path = "https://pwm.vortex.nyc" if host is None else host
+        self._base_path = "https://veil.nyc" if host is None else host
         """Default Base url
         """
         self.server_index = 0 if server_index is None and host is None else server_index
@@ -544,7 +544,7 @@ class Configuration:
         """
         return [
             {
-                'url': "https://pwm.vortex.nyc",
+                'url': "https://veil.nyc",
                 'description': "No description provided",
             }
         ]

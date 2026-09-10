@@ -1,6 +1,8 @@
-# password-manager
+# Veil
 
 Agent-first credential broker. Agents reference an item. Something outside the model injects the secret. The model never holds it.
+
+The product is Veil. This repo and the CLI stay `password-manager` in the Vortex org for now.
 
 Open source under Vortex NYC. Not a 1Password clone and not an auth company.
 
@@ -35,9 +37,9 @@ go run ./cmd/password-manager ssh --home /tmp/pwm
 go run ./cmd/password-manager run --home /tmp/pwm --agent claude -- curl -s https://api.stripe.com/v1/customers
 ```
 
-MCP tools: `list_items`, `fetch`. HTTP: `GET /v1/items`, `POST /v1/use` (method, headers, `--body-file`). Same operations. Streamable HTTP MCP at `https://pwm.vortex.nyc/mcp`. OpenAPI at `https://pwm.vortex.nyc/openapi.json`. Bearer is the agent (`PWM_OIDC_TOKEN` / Hydra JWT). The model cannot switch principals and never sees the token. Secrets never appear in tool or SDK output. SDKs are generated: `pnpm run sdk:generate`. Docs: `pnpm run docs:dev`.
+MCP tools: `list_items`, `fetch`. HTTP: `GET /v1/items`, `POST /v1/use` (method, headers, `--body-file`). Same operations. Streamable HTTP MCP at `https://veil.nyc/mcp`. OpenAPI at `https://veil.nyc/openapi.json`. Bearer is the agent (`PWM_OIDC_TOKEN` / Hydra JWT). The model cannot switch principals and never sees the token. Secrets never appear in tool or SDK output. SDKs are generated: `pnpm run sdk:generate`. Docs: `pnpm run docs:dev`.
 
-Local coding agents (Cursor, Devin, pi, OpenCode) and cloud agents (Flue, Cloudflare, Codex) hit that URL. The host is not identity. Origin is the Mac Mini. Cloudflare Tunnel, not Workers. Cloud agents mint at `https://id.vortex.nyc` (`client_credentials`), then send the JWT. Hydra admin stays local to the Mini.
+Local coding agents (Cursor, Devin, pi, OpenCode) and cloud agents (Flue, Cloudflare, Codex) hit that URL. The host is not identity. Origin is Railway. Cloudflare DNS only. Cloud agents mint at `https://id.veil.nyc` (`client_credentials`), then send the JWT. Hydra admin stays private.
 
 ```
 password-manager agent add cursor
@@ -48,7 +50,7 @@ password-manager mcp
 password-manager mcp config
 ```
 
-Paste that JSON as the server block. Put the token in the environment, not the file. `mcp config` includes `issuer` when `PWM_HYDRA_ISSUER` is set (`https://id.vortex.nyc`). `.well-known/oauth-protected-resource` points at that issuer. Mint: `agent token` (`POST {issuer}/oauth2/token`). The JWT is `--out-file` only.
+Paste that JSON as the server block. Put the token in the environment, not the file. `mcp config` includes `issuer` when `PWM_HYDRA_ISSUER` is set (`https://id.veil.nyc`). `.well-known/oauth-protected-resource` points at that issuer. Mint: `agent token` (`POST {issuer}/oauth2/token`). The JWT is `--out-file` only.
 
 `run` is Infisical `vault run`: granted item material is in the child's environment (item name → env var, uppercased). `HTTPS_PROXY` is still set for MITM. The broker does not print the secret. Level 1 is skipped until a human Approves. SSH keys stay on `ssh.sock`.
 

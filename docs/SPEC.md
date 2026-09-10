@@ -1,6 +1,8 @@
-# Spec: password-manager
+# Spec: Veil
 
 Agent-first credential broker. One protocol. Two grant levels. Secrets never enter the model.
+
+The product is Veil. Repo and CLI stay `password-manager` in VortexNYC until a rename.
 
 ## Objective
 
@@ -89,9 +91,9 @@ The next slices, in this order, and nothing else until each is proven:
 14 one org id            written. protocol.LocalOrgID in vault, Kratos, Keto
 15 remote MCP            written. Streamable HTTP. Bearer is the agent.
                          cursor, devin, pi, opencode. same URL.
-16 cloud coding agents   written. https://pwm.vortex.nyc/mcp
+16 cloud coding agents   written. https://veil.nyc/mcp
                          Cloudflare Tunnel, not Workers. not iOS
-17 public Hydra mint     written. https://id.vortex.nyc token+JWKS.
+17 public Hydra mint     written. https://id.veil.nyc token+JWKS.
                          not admin. cloud agents client_credentials.
 18 Mini origin            written. Hydra+broker on the Mini.
                          Tunnel there. laptop is not the origin.
@@ -385,6 +387,7 @@ make ci
 make identity-up
 make glue
 make prove-identity
+make prove-live
 go test ./...
 go run ./cmd/password-manager version
 ```
@@ -429,7 +432,10 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 
 ## Testing
 
-- `go test ./...` is the suite.
+- `go test ./...` is the in-repo suite. It does not prove Mini origin.
+- `make prove-identity` is local Docker Ory. It does not prove `veil.nyc`.
+- `make prove-live` is origin truth: `https://veil.nyc` and MCP. It mints a token, fails if GitHub/Linear/Firecrawl/Cloudflare Use is not allow/200, and fails if the secret appears in JSON. `make ci` does not run it.
+- `GET /health` is process up. `GET /ready` is Hydra discovery. A green health with a dead issuer is a lie; prove-live checks ready.
 - Every Use/Approve path asserts the secret is absent from JSON of the result and of the audit log.
 - Prefer httptest and the memory store over mocks.
 
@@ -473,8 +479,8 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 - [x] One org id: `protocol.LocalOrgID` is the vault OrgID, Kratos `organization_id`, and the Keto object. A second company is not this product yet.
 - [x] Invites are Kratos: glue `CreateIdentity` + `CreateRecoveryCodeForIdentity`. CLI `human invite --code-file`. Owner-gated after bootstrap (`--oidc-token-file` / `PWM_HUMAN_TOKEN`). Email and recovery code never enter sqlite. ApproveOIDC requires Keto membership. organization_id is stamped. Keto owner/member is written by glue.
 - [x] Remote MCP is Streamable HTTP. Bearer is Hydra JWT / bound OIDC. `mcp config` prints url+header template, never the token. RFC 9728 metadata points at Hydra. cursor, devin, pi, opencode each fetch. JSON has no secret. No bearer is 401.
-- [x] Cloud MCP is `https://pwm.vortex.nyc/mcp`. Cloudflare Tunnel to this process, not Workers. `GET /health` is 200. No bearer on `/mcp` is 401. Flue, Codex, and Cloudflare Agents are principals; Bearer is still the agent.
-- [x] Hydra public mint is `https://id.vortex.nyc` (token, JWKS, discovery). Not admin `:4445`. Not Kratos. Issuer in the JWT matches. RFC 9728 points there. Cloud agents `client_credentials` then Bearer to `/mcp`. Secret never in MCP JSON.
+- [x] Cloud MCP is `https://veil.nyc/mcp`. Railway origin. Cloudflare DNS only, not Tunnel, not Workers. `GET /health` is 200. No bearer on `/mcp` is 401. Flue, Codex, and Cloudflare Agents are principals; Bearer is still the agent.
+- [x] Hydra public mint is `https://id.veil.nyc` (token, JWKS, discovery). Not admin `:4445`. Not Kratos. Issuer in the JWT matches. RFC 9728 points there. Cloud agents `client_credentials` then Bearer to `/mcp`. Secret never in MCP JSON.
 - [x] Origin is the Mac Mini. Hydra and the broker run there. Cloudflare Tunnel points at that machine. The laptop is not a second public Hydra.
 - [x] Secret refs `${NAME}` and `pwm://name` resolve only in `run --inject` (and env). Unknown refs fail closed. Broker stdout has no secret.
 - [x] Item update, archive, delete, tags, extra URIs. Archived items are hidden from Use, list, fill, MCP. History is `item_versions` (sealed). Restore copies the sealed blob.
@@ -504,4 +510,4 @@ Native Chrome/iOS/Android shells are out of this repo until the protocol is bori
 
 ## Open questions
 
-- Product name vs repo name `password-manager`.
+None. Product is Veil. Repo/CLI stay `password-manager`.

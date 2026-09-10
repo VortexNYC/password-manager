@@ -1,7 +1,7 @@
 {
   "name": "@vortex-api/pwm-sdk",
   "version": "0.1.0",
-  "description": "Generated TypeScript SDK for Vortex Password Manager. Use injects. Never GetSecret.",
+  "description": "Generated TypeScript SDK for Veil. Use injects. Never GetSecret.",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,12 +1,12 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Vortex Password Manager",
+    "title": "Veil",
     "version": "0.1.0",
     "description": "Agent credential broker. Use injects the secret at the edge. Responses never include vault material. CLI, MCP, and generated SDKs are projections of this contract."
   },
   "servers": [
-    { "url": "https://pwm.vortex.nyc" }
+    { "url": "https://veil.nyc" }
   ],
   "tags": [
     { "name": "Agent", "description": "Bearer is the agent. listItems is metadata. useItem injects. Never GetSecret." }

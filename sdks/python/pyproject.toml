@@ -1,7 +1,7 @@
 [project]
 name = "vortex-pwm-sdk"
 version = "0.1.0"
-description = "Generated Python SDK for Vortex Password Manager. Use injects. Never GetSecret."
+description = "Generated Python SDK for Veil. Use injects. Never GetSecret."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"

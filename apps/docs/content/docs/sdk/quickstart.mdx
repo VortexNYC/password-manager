@@ -18,7 +18,7 @@ pnpm add @vortex-api/pwm-sdk
 import { createClient, listItems, useItem } from "@vortex-api/pwm-sdk";
 
 const client = createClient({
-  baseUrl: "https://pwm.vortex.nyc",
+  baseUrl: "https://veil.nyc",
   headers: { Authorization: `Bearer ${process.env.PWM_OIDC_TOKEN}` },
 });
 
@@ -45,7 +45,7 @@ pip install vortex-pwm-sdk
 import os
 import vortex_pwm
 
-configuration = vortex_pwm.Configuration(host="https://pwm.vortex.nyc")
+configuration = vortex_pwm.Configuration(host="https://veil.nyc")
 configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
 api = vortex_pwm.AgentApi(vortex_pwm.ApiClient(configuration))
 api.list_items()
@@ -60,7 +60,7 @@ go get github.com/vortexnyc/pwm-go
 
 ```go
 cfg := vortexpwm.NewConfiguration()
-cfg.Host = "pwm.vortex.nyc"
+cfg.Host = "veil.nyc"
 cfg.Scheme = "https"
 cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
 client := vortexpwm.NewAPIClient(cfg)

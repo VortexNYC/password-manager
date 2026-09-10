@@ -1,5 +1,5 @@
 /*
-Vortex Password Manager
+Veil
 
 Agent credential broker. Use injects the secret at the edge. Responses never include vault material. CLI, MCP, and generated SDKs are projections of this contract.
 
@@ -41,7 +41,7 @@ var (
 	queryDescape    = strings.NewReplacer( "%5B", "[", "%5D", "]" )
 )
 
-// APIClient manages communication with the Vortex Password Manager API v0.1.0
+// APIClient manages communication with the Veil API v0.1.0
 // In most cases there should be only one, shared, APIClient.
 type APIClient struct {
 	cfg    *Configuration
