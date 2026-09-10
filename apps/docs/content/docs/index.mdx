@@ -1,0 +1,31 @@
+---
+title: Vortex Password Manager
+description: Agent credential broker. Use injects. The model never holds the secret.
+---
+
+# Vortex Password Manager
+
+Agents reference an item. Something outside the model injects the secret.
+
+## Start here
+
+<CardGroup>
+  <Card title="Agents" href="/guides/agents" icon="bot">
+    MCP, Bearer JWT, listItems and useItem. Never GetSecret.
+  </Card>
+  <Card title="SDK quickstart" href="/sdk/quickstart" icon="box">
+    TypeScript, Python, and Go from the same OpenAPI contract.
+  </Card>
+  <Card title="API reference" href="/reference" icon="code">
+    The OpenAPI contract. Source of truth for CLI, MCP, and SDKs.
+  </Card>
+</CardGroup>
+
+## Build from the contract
+
+Same factory as Vortex Payments. Never handwrite clients.
+
+- Spec: `docs/openapi/password-manager.openapi.json`
+- Base URL: `https://pwm.vortex.nyc`
+- Regenerate SDKs: `pnpm run sdk:generate`
+- Run this site: `pnpm run docs:dev`

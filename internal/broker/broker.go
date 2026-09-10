@@ -1,8 +1,8 @@
 // Package broker is the only path that ever sees a secret.
 //
-// Stolen from Infisical Agent Vault: the agent calls the real URL (or asks
-// us to); we attach the credential at the edge and return the upstream
-// result. The agent-visible UseResult is scrubbed.
+// Same inject-at-the-edge pattern as Infisical Agent Vault: the agent calls
+// the real URL (or asks us to); we attach the credential at the edge and
+// return the upstream result. The agent-visible UseResult is scrubbed.
 package broker
 
 import (
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/grant"
+	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 	"github.com/vortexnyc/password-manager/internal/store"
@@ -41,6 +42,7 @@ func New(s store.Store) *Broker {
 				prev := via[len(via)-1].URL.Hostname()
 				if req.URL.Hostname() != prev {
 					req.Header.Del("Authorization")
+					req.Header.Del(material.HeaderTOTP)
 				}
 				if len(via) >= 10 {
 					return fmt.Errorf("stopped after 10 redirects")
@@ -123,18 +125,20 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	if err != nil {
 		return protocol.UseResult{}, err
 	}
-	fr, err := b.fetch(ctx, req.Fetch, secret)
+	env := material.Unpack(secret)
+	fr, code, access, err := b.fetch(ctx, req.Fetch, env, now)
 	if err != nil {
 		dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "fetch_failed"}
 		event.Decision = dec.Decision
 		event.Reason = dec.Reason
 		return dec, err
 	}
-	fr.Body = scrub.Bytes(fr.Body, secret)
+	hide := material.ScrubList(env, secret, []byte(code), []byte(access))
+	fr.Body = scrub.Bytes(fr.Body, hide...)
 	for k, vs := range fr.Header {
 		cleaned := make([]string, len(vs))
 		for i, v := range vs {
-			cleaned[i] = string(scrub.Bytes([]byte(v), secret))
+			cleaned[i] = string(scrub.Bytes([]byte(v), hide...))
 		}
 		fr.Header[k] = cleaned
 	}
@@ -142,7 +146,7 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	return dec, nil
 }
 
-func (b *Broker) fetch(ctx context.Context, f *protocol.Fetch, secret store.Secret) (*protocol.FetchResult, error) {
+func (b *Broker) fetch(ctx context.Context, f *protocol.Fetch, env material.Envelope, now time.Time) (*protocol.FetchResult, string, string, error) {
 	method := f.Method
 	if method == "" {
 		method = http.MethodGet
@@ -153,39 +157,45 @@ func (b *Broker) fetch(ctx context.Context, f *protocol.Fetch, secret store.Secr
 	}
 	req, err := http.NewRequestWithContext(ctx, method, f.URL, body)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	for k, vs := range f.Header {
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
 	}
-	if req.Header.Get("Authorization") == "" {
-		req.Header.Set("Authorization", "Bearer "+string(secret))
+	access, err := material.AccessToken(ctx, env, b.client())
+	if err != nil {
+		return nil, "", "", err
+	}
+	if access != "" && req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", material.AuthorizationValue(access))
+	}
+	code, err := material.Apply(req.Header, env, now)
+	if err != nil {
+		return nil, "", "", err
 	}
 	res, err := b.client().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	return &protocol.FetchResult{
 		Status: res.StatusCode,
 		Header: res.Header.Clone(),
 		Body:   raw,
-	}, nil
+	}, code, access, nil
 }
 
 // Approve records a human approval for a level-1 grant.
+// Membership is Keto via App.ApproveOIDC. This store does not decide who is a human.
 func (b *Broker) Approve(human protocol.Principal, grantID string, ttl time.Duration) (protocol.Approval, error) {
 	if human.Kind != protocol.PrincipalHuman {
 		return protocol.Approval{}, store.ErrDenied
-	}
-	if _, err := b.Store.Human(human.ID); err != nil {
-		return protocol.Approval{}, err
 	}
 	a := protocol.Approval{
 		ID:        fmt.Sprintf("appr-%d", b.now().UnixNano()),

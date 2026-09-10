@@ -1,0 +1,9 @@
+packages:
+  - "identity/login"
+  - "apps/docs"
+
+allowBuilds:
+  esbuild: true
+
+onlyBuiltDependencies:
+  - esbuild

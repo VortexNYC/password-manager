@@ -28,6 +28,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/grant"
+	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
@@ -208,10 +209,27 @@ func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request
 			Reason:   "lookup_failed",
 		})
 	}
-	req.Header.Set("Authorization", "Bearer "+string(secret))
+	env := material.Unpack(secret)
+	access, err := material.AccessToken(req.Context(), env, http.DefaultClient)
+	if err != nil {
+		return nil, jsonResp(req, http.StatusInternalServerError, protocol.UseResult{
+			Decision: protocol.DecisionDeny,
+			Reason:   "oauth_failed",
+		})
+	}
+	if access != "" && req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", material.AuthorizationValue(access))
+	}
+	code, err := material.Apply(req.Header, env, s.now())
+	if err != nil {
+		return nil, jsonResp(req, http.StatusInternalServerError, protocol.UseResult{
+			Decision: protocol.DecisionDeny,
+			Reason:   "totp_failed",
+		})
+	}
 	data, _ := ctx.UserData.(ctxData)
 	data.authed = true
-	data.secrets = s.agentSecrets()
+	data.secrets = append(s.agentSecrets(), material.ScrubList(env, secret, []byte(code), []byte(access))...)
 	ctx.UserData = data
 	return req, nil
 }
@@ -285,7 +303,8 @@ func (s *Server) agentSecrets() [][]byte {
 		if err != nil {
 			continue
 		}
-		out = append(out, []byte(sec))
+		env := material.Unpack(sec)
+		out = append(out, material.ScrubList(env, sec)...)
 	}
 	return out
 }

@@ -11,3 +11,11 @@ coverage.out
 .idea/
 .vscode/
 *.swp
+node_modules/
+identity/login/node_modules/
+identity/login/dist/
+apps/docs/node_modules/
+apps/docs/dist/
+.blume/
+.tmp/
+

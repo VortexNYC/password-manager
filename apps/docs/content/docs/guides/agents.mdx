@@ -1,0 +1,33 @@
+---
+title: Agents
+description: MCP and HTTP Use. The agent never receives the vault secret.
+---
+
+# Agents
+
+Bearer is the agent (Hydra `client_credentials` JWT). The host is not identity.
+
+## Surfaces
+
+| Surface | Same operations |
+| --- | --- |
+| OpenAPI | `GET /v1/items`, `POST /v1/use` |
+| MCP | `list_items`, `fetch` |
+| CLI | `item list` is owner; `use --body-file` is the agent fetch |
+| SDKs | generated from the spec |
+
+`useItem` / `fetch` / `use --body-file` send method, headers, and body. The broker injects the credential. The response is the upstream result with vault secrets scrubbed.
+
+There is no `GetSecret`. `gen`, `write`, `audit`, and `run` are not coding-agent tools.
+
+## Connect
+
+```
+password-manager agent add cursor
+password-manager agent hydra cursor --secret-file ./cursor.hydra
+password-manager agent token cursor --secret-file ./cursor.hydra --out-file ./cursor.jwt
+password-manager grant add --agent cursor --item stripe --level level2
+password-manager mcp config
+```
+
+Mint with `agent token`. JWT is `--out-file` only. Send it as `Authorization: Bearer`. MCP URL is `https://pwm.vortex.nyc/mcp`. HTTP Use is `POST /v1/use`.

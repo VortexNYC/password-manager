@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/crypto"
@@ -13,8 +14,10 @@ import (
 )
 
 type SQLite struct {
-	db  *sql.DB
-	key []byte
+	db   *sql.DB
+	key  []byte
+	mu   sync.Mutex
+	deks map[string][]byte
 }
 
 func OpenSQLite(path string, key []byte) (*SQLite, error) {
@@ -25,7 +28,7 @@ func OpenSQLite(path string, key []byte) (*SQLite, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &SQLite{db: db, key: append([]byte(nil), key...)}
+	s := &SQLite{db: db, key: append([]byte(nil), key...), deks: map[string][]byte{}}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -55,6 +58,7 @@ func (s *SQLite) migrate() error {
 			owner_id TEXT NOT NULL,
 			uris TEXT NOT NULL,
 			secret BLOB NOT NULL,
+			has_totp INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(org_id, name)
 		)`,
 		`CREATE TABLE IF NOT EXISTS grants (
@@ -84,34 +88,66 @@ func (s *SQLite) migrate() error {
 			reason TEXT NOT NULL,
 			approval_id TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS workloads (
+			issuer TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			audience TEXT NOT NULL,
+			PRIMARY KEY (issuer, subject)
+		)`,
+		`CREATE TABLE IF NOT EXISTS owner_keys (
+			owner_kind TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			wrapped BLOB NOT NULL,
+			PRIMARY KEY (owner_kind, owner_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS item_versions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			item_id TEXT NOT NULL,
+			at TEXT NOT NULL,
+			secret BLOB NOT NULL
+		)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return err
 		}
 	}
-	return nil
+	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN has_totp INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE agents ADD COLUMN owner_kind TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE agents ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`)
+	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN has_file INTEGER NOT NULL DEFAULT 0`)
+	return s.rewrapLegacy()
 }
 
 func (s *SQLite) Close() error { return s.db.Close() }
 
 func (s *SQLite) PutAgent(p protocol.Principal) error {
-	_, err := s.db.Exec(`INSERT INTO agents(id, org_id) VALUES(?, ?)
-		ON CONFLICT(id) DO UPDATE SET org_id=excluded.org_id`, p.ID, p.OrgID)
+	_, err := s.db.Exec(`INSERT INTO agents(id, org_id, owner_kind, owner_id) VALUES(?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET org_id=excluded.org_id, owner_kind=excluded.owner_kind, owner_id=excluded.owner_id`,
+		p.ID, p.OrgID, p.Owner.Kind, p.Owner.ID)
 	return err
 }
 
 func (s *SQLite) Agent(id string) (protocol.Principal, error) {
 	var p protocol.Principal
 	p.Kind = protocol.PrincipalAgent
-	err := s.db.QueryRow(`SELECT id, org_id FROM agents WHERE id=?`, id).Scan(&p.ID, &p.OrgID)
+	var ownerKind, ownerID sql.NullString
+	err := s.db.QueryRow(`SELECT id, org_id, owner_kind, owner_id FROM agents WHERE id=?`, id).Scan(&p.ID, &p.OrgID, &ownerKind, &ownerID)
 	if err == sql.ErrNoRows {
 		return protocol.Principal{}, ErrNotFound
 	}
-	return p, err
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	p.Owner.Kind = protocol.OwnerKind(ownerKind.String)
+	p.Owner.ID = ownerID.String
+	return p, nil
 }
 
 func (s *SQLite) ListAgents() ([]protocol.Principal, error) {
-	rows, err := s.db.Query(`SELECT id, org_id FROM agents ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id, owner_kind, owner_id FROM agents ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -120,9 +156,12 @@ func (s *SQLite) ListAgents() ([]protocol.Principal, error) {
 	for rows.Next() {
 		var p protocol.Principal
 		p.Kind = protocol.PrincipalAgent
-		if err := rows.Scan(&p.ID, &p.OrgID); err != nil {
+		var ownerKind, ownerID sql.NullString
+		if err := rows.Scan(&p.ID, &p.OrgID, &ownerKind, &ownerID); err != nil {
 			return nil, err
 		}
+		p.Owner.Kind = protocol.OwnerKind(ownerKind.String)
+		p.Owner.ID = ownerID.String
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -144,7 +183,42 @@ func (s *SQLite) Human(id string) (protocol.Principal, error) {
 	return p, err
 }
 
+func (s *SQLite) ListHumans() ([]protocol.Principal, error) {
+	rows, err := s.db.Query(`SELECT id, org_id FROM humans ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []protocol.Principal
+	for rows.Next() {
+		var p protocol.Principal
+		p.Kind = protocol.PrincipalHuman
+		if err := rows.Scan(&p.ID, &p.OrgID); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) snapshot(id string) error {
+	var blob []byte
+	err := s.db.QueryRow(`SELECT secret FROM items WHERE id=?`, id).Scan(&blob)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO item_versions(item_id, at, secret) VALUES(?,?,?)`,
+		id, time.Now().UTC().Format(time.RFC3339Nano), blob)
+	return err
+}
+
 func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
+	if err := s.snapshot(item.ID); err != nil {
+		return err
+	}
 	uris, err := json.Marshal(item.URIs)
 	if err != nil {
 		return err
@@ -152,24 +226,49 @@ func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
 	if item.URIs == nil {
 		uris = []byte("[]")
 	}
-	blob, err := crypto.Seal(s.key, secret)
+	tags, err := json.Marshal(item.Tags)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret)
-		VALUES(?,?,?,?,?,?,?,?)
+	if item.Tags == nil {
+		tags = []byte("[]")
+	}
+	dek, err := s.ownerDEK(item.Owner)
+	if err != nil {
+		return err
+	}
+	blob, err := crypto.Seal(dek, secret)
+	if err != nil {
+		return err
+	}
+	has := 0
+	if item.HasTOTP {
+		has = 1
+	}
+	arch := 0
+	if item.Archived {
+		arch = 1
+	}
+	hf := 0
+	if item.HasFile {
+		hf = 1
+	}
+	_, err = s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
 			owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
-			uris=excluded.uris, secret=excluded.secret`,
-		item.ID, item.OrgID, item.Name, item.Kind, item.Owner.Kind, item.Owner.ID, uris, blob)
+			uris=excluded.uris, secret=excluded.secret, has_totp=excluded.has_totp,
+			tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file`,
+		item.ID, item.OrgID, item.Name, item.Kind, item.Owner.Kind, item.Owner.ID, uris, blob, has, tags, arch, hf)
 	return err
 }
 
 func (s *SQLite) scanItem(scan func(dest ...any) error) (protocol.Item, error) {
 	var item protocol.Item
-	var uris []byte
-	err := scan(&item.ID, &item.OrgID, &item.Name, &item.Kind, &item.Owner.Kind, &item.Owner.ID, &uris)
+	var uris, tags []byte
+	var has, arch, hf int
+	err := scan(&item.ID, &item.OrgID, &item.Name, &item.Kind, &item.Owner.Kind, &item.Owner.ID, &uris, &has, &tags, &arch, &hf)
 	if err == sql.ErrNoRows {
 		return protocol.Item{}, ErrNotFound
 	}
@@ -179,21 +278,27 @@ func (s *SQLite) scanItem(scan func(dest ...any) error) (protocol.Item, error) {
 	if len(uris) > 0 {
 		_ = json.Unmarshal(uris, &item.URIs)
 	}
+	if len(tags) > 0 {
+		_ = json.Unmarshal(tags, &item.Tags)
+	}
+	item.HasTOTP = has != 0
+	item.Archived = arch != 0
+	item.HasFile = hf != 0
 	return item, nil
 }
 
 func (s *SQLite) Item(id string) (protocol.Item, error) {
-	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris FROM items WHERE id=?`, id)
+	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file FROM items WHERE id=?`, id)
 	return s.scanItem(row.Scan)
 }
 
 func (s *SQLite) ItemByName(orgID, name string) (protocol.Item, error) {
-	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris FROM items WHERE org_id=? AND name=?`, orgID, name)
+	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file FROM items WHERE org_id=? AND name=?`, orgID, name)
 	return s.scanItem(row.Scan)
 }
 
 func (s *SQLite) ListItems() ([]protocol.Item, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris FROM items ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file FROM items WHERE archived=0 ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -209,16 +314,92 @@ func (s *SQLite) ListItems() ([]protocol.Item, error) {
 	return out, rows.Err()
 }
 
+func (s *SQLite) ArchiveItem(id string) error {
+	res, err := s.db.Exec(`UPDATE items SET archived=1 WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLite) DeleteItem(id string) error {
+	if _, err := s.db.Exec(`DELETE FROM item_versions WHERE item_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM grants WHERE item_id=?`, id); err != nil {
+		return err
+	}
+	res, err := s.db.Exec(`DELETE FROM items WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLite) Versions(itemID string) ([]protocol.ItemVersion, error) {
+	rows, err := s.db.Query(`SELECT id, item_id, at FROM item_versions WHERE item_id=? ORDER BY id`, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []protocol.ItemVersion
+	for rows.Next() {
+		var v protocol.ItemVersion
+		var at string
+		if err := rows.Scan(&v.ID, &v.ItemID, &at); err != nil {
+			return nil, err
+		}
+		v.Time, _ = time.Parse(time.RFC3339Nano, at)
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) RestoreVersion(itemID string, versionID int64) error {
+	if err := s.snapshot(itemID); err != nil {
+		return err
+	}
+	var blob []byte
+	err := s.db.QueryRow(`SELECT secret FROM item_versions WHERE id=? AND item_id=?`, versionID, itemID).Scan(&blob)
+	if err == sql.ErrNoRows {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, itemID)
+	return err
+}
+
 func (s *SQLite) Secret(id string) (Secret, error) {
 	var blob []byte
-	err := s.db.QueryRow(`SELECT secret FROM items WHERE id=?`, id).Scan(&blob)
+	var owner protocol.Owner
+	err := s.db.QueryRow(`SELECT secret, owner_kind, owner_id FROM items WHERE id=?`, id).Scan(&blob, &owner.Kind, &owner.ID)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	plain, err := crypto.Open(s.key, blob)
+	dek, err := s.ownerDEK(owner)
+	if err != nil {
+		return nil, err
+	}
+	plain, err := crypto.Open(dek, blob)
 	if err != nil {
 		return nil, err
 	}
@@ -342,6 +523,45 @@ func (s *SQLite) Audit() ([]protocol.AuditEvent, error) {
 		}
 		e.Time, _ = time.Parse(time.RFC3339Nano, at)
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) PutWorkload(w protocol.Workload) error {
+	_, err := s.db.Exec(`INSERT INTO workloads(issuer, subject, agent_id, audience)
+		VALUES(?,?,?,?)
+		ON CONFLICT(issuer, subject) DO UPDATE SET
+			agent_id=excluded.agent_id, audience=excluded.audience`,
+		w.Issuer, w.Subject, w.AgentID, w.Audience)
+	return err
+}
+
+func (s *SQLite) Workload(issuer, subject string) (*protocol.Workload, error) {
+	var w protocol.Workload
+	err := s.db.QueryRow(`SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=? AND subject=?`, issuer, subject).
+		Scan(&w.AgentID, &w.Issuer, &w.Subject, &w.Audience)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
+func (s *SQLite) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) {
+	rows, err := s.db.Query(`SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=?`, issuer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []protocol.Workload
+	for rows.Next() {
+		var w protocol.Workload
+		if err := rows.Scan(&w.AgentID, &w.Issuer, &w.Subject, &w.Audience); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
 	}
 	return out, rows.Err()
 }

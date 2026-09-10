@@ -3,18 +3,26 @@ module github.com/vortexnyc/password-manager
 go 1.25.0
 
 require (
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/elazarl/goproxy v1.9.1
 	github.com/elazarl/goproxy/ext v0.0.0-20260904162650-e540bd6f11f6
+	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/ory/hydra-client-go/v26 v26.2.0
+	github.com/ory/keto-client-go/v26 v26.2.0
+	github.com/ory/kratos-client-go/v26 v26.2.0
+	github.com/pquerna/otp v1.5.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.48.0
+	golang.org/x/oauth2 v0.36.0
 	modernc.org/sqlite v1.58.0
 )
 
 require (
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
@@ -24,7 +32,6 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/net v0.50.0 // indirect
-	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

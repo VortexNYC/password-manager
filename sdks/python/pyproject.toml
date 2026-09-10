@@ -1,0 +1,20 @@
+[project]
+name = "vortex-pwm-sdk"
+version = "0.1.0"
+description = "Generated Python SDK for Vortex Password Manager. Use injects. Never GetSecret."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+  "urllib3 >= 2.1.0, < 3.0.0",
+  "python-dateutil >= 2.8.2",
+  "pydantic >= 2",
+  "typing-extensions >= 4.7.1",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["vortex_pwm*"]

@@ -1,12 +1,21 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/scrub"
@@ -31,13 +40,6 @@ func TestMCPFetchDoesNotReturnSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := a.AddGrant("claude", "stripe", "level2"); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := New(a, "missing"); err == nil {
-		t.Fatal("bound unknown agent")
-	}
-	if _, err := New(a, "claude"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -67,4 +69,319 @@ func TestMCPFetchDoesNotReturnSecret(t *testing.T) {
 	if scrub.Contains(list, []byte(secret)) {
 		t.Fatal("list_items leaked secret")
 	}
+}
+
+func TestCodingAgentsFetchOverRemoteMCP(t *testing.T) {
+	agents := []string{"cursor", "devin", "pi", "opencode"}
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	iss := newTestIssuer(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.Header.Get("Authorization"))
+	}))
+	t.Cleanup(upstream.Close)
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddItem("pi-mail", upstream.URL+"/mail", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range agents {
+		if _, err := a.AddAgent(name); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.AddGrant(name, "stripe", "level2"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.BindWorkload(name, iss.URL, "agent-"+name, "password-manager"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := a.AddGrant("pi", "pi-mail", "level2"); err != nil {
+		t.Fatal(err)
+	}
+
+	public := "http://pwm.test/mcp"
+	ts := httptest.NewServer(Mux(a, public, iss.URL))
+	t.Cleanup(ts.Close)
+	endpoint := ts.URL + Path
+
+	meta, err := http.Get(ts.URL + "/.well-known/oauth-protected-resource")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer meta.Body.Close()
+	if meta.StatusCode != http.StatusOK {
+		t.Fatalf("metadata %d", meta.StatusCode)
+	}
+	body, err := io.ReadAll(meta.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(body, []byte(secret)) {
+		t.Fatal("metadata leaked secret")
+	}
+	if !bytes.Contains(body, []byte(iss.URL)) {
+		t.Fatalf("metadata missing issuer: %s", body)
+	}
+
+	unauth := httptest.NewRequest(http.MethodPost, endpoint, nil)
+	rec := httptest.NewRecorder()
+	Mux(a, public, iss.URL).ServeHTTP(rec, unauth)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no bearer: %d", rec.Code)
+	}
+
+	health, err := http.Get(ts.URL + "/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer health.Body.Close()
+	if health.StatusCode != http.StatusOK {
+		t.Fatalf("health %d", health.StatusCode)
+	}
+	healthBody, err := io.ReadAll(health.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(healthBody, []byte(secret)) {
+		t.Fatal("health leaked secret")
+	}
+
+	specRes, err := http.Get(ts.URL + "/openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer specRes.Body.Close()
+	if specRes.StatusCode != http.StatusOK {
+		t.Fatalf("openapi %d", specRes.StatusCode)
+	}
+	specBody, err := io.ReadAll(specRes.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(specBody, []byte(secret)) {
+		t.Fatal("openapi leaked secret")
+	}
+	if !bytes.Contains(specBody, []byte(`"useItem"`)) {
+		t.Fatalf("spec missing useItem: %s", specBody)
+	}
+
+	ctx := context.Background()
+	for _, name := range agents {
+		tok := iss.token(t, "agent-"+name, "password-manager")
+		cs := connect(t, ctx, endpoint, tok)
+		list, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_items"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if list.IsError {
+			t.Fatalf("%s list_items error: %+v", name, list)
+		}
+		listRaw, err := json.Marshal(list)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if scrub.Contains(listRaw, []byte(secret)) {
+			t.Fatalf("%s list_items leaked secret", name)
+		}
+		if !bytes.Contains(listRaw, []byte("stripe")) {
+			t.Fatalf("%s missing stripe: %s", name, listRaw)
+		}
+		if name != "pi" && bytes.Contains(listRaw, []byte("pi-mail")) {
+			t.Fatalf("%s saw pi-only item: %s", name, listRaw)
+		}
+		if name == "pi" && !bytes.Contains(listRaw, []byte("pi-mail")) {
+			t.Fatalf("pi missing pi-mail: %s", listRaw)
+		}
+
+		fetch, err := cs.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "fetch",
+			Arguments: FetchIn{Item: "stripe", URL: upstream.URL + "/v1"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fetch.IsError {
+			t.Fatalf("%s fetch error: %+v", name, fetch)
+		}
+		fetchRaw, err := json.Marshal(fetch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if scrub.Contains(fetchRaw, []byte(secret)) {
+			t.Fatalf("%s fetch leaked secret: %s", name, fetchRaw)
+		}
+		_ = cs.Close()
+	}
+}
+
+func TestRESTUsePOSTBodyDoesNotReturnSecret(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	iss := newTestIssuer(t)
+	var sawBody, sawType string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawType = r.Header.Get("Content-Type")
+		raw, _ := io.ReadAll(r.Body)
+		sawBody = string(raw)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", "level2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.BindWorkload("claude", iss.URL, "agent-claude", "password-manager"); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(Mux(a, "http://pwm.test/mcp", iss.URL))
+	t.Cleanup(ts.Close)
+	tok := iss.token(t, "agent-claude", "password-manager")
+	reqBody := `{"item":"stripe","url":"` + upstream.URL + `/v1","method":"POST","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"a@b.c\"}"}`
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/use", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	out, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", res.StatusCode, out)
+	}
+	if scrub.Contains(out, []byte(secret)) {
+		t.Fatalf("rest leaked secret: %s", out)
+	}
+	if sawType != "application/json" || sawBody != `{"email":"a@b.c"}` {
+		t.Fatalf("upstream type=%q body=%q", sawType, sawBody)
+	}
+	list, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/items", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list.Header.Set("Authorization", "Bearer "+tok)
+	listRes, err := http.DefaultClient.Do(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listRes.Body.Close()
+	listOut, err := io.ReadAll(listRes.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(listOut, []byte(secret)) {
+		t.Fatal("list leaked")
+	}
+	if !bytes.Contains(listOut, []byte("stripe")) {
+		t.Fatalf("%s", listOut)
+	}
+}
+
+func connect(t *testing.T, ctx context.Context, endpoint, tok string) *mcp.ClientSession {
+	t.Helper()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	cs, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:             endpoint,
+		DisableStandaloneSSE: true,
+		HTTPClient:           &http.Client{Transport: bearerTransport{tok: tok}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	return cs
+}
+
+type bearerTransport struct {
+	tok string
+}
+
+func (b bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r := req.Clone(req.Context())
+	r.Header.Set("Authorization", "Bearer "+b.tok)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+type testIssuer struct {
+	URL    string
+	key    *rsa.PrivateKey
+	server *httptest.Server
+}
+
+func newTestIssuer(t *testing.T) *testIssuer {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iss := &testIssuer{key: key}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(struct {
+			Issuer                           string   `json:"issuer"`
+			JWKSURI                          string   `json:"jwks_uri"`
+			AuthorizationEndpoint            string   `json:"authorization_endpoint"`
+			ResponseTypesSupported           []string `json:"response_types_supported"`
+			SubjectTypesSupported            []string `json:"subject_types_supported"`
+			IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
+		}{
+			Issuer:                           iss.URL,
+			JWKSURI:                          iss.URL + "/keys",
+			AuthorizationEndpoint:            iss.URL + "/auth",
+			ResponseTypesSupported:           []string{"id_token"},
+			SubjectTypesSupported:            []string{"public"},
+			IDTokenSigningAlgValuesSupported: []string{"RS256"},
+		})
+	})
+	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
+		set := jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
+			Key:       &key.PublicKey,
+			KeyID:     "test",
+			Algorithm: string(jose.RS256),
+			Use:       "sig",
+		}}}
+		_ = json.NewEncoder(w).Encode(set)
+	})
+	iss.server = httptest.NewServer(mux)
+	iss.URL = iss.server.URL
+	t.Cleanup(iss.server.Close)
+	return iss
+}
+
+func (i *testIssuer) token(t *testing.T, sub, aud string) string {
+	t.Helper()
+	sig, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: i.key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := jwt.Signed(sig).Claims(jwt.Claims{
+		Issuer:   i.URL,
+		Subject:  sub,
+		Audience: jwt.Audience{aud},
+		Expiry:   jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		IssuedAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+	}).Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

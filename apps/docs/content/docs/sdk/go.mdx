@@ -1,0 +1,35 @@
+---
+title: Go SDK
+description: Generated from the OpenAPI contract. Use injects. Never GetSecret.
+---
+
+# Go SDK
+
+```bash
+go get github.com/vortexnyc/pwm-go
+```
+
+```go
+import (
+	"context"
+	"os"
+
+	vortexpwm "github.com/vortexnyc/pwm-go"
+)
+
+cfg := vortexpwm.NewConfiguration()
+cfg.Host = "pwm.vortex.nyc"
+cfg.Scheme = "https"
+cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
+
+client := vortexpwm.NewAPIClient(cfg)
+_, _, _ = client.AgentAPI.ListItems(context.Background()).Execute()
+```
+
+## Local source
+
+- Generated package: `sdks/go`
+- Module path: `github.com/vortexnyc/pwm-go`
+- Generator: OpenAPI Generator
+
+Regenerate with `pnpm run sdk:generate`.
