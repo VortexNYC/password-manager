@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -337,7 +338,7 @@ func TestInstallOriginBakesOriginNotToken(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallOrigin(bin, vaultDir, user, "https://veil.nyc"); err != nil {
+	if err := InstallOrigin(ShimEnv{Bin: bin, VaultHome: vaultDir, UserHome: user, Origin: "https://veil.nyc"}); err != nil {
 		t.Fatal(err)
 	}
 	shim, err := os.ReadFile(filepath.Join(vaultDir, "native-host"))
@@ -388,6 +389,157 @@ func TestGetLoginsFromOrigin(t *testing.T) {
 	}
 	if got.Success != "true" || len(got.Entries) != 1 || got.Entries[0].Password != secret {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestGetLoginsRemintsAfter401(t *testing.T) {
+	var saw []string
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tok := r.Header.Get("Authorization")
+		saw = append(saw, tok)
+		if tok != "Bearer fresh" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"entries":[{"login":"stripe","name":"stripe","password":"sk_live_FILL_SECRET","uuid":"stripe"}]}`)
+	}))
+	t.Cleanup(origin.Close)
+	tok := "stale"
+	h := NewOrigin(t.TempDir(), origin.URL, "")
+	h.TokenFn = func() (string, error) { return tok, nil }
+	h.Refresh = func() (string, error) {
+		tok = "fresh"
+		return tok, nil
+	}
+	c := associated(t, h)
+	req, _ := json.Marshal(struct {
+		Action string     `json:"action"`
+		URL    string     `json:"url"`
+		Keys   []assocKey `json:"keys"`
+	}{Action: "get-logins", URL: "https://dashboard.stripe.com", Keys: []assocKey{{ID: assocID, Key: c.idKey}}})
+	var got loginReply
+	if err := json.Unmarshal(c.send(t, h, req), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Success != "true" || len(got.Entries) != 1 || got.Entries[0].Password != secret {
+		t.Fatalf("%+v saw %v", got, saw)
+	}
+	if len(saw) < 2 || saw[0] != "Bearer stale" || saw[len(saw)-1] != "Bearer fresh" {
+		t.Fatalf("refresh path %v", saw)
+	}
+}
+
+func TestConfirmDeniedDoesNotReturnPassword(t *testing.T) {
+	a := vault(t)
+	h := New(a)
+	h.Confirm = func(string) error { return errors.New("denied") }
+	c := associated(t, h)
+	req, _ := json.Marshal(struct {
+		Action string     `json:"action"`
+		URL    string     `json:"url"`
+		Keys   []assocKey `json:"keys"`
+	}{Action: "get-logins", URL: "https://dashboard.stripe.com", Keys: []assocKey{{ID: assocID, Key: c.idKey}}})
+	var got loginReply
+	if err := json.Unmarshal(c.send(t, h, req), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Success == "true" {
+		t.Fatalf("canceled fill succeeded %+v", got)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(secret)) {
+		t.Fatal("password left the host after cancel")
+	}
+}
+
+func TestConfirmDeniedDoesNotRegisterPasskey(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	h := New(a)
+	h.Confirm = func(string) error { return errors.New("denied") }
+	c := associated(t, h)
+	create, err := json.Marshal(map[string]any{
+		"action": "passkeys-register",
+		"origin": "https://github.com",
+		"publicKey": map[string]any{
+			"challenge": "dGVzdGNoYWxsZW5nZQ",
+			"rp":        map[string]string{"id": "github.com", "name": "GitHub"},
+			"user":      map[string]string{"id": "dXNlcg", "name": "ada", "displayName": "Ada"},
+			"pubKeyCredParams": []map[string]any{
+				{"type": "public-key", "alg": -7},
+			},
+		},
+		"keys": []assocKey{{ID: assocID, Key: c.idKey}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(c.send(t, h, create), &got); err != nil {
+		t.Fatal(err)
+	}
+	var inner struct {
+		ErrorCode int    `json:"errorCode"`
+		ID        string `json:"id"`
+	}
+	if err := json.Unmarshal(got.Response, &inner); err != nil {
+		t.Fatal(err)
+	}
+	if inner.ErrorCode != passkeysCanceled || inner.ID != "" {
+		t.Fatalf("%s", got.Response)
+	}
+	items, err := a.ItemsForPrincipal(protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("canceled register wrote %d items", len(items))
+	}
+}
+
+func TestInstallOriginBakesRemintPathsNotPassword(t *testing.T) {
+	user := t.TempDir()
+	vaultDir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "password-manager")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	passFile := filepath.Join(t.TempDir(), "kratos-pass")
+	if err := os.WriteFile(passFile, []byte("not-the-jwt-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallOrigin(ShimEnv{
+		Bin:          bin,
+		VaultHome:    vaultDir,
+		UserHome:     user,
+		Origin:       "https://veil.nyc",
+		LoginEmail:   "ada@veil.nyc",
+		PasswordFile: passFile,
+		TOTPFile:     "/tmp/totp-seed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	shim, err := os.ReadFile(filepath.Join(vaultDir, "native-host"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(shim, []byte("PWM_LOGIN_EMAIL=\"ada@veil.nyc\"")) {
+		t.Fatalf("%s", shim)
+	}
+	if !bytes.Contains(shim, []byte("PWM_KRATOS_PASSWORD_FILE=\""+passFile+"\"")) {
+		t.Fatalf("%s", shim)
+	}
+	if bytes.Contains(shim, []byte("not-the-jwt-secret")) {
+		t.Fatal("password in shim")
 	}
 }
 
@@ -593,12 +745,12 @@ func TestPasskeysFromOrigin(t *testing.T) {
 func envNoOrigin() []string {
 	var out []string
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "PWM_ORIGIN=") {
+		if strings.HasPrefix(e, "PWM_ORIGIN=") || strings.HasPrefix(e, "PWM_FILL_TOUCHID=") {
 			continue
 		}
 		out = append(out, e)
 	}
-	return out
+	return append(out, "PWM_FILL_TOUCHID=0")
 }
 
 func (c *client) handshakeProc(t *testing.T, in io.Writer, out io.Reader) {

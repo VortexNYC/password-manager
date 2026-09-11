@@ -33,6 +33,7 @@ const (
 const (
 	ErrNoLogins        = 15
 	ErrExcluded        = 21
+	ErrCanceled        = 22
 	ErrInvalidURL      = 25
 	ErrRPIDMismatch    = 28
 	ErrNoSupportedAlgs = 29
@@ -42,6 +43,7 @@ const (
 type Credential struct {
 	AuthenticatorAttachment string             `json:"authenticatorAttachment"`
 	ID                      string             `json:"id"`
+	RawID                   string             `json:"rawId"`
 	Type                    string             `json:"type"`
 	Response                CredentialResponse `json:"response"`
 }
@@ -174,6 +176,7 @@ func Register(origin string, publicKey json.RawMessage, existing []Record) (Cred
 	cred := Credential{
 		AuthenticatorAttachment: "platform",
 		ID:                      credB64,
+		RawID:                   credB64,
 		Type:                    "public-key",
 		Response: CredentialResponse{
 			AttestationObject:  b64url(att),
@@ -246,6 +249,7 @@ func Assert(origin string, publicKey json.RawMessage, recs []Record) (Credential
 	return Credential{
 		AuthenticatorAttachment: "platform",
 		ID:                      rec.CredID,
+		RawID:                   rec.CredID,
 		Type:                    "public-key",
 		Response: CredentialResponse{
 			AuthenticatorData: b64url(short),

@@ -33,11 +33,12 @@ import (
 )
 
 const (
-	Version        = "2.7.7"
-	NativeHostName = "org.keepassxc.keepassxc_browser"
-	maxMsg         = 1 << 20
-	assocFile      = "fill-assoc.json"
-	assocID        = "password-manager"
+	Version          = "2.7.7"
+	NativeHostName   = "org.keepassxc.keepassxc_browser"
+	maxMsg           = 1 << 20
+	assocFile        = "fill-assoc.json"
+	assocID          = "password-manager"
+	passkeysCanceled = 22
 )
 
 type Host struct {
@@ -45,6 +46,13 @@ type Host struct {
 	Dir    string
 	Origin string
 	Token  string
+	// TokenFn is called on every origin POST. CLI sets it to remint a
+	// stale human JWT. Token is the test stand-in.
+	TokenFn func() (string, error)
+	// Refresh is a forced remint after origin 401.
+	Refresh func() (string, error)
+	// Confirm is Touch ID (or a test fake) before a secret leaves the host.
+	Confirm func(reason string) error
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -230,19 +238,39 @@ func (h *Host) encrypted(env envelope) []byte {
 		if !h.knownKey(inner.Keys) {
 			return h.reply(s, nonce, action, mustJSON(failMap("not associated")))
 		}
-		return h.reply(s, nonce, action, mustJSON(h.logins(inner.URL)))
+		got := h.logins(inner.URL)
+		if len(got.Entries) > 0 {
+			if err := h.confirm("Veil wants to fill a password"); err != nil {
+				got = loginReply{Count: "0", Entries: []loginEntry{}, Success: "false", Hash: h.hash(), Version: Version}
+			}
+		}
+		return h.reply(s, nonce, action, mustJSON(got))
 	case "get-totp":
 		body = h.totp(inner.UUID)
+		if body["success"] == "true" {
+			if err := h.confirm("Veil wants to fill a verification code"); err != nil {
+				body = failMap("canceled")
+			}
+		}
 	case "passkeys-register":
 		if !h.knownKey(inner.Keys) {
 			return h.reply(s, nonce, action, mustJSON(failMap("not associated")))
+		}
+		if err := h.confirm("Veil wants to save a passkey"); err != nil {
+			return h.reply(s, nonce, action, h.passkeyErr(passkeysCanceled))
 		}
 		return h.reply(s, nonce, action, h.passkeysRegister(inner.Origin, inner.PublicKey, inner.RelatedOrigins))
 	case "passkeys-get":
 		if !h.knownKey(inner.Keys) {
 			return h.reply(s, nonce, action, mustJSON(failMap("not associated")))
 		}
-		return h.reply(s, nonce, action, h.passkeysGet(inner.Origin, inner.PublicKey))
+		raw := h.passkeysGet(inner.Origin, inner.PublicKey)
+		if !passkeyIsError(raw) {
+			if err := h.confirm("Veil wants to use a passkey"); err != nil {
+				raw = h.passkeyErr(passkeysCanceled)
+			}
+		}
+		return h.reply(s, nonce, action, raw)
 	default:
 		body = failMap("unknown action")
 	}
@@ -491,25 +519,80 @@ func (h *Host) passkeyErr(code int) []byte {
 }
 
 func (h *Host) originPOST(path string, body []byte) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodPost, h.Origin+path, bytes.NewReader(body))
+	tok, err := h.bearer()
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+h.Token)
+	raw, code, err := h.originDo(path, body, tok)
+	if err != nil {
+		return nil, err
+	}
+	if code == http.StatusUnauthorized && h.Refresh != nil {
+		tok, err = h.Refresh()
+		if err != nil {
+			return nil, err
+		}
+		raw, code, err = h.originDo(path, body, tok)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if code < 200 || code >= 300 {
+		return nil, fmt.Errorf("fill origin: http %d", code)
+	}
+	return raw, nil
+}
+
+func (h *Host) originDo(path string, body []byte, tok string) ([]byte, int, error) {
+	req, err := http.NewRequest(http.MethodPost, h.Origin+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return nil, res.StatusCode, err
 	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("fill origin: http %d", res.StatusCode)
+	return raw, res.StatusCode, nil
+}
+
+func (h *Host) bearer() (string, error) {
+	if h.TokenFn != nil {
+		return h.TokenFn()
 	}
-	return raw, nil
+	if h.Token != "" {
+		return h.Token, nil
+	}
+	return "", fmt.Errorf("fill: no human token")
+}
+
+func (h *Host) confirm(reason string) error {
+	if h.Confirm == nil {
+		return nil
+	}
+	return h.Confirm(reason)
+}
+
+func passkeyIsError(raw []byte) bool {
+	var wrap struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if json.Unmarshal(raw, &wrap) != nil || len(wrap.Response) == 0 {
+		return true
+	}
+	var inner struct {
+		ErrorCode int `json:"errorCode"`
+	}
+	if json.Unmarshal(wrap.Response, &inner) != nil {
+		return true
+	}
+	return inner.ErrorCode != 0
 }
 
 func (h *Host) knownKey(keys []assocKey) bool {
@@ -714,24 +797,38 @@ func ManifestFirefox(hostPath string) []byte {
 }
 
 func Shim(bin, home string) string {
-	return ShimOrigin(bin, home, "", "")
+	return FormatShim(ShimEnv{Bin: bin, VaultHome: home})
+}
+
+type ShimEnv struct {
+	Bin, VaultHome, UserHome, Origin   string
+	LoginEmail, PasswordFile, TOTPFile string
 }
 
 func ShimOrigin(bin, vaultHome, userHome, origin string) string {
+	return FormatShim(ShimEnv{Bin: bin, VaultHome: vaultHome, UserHome: userHome, Origin: origin})
+}
+
+func FormatShim(env ShimEnv) string {
 	esc := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
-	if userHome != "" {
-		b.WriteString("export HOME=\"" + esc(userHome) + "\"\n")
+	if env.UserHome != "" {
+		b.WriteString("export HOME=\"" + esc(env.UserHome) + "\"\n")
 	}
-	if origin != "" {
-		b.WriteString("export PWM_ORIGIN=\"" + esc(origin) + "\"\n")
+	if env.Origin != "" {
+		b.WriteString("export PWM_ORIGIN=\"" + esc(env.Origin) + "\"\n")
 		token := "$HOME/.config/vortex/pwm-human.jwt"
-		if userHome != "" {
-			token = userHome + "/.config/vortex/pwm-human.jwt"
+		if env.UserHome != "" {
+			token = env.UserHome + "/.config/vortex/pwm-human.jwt"
 		}
 		b.WriteString("export PWM_HUMAN_TOKEN_FILE=\"" + esc(token) + "\"\n")
+		if env.LoginEmail != "" && env.PasswordFile != "" && env.TOTPFile != "" {
+			b.WriteString("export PWM_LOGIN_EMAIL=\"" + esc(env.LoginEmail) + "\"\n")
+			b.WriteString("export PWM_KRATOS_PASSWORD_FILE=\"" + esc(env.PasswordFile) + "\"\n")
+			b.WriteString("export PWM_KRATOS_TOTP_FILE=\"" + esc(env.TOTPFile) + "\"\n")
+		}
 	}
-	b.WriteString("exec \"" + esc(bin) + "\" fill --home \"" + esc(vaultHome) + "\"\n")
+	b.WriteString("exec \"" + esc(env.Bin) + "\" fill --home \"" + esc(env.VaultHome) + "\"\n")
 	return b.String()
 }

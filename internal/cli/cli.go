@@ -22,6 +22,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/identity/glue"
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/confirm"
 	"github.com/vortexnyc/password-manager/internal/device"
 	"github.com/vortexnyc/password-manager/internal/fill"
 	"github.com/vortexnyc/password-manager/internal/human"
@@ -1266,15 +1267,28 @@ func fillCmd(home *string) *cobra.Command {
 				if err := os.MkdirAll(dir, 0o700); err != nil {
 					return err
 				}
-				tok, _ := originHumanToken()
-				return fill.NewOrigin(dir, originBase(), tok).Serve(os.Stdin, os.Stdout)
+				if _, err := originHumanTokenLive(cmd.Context()); err != nil {
+					return err
+				}
+				h := fill.NewOrigin(dir, originBase(), "")
+				h.TokenFn = func() (string, error) {
+					return originHumanTokenLive(cmd.Context())
+				}
+				h.Refresh = func() (string, error) {
+					out := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE"))
+					return remintHumanHTTP(cmd.Context(), out)
+				}
+				attachFillConfirm(h)
+				return h.Serve(os.Stdin, os.Stdout)
 			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
-			return fill.New(a).Serve(os.Stdin, os.Stdout)
+			h := fill.New(a)
+			attachFillConfirm(h)
+			return h.Serve(os.Stdin, os.Stdout)
 		},
 	}
 	c.AddCommand(&cobra.Command{
@@ -1297,7 +1311,16 @@ func fillCmd(home *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := fill.InstallOrigin(bin, dir, user, origin); err != nil {
+			env := fill.ShimEnv{
+				Bin:          bin,
+				VaultHome:    dir,
+				UserHome:     user,
+				Origin:       origin,
+				LoginEmail:   strings.TrimSpace(os.Getenv("PWM_LOGIN_EMAIL")),
+				PasswordFile: strings.TrimSpace(os.Getenv("PWM_KRATOS_PASSWORD_FILE")),
+				TOTPFile:     strings.TrimSpace(os.Getenv("PWM_KRATOS_TOTP_FILE")),
+			}
+			if err := fill.InstallOrigin(env); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), fill.NativeHostName)
@@ -1501,4 +1524,10 @@ func trimNL(b []byte) []byte {
 		b = b[:len(b)-1]
 	}
 	return b
+}
+
+func attachFillConfirm(h *fill.Host) {
+	if confirm.Enabled() {
+		h.Confirm = confirm.TouchID
+	}
 }
