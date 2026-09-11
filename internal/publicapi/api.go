@@ -62,7 +62,8 @@ type UpdateItemRequest struct {
 }
 
 type CreateGrantRequest struct {
-	Agent   string `json:"agent"`
+	Agent   string `json:"agent,omitempty"`
+	Human   string `json:"human,omitempty"`
 	Item    string `json:"item"`
 	Level   string `json:"level"`
 	Expires string `json:"expires,omitempty"`
@@ -230,11 +231,33 @@ func (s *Server) listGrants(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireHuman(w, r); !ok {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return
+	}
+	ok, err := s.App.CanCreateGrant(p)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	var in CreateGrantRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if strings.Contains(in.Human, "@") {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	grantee := strings.TrimSpace(in.Agent)
+	human := strings.TrimSpace(in.Human)
+	switch {
+	case grantee != "" && human != "":
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	case human != "":
+		grantee = human
+	case grantee == "":
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -248,7 +271,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) {
 		t := time.Now().Add(d)
 		until = &t
 	}
-	g, err := s.App.GrantUntil(in.Agent, in.Item, protocol.GrantLevel(in.Level), until)
+	g, err := s.App.GrantUntil(grantee, in.Item, protocol.GrantLevel(in.Level), until)
 	if err != nil {
 		http.Error(w, "grant failed", http.StatusBadRequest)
 		return

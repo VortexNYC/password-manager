@@ -54,7 +54,7 @@
       "get": {
         "operationId": "listItems",
         "tags": ["Agent"],
-        "summary": "Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.",
+        "summary": "Items this principal may see. Agent: granted. Human owner: the org. Human member: granted. Names and URIs. Never secrets.",
         "responses": {
           "200": {
             "description": "Items",
@@ -176,7 +176,7 @@
       "post": {
         "operationId": "createGrant",
         "tags": ["Owner"],
-        "summary": "Grant an agent Use on an item. Not MCP.",
+        "summary": "Grant an agent or a Kratos human Use on an item. Same grant object. Not MCP. Not a family vault.",
         "requestBody": {
           "required": true,
           "content": {
@@ -375,9 +375,10 @@
       "CreateGrantRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["agent", "item", "level"],
+        "required": ["item", "level"],
         "properties": {
-          "agent": { "type": "string" },
+          "agent": { "type": "string", "description": "Agent id. XOR human." },
+          "human": { "type": "string", "description": "Kratos identity id. Same Grant.agent_id. Not email. XOR agent." },
           "item": { "type": "string" },
           "level": { "type": "string", "enum": ["level1", "level2"] },
           "expires": { "type": "string", "description": "Go duration. Empty is forever." }

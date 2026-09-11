@@ -57,8 +57,8 @@ paths:
           description: Items
         "401":
           description: missing or invalid Bearer
-      summary: "Items this principal may see. Agent: granted. Human: the org. Names\
-        \ and URIs. Never secrets."
+      summary: "Items this principal may see. Agent: granted. Human owner: the org.\
+        \ Human member: granted. Names and URIs. Never secrets."
       tags:
       - Agent
     post:
@@ -202,7 +202,8 @@ paths:
           description: missing or invalid Bearer
         "403":
           description: agent cannot create grants
-      summary: Grant an agent Use on an item. Not MCP.
+      summary: Grant an agent or a Kratos human Use on an item. Same grant object.
+        Not MCP. Not a family vault.
       tags:
       - Owner
   /v1/use:
@@ -566,11 +567,16 @@ components:
       additionalProperties: false
       example:
         agent: agent
+        human: human
         item: item
         level: level1
         expires: expires
       properties:
         agent:
+          description: Agent id. XOR human.
+          type: string
+        human:
+          description: Kratos identity id. Same Grant.agent_id. Not email. XOR agent.
           type: string
         item:
           type: string
@@ -583,7 +589,6 @@ components:
           description: Go duration. Empty is forever.
           type: string
       required:
-      - agent
       - item
       - level
     Grant:

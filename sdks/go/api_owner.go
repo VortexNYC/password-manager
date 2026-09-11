@@ -129,7 +129,7 @@ func (r OwnerAPICreateGrantRequest) Execute() (*Grant, *http.Response, error) {
 }
 
 /*
-CreateGrant Grant an agent Use on an item. Not MCP.
+CreateGrant Grant an agent or a Kratos human Use on an item. Same grant object. Not MCP. Not a family vault.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @return OwnerAPICreateGrantRequest

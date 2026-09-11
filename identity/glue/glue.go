@@ -147,6 +147,22 @@ func (g *Glue) IsMember(ctx context.Context, identityID string) (bool, error) {
 	return g.members.IsMember(ctx, identityID)
 }
 
+func (g *Glue) IsOwner(ctx context.Context, identityID string) (bool, error) {
+	if g.members == nil {
+		return false, fmt.Errorf("glue: keto is required")
+	}
+	return g.members.IsOwner(ctx, identityID)
+}
+
+// IdentityID is the Kratos id for an email. CLI grant --human. Broker never
+// calls this. Email stays in Kratos.
+func (g *Glue) IdentityID(ctx context.Context, email string) (string, error) {
+	if g.humans == nil {
+		return "", fmt.Errorf("glue: kratos admin is required")
+	}
+	return g.humans.IdentityByEmail(ctx, email, g.org())
+}
+
 func (g *Glue) addOrgMember(ctx context.Context, identityID string) error {
 	if g.members == nil {
 		return nil

@@ -1066,6 +1066,84 @@ func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
 	}
 }
 
+func TestCLIGrantHumanXORAgent(t *testing.T) {
+	cmd := New("test")
+	for _, c := range cmd.Commands() {
+		if c.Name() != "grant" {
+			continue
+		}
+		for _, sub := range c.Commands() {
+			if sub.Name() != "add" {
+				continue
+			}
+			if sub.Flags().Lookup("human") == nil {
+				t.Fatal("missing --human")
+			}
+			if sub.Flags().Lookup("agent") == nil {
+				t.Fatal("missing --agent")
+			}
+			home := t.TempDir()
+			out, err := run(t, home, "", "init")
+			if err != nil {
+				t.Fatal(err, out)
+			}
+			out, err = run(t, home, "", "grant", "add", "--item", "github", "--level", "level2")
+			if err == nil {
+				t.Fatalf("neither agent nor human: %s", out)
+			}
+			out, err = run(t, home, "", "grant", "add", "--agent", "claude", "--human", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "--item", "github", "--level", "level2")
+			if err == nil {
+				t.Fatalf("both: %s", out)
+			}
+			return
+		}
+	}
+	t.Fatal("missing grant add")
+}
+
+func TestCLIOriginHumanGrant(t *testing.T) {
+	const member = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	var sawHuman bool
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer jwt-not-a-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/grants" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		if bytes.Contains(raw, []byte(`"agent"`)) && bytes.Contains(raw, []byte("claude")) {
+			t.Fatal("human grant posted agent")
+		}
+		if !bytes.Contains(raw, []byte(member)) || !bytes.Contains(raw, []byte(`"human"`)) {
+			t.Fatalf("origin grant body %s", raw)
+		}
+		sawHuman = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"`+member+`:github","org_id":"org","agent_id":"`+member+`","item_id":"github","level":"level2"}`)
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	home := t.TempDir()
+	out, err := run(t, home, "", "grant", "add", "--human", member, "--item", "github", "--level", "level2")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !sawHuman {
+		t.Fatal("did not hit origin POST /v1/grants")
+	}
+	if !strings.Contains(out, member) {
+		t.Fatalf("cli %s", out)
+	}
+}
+
 func TestCLIOriginRefusesSecondVault(t *testing.T) {
 	t.Setenv("PWM_ORIGIN", "https://veil.nyc")
 	home := t.TempDir()

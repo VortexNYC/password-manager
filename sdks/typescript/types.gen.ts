@@ -105,7 +105,14 @@ export type UpdateItemRequest = {
 };
 
 export type CreateGrantRequest = {
-    agent: string;
+    /**
+     * Agent id. XOR human.
+     */
+    agent?: string;
+    /**
+     * Kratos identity id. Same Grant.agent_id. Not email. XOR agent.
+     */
+    human?: string;
     item: string;
     level: 'level1' | 'level2';
     /**

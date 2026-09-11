@@ -97,6 +97,38 @@ func (c *Client) List(ctx context.Context, orgID string) ([]string, error) {
 	return out, nil
 }
 
+func emailTrait(traits any) string {
+	m, ok := traits.(map[string]any)
+	if !ok {
+		return ""
+	}
+	e, _ := m["email"].(string)
+	return strings.TrimSpace(e)
+}
+
+func (c *Client) IdentityByEmail(ctx context.Context, email, orgID string) (string, error) {
+	if c == nil || c.admin == nil {
+		return "", fmt.Errorf("kratos: admin is required")
+	}
+	email = strings.TrimSpace(email)
+	if !strings.Contains(email, "@") || strings.ContainsAny(email, " \t\n") {
+		return "", fmt.Errorf("kratos: email")
+	}
+	ids, _, err := c.admin.IdentityAPI.ListIdentities(ctx).OrganizationId(orgID).Execute()
+	if err != nil {
+		return "", fmt.Errorf("kratos: list identities: %w", err)
+	}
+	for _, id := range ids {
+		if id.GetId() == "" {
+			continue
+		}
+		if emailTrait(id.GetTraits()) == email {
+			return id.GetId(), nil
+		}
+	}
+	return "", fmt.Errorf("kratos: identity not found")
+}
+
 func (c *Client) Organization(ctx context.Context, identityID string) (string, error) {
 	if c == nil || c.admin == nil {
 		return "", fmt.Errorf("kratos: admin is required")

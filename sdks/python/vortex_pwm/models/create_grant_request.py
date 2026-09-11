@@ -27,11 +27,12 @@ class CreateGrantRequest(BaseModel):
     """
     CreateGrantRequest
     """ # noqa: E501
-    agent: StrictStr
+    agent: Optional[StrictStr] = Field(default=None, description="Agent id. XOR human.")
+    human: Optional[StrictStr] = Field(default=None, description="Kratos identity id. Same Grant.agent_id. Not email. XOR agent.")
     item: StrictStr
     level: StrictStr
     expires: Optional[StrictStr] = Field(default=None, description="Go duration. Empty is forever.")
-    __properties: ClassVar[List[str]] = ["agent", "item", "level", "expires"]
+    __properties: ClassVar[List[str]] = ["agent", "human", "item", "level", "expires"]
 
     @field_validator('level')
     def level_validate_enum(cls, value):
@@ -92,6 +93,7 @@ class CreateGrantRequest(BaseModel):
 
         _obj = cls.model_validate({
             "agent": obj.get("agent"),
+            "human": obj.get("human"),
             "item": obj.get("item"),
             "level": obj.get("level"),
             "expires": obj.get("expires")

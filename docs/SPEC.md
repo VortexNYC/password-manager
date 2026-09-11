@@ -148,9 +148,10 @@ The next slices, in this order, and nothing else until each is proven:
                          so a human unlocking Veil is not password+email
                          only. lookup_secret is the backup. Ory Elements
                          settings/login. Not a DIY MFA.
-29 human grants           not written. family / small team: grant an item
+29 human grants           written. family / small team: grant an item
                          to another Kratos human. Same grant object.
-                         not a family vault. not collections.
+                         `grant add --human`. fill/list is owned or
+                         granted. not a family vault. not collections.
 30 SPA vault              not written. Cloudflare. shadcn from Core.
                          every human option: items, grants, agents,
                          invites, audit, settings. not Ory Elements.
@@ -638,6 +639,7 @@ Do not scaffold slices 30–36 until 26 is proven. Do not scaffold Native SDK, T
 - [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 - [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
+- [x] Human grants are the same grant object. `grant add --human` XOR `--agent`. CreateGrantRequest.human is a Kratos identity id, not email. Org owner fill/list is the vault; a member fills only granted items. Not a family vault. Not collections. Not Keto tuples.
 
 ## Use what exists. Do not rewrite it.
 

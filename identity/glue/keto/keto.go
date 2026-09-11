@@ -97,6 +97,10 @@ func (c *Client) IsMember(ctx context.Context, identityID string) (bool, error) 
 	return c.Allowed(ctx, RelMembers, identityID)
 }
 
+func (c *Client) IsOwner(ctx context.Context, identityID string) (bool, error) {
+	return c.Allowed(ctx, RelOwners, identityID)
+}
+
 func (c *Client) RequireOwner(ctx context.Context, actor string) error {
 	if !c.On() {
 		return nil

@@ -32,9 +32,10 @@ const (
 	cfgFile      = "config.json"
 )
 
-// MemberCheck is identity-plane membership. Keto via glue. Not grants.
+// MemberCheck is identity-plane owner/member. Keto via glue. Not grants.
 type MemberCheck interface {
 	IsMember(ctx context.Context, identityID string) (bool, error)
+	IsOwner(ctx context.Context, identityID string) (bool, error)
 }
 
 var ErrExists = errors.New("app: vault already exists")
@@ -388,9 +389,32 @@ func (a *App) PrincipalFromOIDC(ctx context.Context, rawToken string) (protocol.
 	return p, nil
 }
 
+func (a *App) ownsVault(p protocol.Principal) (bool, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return false, nil
+	}
+	if p.ID == a.HumanID {
+		return true, nil
+	}
+	if a.Members == nil {
+		return false, nil
+	}
+	return a.Members.IsOwner(context.Background(), p.ID)
+}
+
+func (a *App) CanCreateGrant(p protocol.Principal) (bool, error) {
+	return a.ownsVault(p)
+}
+
 func (a *App) ItemsForPrincipal(p protocol.Principal) ([]protocol.Item, error) {
 	if p.Kind == protocol.PrincipalHuman {
-		return a.Store.ListItems()
+		ok, err := a.ownsVault(p)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return a.Store.ListItems()
+		}
 	}
 	return a.ItemsForAgent(p.ID)
 }
@@ -444,6 +468,9 @@ func (a *App) FillTOTP(p protocol.Principal, itemID string, now time.Time) (stri
 	if p.Kind != protocol.PrincipalHuman {
 		return "", fmt.Errorf("app: fill is human")
 	}
+	if !a.mayFillItem(p, itemID) {
+		return "", fmt.Errorf("app: no totp")
+	}
 	item, err := a.Store.Item(itemID)
 	if err != nil || !item.HasTOTP {
 		return "", fmt.Errorf("app: no totp")
@@ -464,19 +491,32 @@ func (a *App) AddGrant(agentID, itemID string, level protocol.GrantLevel) (proto
 	return a.GrantUntil(agentID, itemID, level, nil)
 }
 
-func (a *App) GrantUntil(agentID, itemID string, level protocol.GrantLevel, expires *time.Time) (protocol.Grant, error) {
-	if !id.Valid(agentID) || !id.Valid(itemID) {
+func (a *App) GrantUntil(grantee, itemID string, level protocol.GrantLevel, expires *time.Time) (protocol.Grant, error) {
+	if !id.Principal(grantee) || !id.Valid(itemID) {
 		return protocol.Grant{}, fmt.Errorf("app: invalid agent or item")
 	}
 	if level != protocol.Level1 && level != protocol.Level2 {
 		return protocol.Grant{}, fmt.Errorf("app: level must be level1 or level2")
 	}
-	agent, err := a.Store.Agent(agentID)
-	if err != nil {
+	agent, err := a.Store.Agent(grantee)
+	switch {
+	case err == nil:
+		if agent.Owner.ID != "" && agent.Owner.ID != a.HumanID {
+			return protocol.Grant{}, fmt.Errorf("app: not the owner")
+		}
+	case errors.Is(err, store.ErrNotFound):
+		if a.Members == nil {
+			return protocol.Grant{}, fmt.Errorf("app: unknown grantee")
+		}
+		ok, merr := a.Members.IsMember(context.Background(), grantee)
+		if merr != nil {
+			return protocol.Grant{}, merr
+		}
+		if !ok {
+			return protocol.Grant{}, fmt.Errorf("app: unknown grantee")
+		}
+	default:
 		return protocol.Grant{}, err
-	}
-	if agent.Owner.ID != "" && agent.Owner.ID != a.HumanID {
-		return protocol.Grant{}, fmt.Errorf("app: not the owner")
 	}
 	item, err := a.Store.Item(itemID)
 	if err != nil {
@@ -486,9 +526,9 @@ func (a *App) GrantUntil(agentID, itemID string, level protocol.GrantLevel, expi
 		return protocol.Grant{}, fmt.Errorf("app: item archived")
 	}
 	g := protocol.Grant{
-		ID:        id.Grant(agentID, itemID),
+		ID:        id.Grant(grantee, itemID),
 		OrgID:     a.OrgID,
-		AgentID:   agentID,
+		AgentID:   grantee,
 		ItemID:    itemID,
 		Level:     level,
 		Actions:   []protocol.ActionKind{protocol.ActionFetch},
@@ -646,9 +686,13 @@ func (a *App) ItemsForAgent(agentID string) ([]protocol.Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
 	var out []protocol.Item
 	for _, g := range grants {
 		if g.AgentID != agentID {
+			continue
+		}
+		if g.ExpiresAt != nil && !now.Before(*g.ExpiresAt) {
 			continue
 		}
 		item, err := a.Store.Item(g.ItemID)
@@ -661,4 +705,17 @@ func (a *App) ItemsForAgent(agentID string) ([]protocol.Item, error) {
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+func (a *App) mayFillItem(p protocol.Principal, itemID string) bool {
+	items, err := a.ItemsForPrincipal(p)
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		if item.ID == itemID {
+			return true
+		}
+	}
+	return false
 }

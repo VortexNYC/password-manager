@@ -584,3 +584,114 @@ func TestFillLoginsUsesEnvelopeLoginNotName(t *testing.T) {
 		t.Fatal("item list leaked login")
 	}
 }
+
+const familyHuman = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+type fakeMembers struct {
+	owners  map[string]bool
+	members map[string]bool
+}
+
+func (f fakeMembers) IsMember(_ context.Context, id string) (bool, error) {
+	return f.members[id], nil
+}
+
+func (f fakeMembers) IsOwner(_ context.Context, id string) (bool, error) {
+	return f.owners[id], nil
+}
+
+func TestHumanGrantFillIsNotAFamilyVault(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	a.Members = fakeMembers{
+		members: map[string]bool{familyHuman: true, "cccccccc-cccc-4ccc-8ccc-cccccccccccc": true},
+		owners:  map[string]bool{},
+	}
+	if _, err := a.AddItem("stripe", "https://dashboard.stripe.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(ItemOpts{
+		Name:     "gmail",
+		URI:      "https://accounts.google.com",
+		Token:    []byte(secret),
+		TOTPSeed: []byte("JBSWY3DPEHPK3PXP"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	member := protocol.Principal{Kind: protocol.PrincipalHuman, ID: familyHuman, OrgID: a.OrgID}
+	stranger := protocol.Principal{Kind: protocol.PrincipalHuman, ID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", OrgID: a.OrgID}
+	got, err := a.FillLogins(owner, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Password != secret {
+		t.Fatalf("owner fill %+v", got)
+	}
+	got, err = a.FillLogins(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("member without grant is a family vault: %+v", got)
+	}
+	if _, err := a.GrantUntil(familyHuman, "stripe", protocol.Level2, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.FillLogins(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Password != secret || got[0].Name != "stripe" {
+		t.Fatalf("granted fill %+v", got)
+	}
+	listed, err := a.ItemsForPrincipal(member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("member list leaked secret")
+	}
+	if len(listed) != 1 || listed[0].Name != "stripe" {
+		t.Fatalf("member list %+v", listed)
+	}
+	got, err = a.FillLogins(stranger, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ungranted member %+v", got)
+	}
+	if _, err := a.FillTOTP(member, "gmail", time.Now()); err == nil {
+		t.Fatal("totp without grant")
+	}
+	if _, err := a.GrantUntil(familyHuman, "gmail", protocol.Level2, nil); err != nil {
+		t.Fatal(err)
+	}
+	code, err := a.FillTOTP(member, "gmail", time.Now())
+	if err != nil || len(code) != 6 {
+		t.Fatalf("granted totp %q %v", code, err)
+	}
+	past := time.Now().Add(-time.Second)
+	if _, err := a.GrantUntil(familyHuman, "stripe", protocol.Level2, &past); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.FillLogins(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expired grant %+v", got)
+	}
+	if _, err := a.GrantUntil("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "stripe", protocol.Level2, nil); err == nil {
+		t.Fatal("granted to non-member")
+	}
+}

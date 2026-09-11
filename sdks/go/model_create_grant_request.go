@@ -21,7 +21,10 @@ var _ MappedNullable = &CreateGrantRequest{}
 
 // CreateGrantRequest struct for CreateGrantRequest
 type CreateGrantRequest struct {
-	Agent string `json:"agent"`
+	// Agent id. XOR human.
+	Agent *string `json:"agent,omitempty"`
+	// Kratos identity id. Same Grant.agent_id. Not email. XOR agent.
+	Human *string `json:"human,omitempty"`
 	Item string `json:"item"`
 	Level string `json:"level"`
 	// Go duration. Empty is forever.
@@ -34,9 +37,8 @@ type _CreateGrantRequest CreateGrantRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewCreateGrantRequest(agent string, item string, level string) *CreateGrantRequest {
+func NewCreateGrantRequest(item string, level string) *CreateGrantRequest {
 	this := CreateGrantRequest{}
-	this.Agent = agent
 	this.Item = item
 	this.Level = level
 	return &this
@@ -50,28 +52,68 @@ func NewCreateGrantRequestWithDefaults() *CreateGrantRequest {
 	return &this
 }
 
-// GetAgent returns the Agent field value
+// GetAgent returns the Agent field value if set, zero value otherwise.
 func (o *CreateGrantRequest) GetAgent() string {
-	if o == nil {
+	if o == nil || IsNil(o.Agent) {
 		var ret string
 		return ret
 	}
-
-	return o.Agent
+	return *o.Agent
 }
 
-// GetAgentOk returns a tuple with the Agent field value
+// GetAgentOk returns a tuple with the Agent field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *CreateGrantRequest) GetAgentOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.Agent) {
 		return nil, false
 	}
-	return &o.Agent, true
+	return o.Agent, true
 }
 
-// SetAgent sets field value
+// HasAgent returns a boolean if a field has been set.
+func (o *CreateGrantRequest) HasAgent() bool {
+	if o != nil && !IsNil(o.Agent) {
+		return true
+	}
+
+	return false
+}
+
+// SetAgent gets a reference to the given string and assigns it to the Agent field.
 func (o *CreateGrantRequest) SetAgent(v string) {
-	o.Agent = v
+	o.Agent = &v
+}
+
+// GetHuman returns the Human field value if set, zero value otherwise.
+func (o *CreateGrantRequest) GetHuman() string {
+	if o == nil || IsNil(o.Human) {
+		var ret string
+		return ret
+	}
+	return *o.Human
+}
+
+// GetHumanOk returns a tuple with the Human field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CreateGrantRequest) GetHumanOk() (*string, bool) {
+	if o == nil || IsNil(o.Human) {
+		return nil, false
+	}
+	return o.Human, true
+}
+
+// HasHuman returns a boolean if a field has been set.
+func (o *CreateGrantRequest) HasHuman() bool {
+	if o != nil && !IsNil(o.Human) {
+		return true
+	}
+
+	return false
+}
+
+// SetHuman gets a reference to the given string and assigns it to the Human field.
+func (o *CreateGrantRequest) SetHuman(v string) {
+	o.Human = &v
 }
 
 // GetItem returns the Item field value
@@ -164,7 +206,12 @@ func (o CreateGrantRequest) MarshalJSON() ([]byte, error) {
 
 func (o CreateGrantRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["agent"] = o.Agent
+	if !IsNil(o.Agent) {
+		toSerialize["agent"] = o.Agent
+	}
+	if !IsNil(o.Human) {
+		toSerialize["human"] = o.Human
+	}
 	toSerialize["item"] = o.Item
 	toSerialize["level"] = o.Level
 	if !IsNil(o.Expires) {
@@ -178,7 +225,6 @@ func (o *CreateGrantRequest) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"agent",
 		"item",
 		"level",
 	}

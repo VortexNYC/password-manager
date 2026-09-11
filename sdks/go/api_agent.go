@@ -323,7 +323,7 @@ func (r AgentAPIListItemsRequest) Execute() (*ItemsResponse, *http.Response, err
 }
 
 /*
-ListItems Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.
+ListItems Items this principal may see. Agent: granted. Human owner: the org. Human member: granted. Names and URIs. Never secrets.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @return AgentAPIListItemsRequest

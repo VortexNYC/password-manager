@@ -353,12 +353,17 @@ func originItemDelete(cmd *cobra.Command, name string) error {
 	return encode(cmd, out)
 }
 
-func originGrantAdd(cmd *cobra.Command, agent, item, level string, expires time.Duration) error {
+func originGrantAdd(cmd *cobra.Command, grantee, item, level string, expires time.Duration, asHuman bool) error {
 	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
-	in := publicapi.CreateGrantRequest{Agent: agent, Item: item, Level: level}
+	in := publicapi.CreateGrantRequest{Item: item, Level: level}
+	if asHuman {
+		in.Human = grantee
+	} else {
+		in.Agent = grantee
+	}
 	if expires > 0 {
 		in.Expires = expires.String()
 	}

@@ -32,6 +32,8 @@ func identity(tok string) func(context.Context, string) (protocol.Principal, err
 		switch raw {
 		case "human":
 			return protocol.Principal{Kind: protocol.PrincipalHuman, ID: "self", OrgID: protocol.LocalOrgID}, nil
+		case "member":
+			return protocol.Principal{Kind: protocol.PrincipalHuman, ID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", OrgID: protocol.LocalOrgID}, nil
 		case "agent":
 			return protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: protocol.LocalOrgID}, nil
 		default:
@@ -221,5 +223,91 @@ func TestFillLoginIsUsernameNotName(t *testing.T) {
 	}
 	if len(got.Entries) != 1 || got.Entries[0].Login != "other@example.com" || got.Entries[0].Password != secret {
 		t.Fatalf("update rotated or missed login: %+v", got)
+	}
+}
+
+type fakeMembers struct {
+	owners  map[string]bool
+	members map[string]bool
+}
+
+func (f fakeMembers) IsMember(_ context.Context, id string) (bool, error) {
+	return f.members[id], nil
+}
+
+func (f fakeMembers) IsOwner(_ context.Context, id string) (bool, error) {
+	return f.owners[id], nil
+}
+
+func TestHumanGrantAPI(t *testing.T) {
+	const member = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	a := testApp(t)
+	a.Members = fakeMembers{members: map[string]bool{member: true}}
+	if _, err := a.AddItem("github", "https://api.github.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "member", FillLoginsRequest{URL: "https://api.github.com/user"})
+	if code != http.StatusOK {
+		t.Fatalf("member fill before grant %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("member filled without grant")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/grants", "member", CreateGrantRequest{
+		Human: member,
+		Item:  "github",
+		Level: "level2",
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("member created grant %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
+		Human: "not-an-email@example.com",
+		Item:  "github",
+		Level: "level2",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("email as human %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
+		Agent: "claude",
+		Human: member,
+		Item:  "github",
+		Level: "level2",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("agent and human %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
+		Human: member,
+		Item:  "github",
+		Level: "level2",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("human grant %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("grant leaked secret")
+	}
+	if !bytes.Contains(raw, []byte(member)) {
+		t.Fatalf("grant missing grantee %s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "member", FillLoginsRequest{URL: "https://api.github.com/user"})
+	if code != http.StatusOK {
+		t.Fatalf("member fill %d %s", code, raw)
+	}
+	if !scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("granted member missing password")
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "member", nil)
+	if code != http.StatusOK {
+		t.Fatalf("member list %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("member list leaked secret")
+	}
+	if !bytes.Contains(raw, []byte("github")) {
+		t.Fatalf("member list %s", raw)
 	}
 }

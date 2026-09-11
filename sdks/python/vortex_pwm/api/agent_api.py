@@ -786,7 +786,7 @@ class AgentApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> ItemsResponse:
-        """Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.
+        """Items this principal may see. Agent: granted. Human owner: the org. Human member: granted. Names and URIs. Never secrets.
 
 
         :param _request_timeout: timeout setting for this request. If one
@@ -849,7 +849,7 @@ class AgentApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> ApiResponse[ItemsResponse]:
-        """Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.
+        """Items this principal may see. Agent: granted. Human owner: the org. Human member: granted. Names and URIs. Never secrets.
 
 
         :param _request_timeout: timeout setting for this request. If one
@@ -912,7 +912,7 @@ class AgentApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> RESTResponseType:
-        """Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.
+        """Items this principal may see. Agent: granted. Human owner: the org. Human member: granted. Names and URIs. Never secrets.
 
 
         :param _request_timeout: timeout setting for this request. If one

@@ -318,7 +318,7 @@ class OwnerApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> Grant:
-        """Grant an agent Use on an item. Not MCP.
+        """Grant an agent or a Kratos human Use on an item. Same grant object. Not MCP. Not a family vault.
 
 
         :param create_grant_request: (required)
@@ -387,7 +387,7 @@ class OwnerApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> ApiResponse[Grant]:
-        """Grant an agent Use on an item. Not MCP.
+        """Grant an agent or a Kratos human Use on an item. Same grant object. Not MCP. Not a family vault.
 
 
         :param create_grant_request: (required)
@@ -456,7 +456,7 @@ class OwnerApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> RESTResponseType:
-        """Grant an agent Use on an item. Not MCP.
+        """Grant an agent or a Kratos human Use on an item. Same grant object. Not MCP. Not a family vault.
 
 
         :param create_grant_request: (required)

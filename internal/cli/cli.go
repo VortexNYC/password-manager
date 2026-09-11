@@ -100,6 +100,25 @@ func glueFromEnv() (*glue.Glue, error) {
 	})
 }
 
+func resolveHumanGrantee(ctx context.Context, raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("grant add: --human required")
+	}
+	if !strings.Contains(raw, "@") {
+		return raw, nil
+	}
+	g, err := glueFromEnv()
+	if err != nil {
+		return "", err
+	}
+	id, err := g.IdentityID(ctx, raw)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 func openApp(home string) (*app.App, error) {
 	return loadApp(home, false)
 }
@@ -820,15 +839,27 @@ type hydraAgentDTO struct {
 }
 
 func grantCmd(home *string) *cobra.Command {
-	c := &cobra.Command{Use: "grant", Short: "Per-item agent grants"}
-	var agentName, itemName, level string
+	c := &cobra.Command{Use: "grant", Short: "Per-item grants. Agent or Kratos human. Same object."}
+	var agentName, humanName, itemName, level string
 	var expires time.Duration
 	add := &cobra.Command{
 		Use:   "add",
-		Short: "Grant an agent Use on an item (level1 or level2)",
+		Short: "Grant Use on an item (level1 or level2). --agent XOR --human.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if (agentName == "") == (humanName == "") {
+				return fmt.Errorf("grant add: --agent or --human")
+			}
+			grantee := agentName
+			asHuman := humanName != ""
+			if asHuman {
+				got, err := resolveHumanGrantee(cmd.Context(), humanName)
+				if err != nil {
+					return err
+				}
+				grantee = got
+			}
 			if originBase() != "" {
-				return originGrantAdd(cmd, agentName, itemName, level, expires)
+				return originGrantAdd(cmd, grantee, itemName, level, expires, asHuman)
 			}
 			a, err := openApp(*home)
 			if err != nil {
@@ -840,18 +871,18 @@ func grantCmd(home *string) *cobra.Command {
 				t := time.Now().Add(expires)
 				until = &t
 			}
-			g, err := a.GrantUntil(agentName, itemName, protocol.GrantLevel(level), until)
+			g, err := a.GrantUntil(grantee, itemName, protocol.GrantLevel(level), until)
 			if err != nil {
 				return err
 			}
 			return encode(cmd, g)
 		},
 	}
-	add.Flags().StringVar(&agentName, "agent", "", "agent id")
+	add.Flags().StringVar(&agentName, "agent", "", "agent id. XOR --human")
+	add.Flags().StringVar(&humanName, "human", "", "Kratos identity id, or email resolved via glue. XOR --agent. Not a family vault.")
 	add.Flags().StringVar(&itemName, "item", "", "item id")
 	add.Flags().StringVar(&level, "level", "", "level1 (human last step) or level2 (agent exclusive)")
 	add.Flags().DurationVar(&expires, "expires", 0, "grant lifetime. zero is forever")
-	_ = add.MarkFlagRequired("agent")
 	_ = add.MarkFlagRequired("item")
 	_ = add.MarkFlagRequired("level")
 	list := &cobra.Command{

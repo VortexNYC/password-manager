@@ -29,7 +29,7 @@ export const getHealth = <ThrowOnError extends boolean = false>(options?: Option
 export const getOpenApi = <ThrowOnError extends boolean = false>(options?: Options<GetOpenApiData, ThrowOnError>): RequestResult<GetOpenApiResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetOpenApiResponses, unknown, ThrowOnError>({ url: '/openapi.json', ...options });
 
 /**
- * Items this principal may see. Agent: granted. Human: the org. Names and URIs. Never secrets.
+ * Items this principal may see. Agent: granted. Human owner: the org. Human member: granted. Names and URIs. Never secrets.
  */
 export const listItems = <ThrowOnError extends boolean = false>(options?: Options<ListItemsData, ThrowOnError>): RequestResult<ListItemsResponses, ListItemsErrors, ThrowOnError> => (options?.client ?? client).get<ListItemsResponses, ListItemsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -91,7 +91,7 @@ export const listGrants = <ThrowOnError extends boolean = false>(options?: Optio
 });
 
 /**
- * Grant an agent Use on an item. Not MCP.
+ * Grant an agent or a Kratos human Use on an item. Same grant object. Not MCP. Not a family vault.
  */
 export const createGrant = <ThrowOnError extends boolean = false>(options: Options<CreateGrantData, ThrowOnError>): RequestResult<CreateGrantResponses, CreateGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateGrantResponses, CreateGrantErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
