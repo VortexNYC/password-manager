@@ -1270,7 +1270,7 @@ func serveCmd(home *string) *cobra.Command {
 func fillCmd(home *string) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "fill",
-		Short: "keepassxc-browser native host. Fill writes into the page. Agents never see the secret.",
+		Short: "Veil fill native host. Fill writes into the page. Agents never see the secret.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := resolveFillHome(*home)
 			if err != nil {
@@ -1313,7 +1313,7 @@ func fillCmd(home *string) *cobra.Command {
 	}
 	c.AddCommand(&cobra.Command{
 		Use:   "install",
-		Short: "Install the native messaging host for the keepassxc-browser extension. Does not copy the extension.",
+		Short: "Install the nyc.veil.fill native messaging host. Does not copy the extension.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			origin := originBase()
 			if origin == "" {
@@ -1343,7 +1343,6 @@ func fillCmd(home *string) *cobra.Command {
 			if err := fill.InstallOrigin(env); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), fill.NativeHostName)
 			fmt.Fprintln(cmd.OutOrStdout(), fill.JSONHostName)
 			return nil
 		},

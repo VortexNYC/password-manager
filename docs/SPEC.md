@@ -646,7 +646,7 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is the next layer of 37 after fill is proven — same 1Password/Apple signup gesture. `passgen` stays CLI; the host is what makes the value a vault item.
 
-Next: thin MV3. `nyc.veil.fill` JSON `ping` `match` `fill` + RAM index is written. Origin fill by uuid (`POST /v1/fill/logins {uuid, mintTotp?}`) is live. Generate and passkeys are later cases, not a gate. Kill kpxc when Chrome JSON is proven. Proof is Chrome URI + TOTP in one Touch ID session. Written-not-proven is not done.
+Next: Chrome JSON fill is proven (MV3 + headed CFT). `fill install` writes `nyc.veil.fill` only. Generate and passkeys are later. Replica next for airplane fill.
 
 ## Testing
 

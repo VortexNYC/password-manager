@@ -182,7 +182,7 @@ func seedProfileHost(profile, hostBin string) error {
 
 // installCFTHost writes nyc.veil.fill.json into Chrome for Testing's real
 // NativeMessagingHosts. Mac Chromium resolves that dir from the OS user, not
-// $HOME. Never branded Chrome — kpxc lives there. Restored/removed on cleanup.
+// $HOME. Never branded Chrome. Restored/removed on cleanup.
 func installCFTHost(t *testing.T, hostBin string) {
 	t.Helper()
 	home, err := os.UserHomeDir()

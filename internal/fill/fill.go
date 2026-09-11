@@ -1,13 +1,11 @@
-// Package fill is the native host. Two native-messaging names, one binary:
-// org.keepassxc.keepassxc_browser (nacl, store listing) and nyc.veil.fill
-// (plain JSON ping/match/fill). Customers get a Veil extension (slice 37).
-// We do not copy that extension into this tree and we do not use KeePassXC
-// as the vault.
+// Package fill is the native host. Product name nyc.veil.fill (plain JSON
+// ping/match/fill). org.keepassxc.keepassxc_browser nacl remains in this
+// binary and is not installed. We do not copy KeePassXC-Browser (GPL-3)
+// and we do not use KeePassXC as the vault.
 //
-// Wire: Chrome native messaging (uint32 LE + JSON). kpxc then TweetNaCl box
-// (golang.org/x/crypto/nacl/box). nyc.veil.fill does not box. Fill writes
-// into the page. The password and passkey private key never return on an
-// agent surface.
+// Wire: Chrome native messaging (uint32 LE + JSON). nyc.veil.fill does not
+// box. Fill writes into the page. The password and passkey private key never
+// return on an agent surface.
 package fill
 
 import (

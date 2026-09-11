@@ -281,18 +281,22 @@ func TestInstallWritesManifestsNotExtension(t *testing.T) {
 	if err := os.WriteFile(bin, payload, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	chromeDir := filepath.Join(user, "Library/Application Support/Google/Chrome/NativeMessagingHosts")
+	if err := os.MkdirAll(chromeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chromeDir, NativeHostName+".json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := Install(bin, vaultDir, user); err != nil {
 		t.Fatal(err)
 	}
-	chrome := filepath.Join(user, "Library/Application Support/Google/Chrome/NativeMessagingHosts", NativeHostName+".json")
-	raw, err := os.ReadFile(chrome)
+	jsonChrome := filepath.Join(user, "Library/Application Support/Google/Chrome/NativeMessagingHosts", JSONHostName+".json")
+	jsonRaw, err := os.ReadFile(jsonChrome)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte(NativeHostName)) {
-		t.Fatal(string(raw))
-	}
-	if bytes.Contains(raw, []byte(secret)) {
+	if bytes.Contains(jsonRaw, []byte(secret)) {
 		t.Fatal("secret in manifest")
 	}
 	host, err := os.ReadFile(filepath.Join(vaultDir, HostFile))
@@ -305,22 +309,18 @@ func TestInstallWritesManifestsNotExtension(t *testing.T) {
 	if bytes.HasPrefix(host, []byte("#!")) {
 		t.Fatal("host is a script")
 	}
-	if !bytes.Contains(raw, []byte(filepath.Join(vaultDir, HostFile))) {
-		t.Fatalf("manifest path %s", raw)
+	if !bytes.Contains(jsonRaw, []byte(filepath.Join(vaultDir, HostFile))) {
+		t.Fatalf("manifest path %s", jsonRaw)
 	}
-	jsonChrome := filepath.Join(user, "Library/Application Support/Google/Chrome/NativeMessagingHosts", JSONHostName+".json")
-	jsonRaw, err := os.ReadFile(jsonChrome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(jsonRaw, []byte(JSONHostName)) {
-		t.Fatal(string(jsonRaw))
+	if !bytes.Contains(jsonRaw, []byte(JSONHostName)) || !bytes.Contains(jsonRaw, []byte(JSONChromeOrigin())) {
+		t.Fatalf("json host %s", jsonRaw)
 	}
 	if bytes.Contains(jsonRaw, []byte("nacl")) || bytes.Contains(jsonRaw, []byte(NativeHostName)) {
 		t.Fatalf("json manifest mixed with kpxc: %s", jsonRaw)
 	}
-	if !bytes.Contains(jsonRaw, []byte(JSONChromeOrigin())) {
-		t.Fatalf("json host missing extension origin %s", jsonRaw)
+	kpxc := filepath.Join(user, "Library/Application Support/Google/Chrome/NativeMessagingHosts", NativeHostName+".json")
+	if _, err := os.Stat(kpxc); !os.IsNotExist(err) {
+		t.Fatal("kpxc listing still installed")
 	}
 }
 
