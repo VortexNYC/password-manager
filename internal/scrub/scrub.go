@@ -1,6 +1,6 @@
 // Package scrub removes known secrets from bytes the agent is allowed to see.
 //
-// Stolen from Infisical Agent Vault / Passman: inject at the proxy, censor
+// Same idea as Infisical Agent Vault / Passman: inject at the proxy, censor
 // the response. Exact match + standard base64. Do not invent a "6 encoding"
 // scrubber until a test fails without it.
 package scrub

@@ -21,6 +21,7 @@ func NewKey() ([]byte, error) {
 }
 
 // Seal returns nonce||ciphertext. key must be KeySize bytes.
+// This is also the owner-key wrap: master seals the per-owner DEK.
 func Seal(key, plaintext []byte) ([]byte, error) {
 	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {

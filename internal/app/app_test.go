@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,21 +9,74 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/broker"
+	"github.com/vortexnyc/password-manager/internal/device"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
 
 const secret = "sk_live_APP_TEST_SECRET"
 
+func TestOpenOrInitCreatesVaultWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	a, err := OpenOrInit(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := os.Stat(filepath.Join(dir, dbFile)); err != nil {
+		t.Fatal(err)
+	}
+	b, err := OpenOrInit(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+}
+
+func TestOpenEmptyDirIsTheRailwayMasterKeyMiss(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Open(dir)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "master.key") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestOpenOrInitStrayVaultDBWithoutKeys(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, dbFile), []byte("not-a-vault"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := OpenOrInit(dir)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("misleading Railway crash: %v", err)
+	}
+	if !strings.Contains(err.Error(), dbFile) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestInitUseApprovePersists(t *testing.T) {
 	dir := t.TempDir()
 	a, err := Init(dir)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if a.OrgID != protocol.LocalOrgID {
+		t.Fatalf("org %q", a.OrgID)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "master.key")); err == nil {
+		t.Fatal("plaintext master.key after init")
 	}
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +156,116 @@ func TestInitUseApprovePersists(t *testing.T) {
 	}
 }
 
+func TestArchiveHidesFromAgentAndUse(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(204)
+	}))
+	t.Cleanup(upstream.Close)
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ArchiveItem("stripe"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.Use(context.Background(), "claude", "stripe", http.MethodGet, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "item_archived" {
+		t.Fatalf("%+v", got)
+	}
+	if err := broker.AssertNoSecret(got, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	items, err := a.ItemsForAgent("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("%+v", items)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err == nil {
+		t.Fatal("grant on archived")
+	}
+}
+
+func TestFileItemWritesToDiskNotJSON(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	body := []byte("FILE_APP_SECRET")
+	item, err := a.PutItem(ItemOpts{Name: "note", FileName: "note.txt", File: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.HasFile || item.Kind != protocol.ItemFile {
+		t.Fatalf("%+v", item)
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, body) {
+		t.Fatalf("item json leaked: %s", raw)
+	}
+	dest := filepath.Join(dir, "out.txt")
+	if err := a.WriteFile("note", dest); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(body) {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestGrantUntilExpires(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(204)
+	}))
+	t.Cleanup(upstream.Close)
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-time.Second)
+	if _, err := a.GrantUntil("claude", "stripe", protocol.Level2, &past); err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.Use(context.Background(), "claude", "stripe", http.MethodGet, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Reason != "grant_expired" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestLevel2SkipsApproval(t *testing.T) {
 	dir := t.TempDir()
 	a, err := Init(dir)
@@ -128,5 +292,496 @@ func TestLevel2SkipsApproval(t *testing.T) {
 	}
 	if got.Decision != protocol.DecisionAllow {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestApproveOIDCRequiresIssuer(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.ApproveOIDC(context.Background(), "claude:stripe", "token", time.Minute); err == nil {
+		t.Fatal("approved without a hydra issuer")
+	}
+}
+
+func TestApproveRequiresOIDCWhenIssuerSet(t *testing.T) {
+	t.Setenv("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.AddItem("stripe", "https://example.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Approve("claude:stripe", time.Minute); err == nil {
+		t.Fatal("approved as planted self with hydra configured")
+	}
+}
+
+func TestAddGrantDeniedForOtherOwner(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.AddItem("stripe", "https://api.stripe.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	p := protocol.Principal{
+		Kind:  protocol.PrincipalAgent,
+		ID:    "claude",
+		OrgID: a.OrgID,
+		Owner: protocol.Owner{Kind: protocol.OwnerUser, ID: "someone-else"},
+	}
+	if err := a.Store.PutAgent(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err == nil {
+		t.Fatal("granted for another owner")
+	}
+}
+
+func TestPlantedHumanIsSelfOnly(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	humans, err := a.Store.ListHumans()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(humans) != 1 || humans[0].ID != DefaultHuman {
+		t.Fatalf("%+v", humans)
+	}
+	raw, err := json.Marshal(humans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "@") {
+		t.Fatalf("email in vault: %s", raw)
+	}
+}
+
+func TestOpenMigratesLegacyMasterKey(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddItem("stripe", "https://example.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	master, err := loadMaster(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, wrapsDir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, deviceFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, keyFile), master, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a2, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a2.Close()
+	if _, err := os.Stat(filepath.Join(dir, keyFile)); err == nil {
+		t.Fatal("legacy master.key remains")
+	}
+	items, err := a2.Store.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("%+v", items)
+	}
+}
+
+func TestOfferAcceptOpensSameVaultAndBlobHasNoMaster(t *testing.T) {
+	src := t.TempDir()
+	a, err := Init(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok:"+r.Header.Get("Authorization"))
+	}))
+	t.Cleanup(upstream.Close)
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err != nil {
+		t.Fatal(err)
+	}
+
+	pub, priv, err := device.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	master, err := loadMaster(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := a.Offer(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(blob, master) || scrub.Contains(blob, priv) {
+		t.Fatal("pairing blob leaked")
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := t.TempDir()
+	copyVaultWithoutMaster(t, src, dst)
+	if err := Accept(dst, priv, blob); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "master.key")); err == nil {
+		t.Fatal("accept wrote plaintext master.key")
+	}
+	b, err := Open(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	got, err := b.Use(context.Background(), "claude", "stripe", http.MethodGet, upstream.URL+"/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("%+v", got)
+	}
+	if err := broker.AssertNoSecret(got, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func copyVaultWithoutMaster(t *testing.T, src, dst string) {
+	t.Helper()
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"vault.db", "config.json"} {
+		raw, err := os.ReadFile(filepath.Join(src, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dst, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestFillLoginsHumanOnly(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.AddItem("stripe", "https://dashboard.stripe.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	got, err := a.FillLogins(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Password != secret {
+		t.Fatalf("%+v", got)
+	}
+	if got[0].Login != "" {
+		t.Fatalf("unset login must stay empty, not item name: %+v", got)
+	}
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}
+	if _, err := a.FillLogins(agent, "https://dashboard.stripe.com"); err == nil {
+		t.Fatal("agent fill")
+	}
+	items, err := a.ItemsForPrincipal(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("agent list leaked secret")
+	}
+}
+
+func TestFillLoginsUsesEnvelopeLoginNotName(t *testing.T) {
+	const login = "stripe@example.com"
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.PutItem(ItemOpts{
+		Name:  "stripe",
+		URI:   "https://dashboard.stripe.com",
+		Token: []byte(secret),
+		Login: login,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	got, err := a.FillLogins(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Login != login || got[0].Name != "stripe" || got[0].Password != secret {
+		t.Fatalf("%+v", got)
+	}
+	if _, err := a.UpdateItem("stripe", nil, nil, nil, "other@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.FillLogins(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Login != "other@example.com" || got[0].Password != secret {
+		t.Fatalf("update rotated or missed login: %+v", got)
+	}
+	items, err := a.Store.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(login)) || scrub.Contains(raw, []byte("other@example.com")) {
+		t.Fatal("item list leaked login")
+	}
+}
+
+func TestUpdateItemURIAddsWithoutDropping(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.PutItem(ItemOpts{
+		Name:  "github",
+		URI:   "https://api.github.com",
+		Token: []byte(secret),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.UpdateItem("github", nil, []string{"https://github.com"}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.URIs) != 2 || got.URIs[0] != "https://api.github.com" || got.URIs[1] != "https://github.com" {
+		t.Fatalf("add dropped a host: %+v", got.URIs)
+	}
+	again, err := a.UpdateItem("github", nil, []string{"https://github.com"}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.URIs) != 2 {
+		t.Fatalf("add duplicated: %+v", again.URIs)
+	}
+	replaced, err := a.UpdateItem("github", []string{"https://github.com"}, nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replaced.URIs) != 1 || replaced.URIs[0] != "https://github.com" {
+		t.Fatalf("uris did not replace: %+v", replaced.URIs)
+	}
+}
+
+const familyHuman = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+type fakeMembers struct {
+	owners  map[string]bool
+	members map[string]bool
+}
+
+func (f fakeMembers) IsMember(_ context.Context, id string) (bool, error) {
+	return f.members[id], nil
+}
+
+func (f fakeMembers) IsOwner(_ context.Context, id string) (bool, error) {
+	return f.owners[id], nil
+}
+
+func TestHumanGrantFillIsNotAFamilyVault(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	a.Members = fakeMembers{
+		members: map[string]bool{familyHuman: true, "cccccccc-cccc-4ccc-8ccc-cccccccccccc": true},
+		owners:  map[string]bool{},
+	}
+	if _, err := a.AddItem("stripe", "https://dashboard.stripe.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(ItemOpts{
+		Name:     "gmail",
+		URI:      "https://accounts.google.com",
+		Token:    []byte(secret),
+		TOTPSeed: []byte("JBSWY3DPEHPK3PXP"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	member := protocol.Principal{Kind: protocol.PrincipalHuman, ID: familyHuman, OrgID: a.OrgID}
+	stranger := protocol.Principal{Kind: protocol.PrincipalHuman, ID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", OrgID: a.OrgID}
+	got, err := a.FillLogins(owner, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Password != secret {
+		t.Fatalf("owner fill %+v", got)
+	}
+	got, err = a.FillLogins(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("member without grant is a family vault: %+v", got)
+	}
+	if _, err := a.GrantUntil(familyHuman, "stripe", protocol.Level2, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.FillLogins(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Password != secret || got[0].Name != "stripe" {
+		t.Fatalf("granted fill %+v", got)
+	}
+	listed, err := a.ItemsForPrincipal(member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("member list leaked secret")
+	}
+	if len(listed) != 1 || listed[0].Name != "stripe" {
+		t.Fatalf("member list %+v", listed)
+	}
+	got, err = a.FillLogins(stranger, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ungranted member %+v", got)
+	}
+	if _, err := a.FillTOTP(member, "gmail", time.Now()); err == nil {
+		t.Fatal("totp without grant")
+	}
+	if _, err := a.GrantUntil(familyHuman, "gmail", protocol.Level2, nil); err != nil {
+		t.Fatal(err)
+	}
+	code, err := a.FillTOTP(member, "gmail", time.Now())
+	if err != nil || len(code) != 6 {
+		t.Fatalf("granted totp %q %v", code, err)
+	}
+	past := time.Now().Add(-time.Second)
+	if _, err := a.GrantUntil(familyHuman, "stripe", protocol.Level2, &past); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.FillLogins(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expired grant %+v", got)
+	}
+	if _, err := a.GrantUntil("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "stripe", protocol.Level2, nil); err == nil {
+		t.Fatal("granted to non-member")
+	}
+}
+
+func TestFillPasskeyHumanOnlyNoListLeak(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	create, err := json.Marshal(map[string]any{
+		"challenge": "dGVzdGNoYWxsZW5nZQ",
+		"rp":        map[string]string{"id": "github.com", "name": "GitHub"},
+		"user":      map[string]string{"id": "dXNlcg", "name": "ada", "displayName": "Ada"},
+		"pubKeyCredParams": []map[string]any{
+			{"type": "public-key", "alg": -7},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := a.FillPasskeyRegister(human, "https://github.com", create, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(resp, []byte("BEGIN")) {
+		t.Fatal("register leaked pem")
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}
+	if _, err := a.FillPasskeyGet(agent, "https://github.com", create); err == nil {
+		t.Fatal("agent fill passkey")
+	}
+	items, err := a.ItemsForPrincipal(human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(listed, []byte("BEGIN")) || bytes.Contains(listed, []byte("passkey_pem")) {
+		t.Fatal("list leaked passkey")
+	}
+	logins, err := a.FillLogins(human, "https://github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logins) != 0 {
+		t.Fatalf("password fill returned passkey %+v", logins)
 	}
 }

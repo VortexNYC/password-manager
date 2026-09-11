@@ -22,3 +22,12 @@ func TestGrant(t *testing.T) {
 		t.Fatal(Grant("claude", "stripe"))
 	}
 }
+
+func TestPrincipalAcceptsAgentNameOrKratosUUID(t *testing.T) {
+	if !Principal("claude") || !Principal("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb") {
+		t.Fatal("agent name and kratos id are both grantees")
+	}
+	if Principal("not an id") || Principal("Stripe") {
+		t.Fatal("garbage")
+	}
+}

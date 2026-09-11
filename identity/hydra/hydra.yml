@@ -1,0 +1,46 @@
+serve:
+  cookies:
+    same_site_mode: Lax
+  public:
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://app.veil.nyc
+        - http://127.0.0.1:4470
+        - http://localhost:4470
+      allowed_methods:
+        - POST
+        - GET
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+      allow_credentials: false
+  admin:
+    cors:
+      enabled: true
+
+urls:
+  self:
+    # Compose sets URLS_SELF_ISSUER. Public mint is https://id.veil.nyc (token+JWKS). Not admin.
+    issuer: http://127.0.0.1:4444
+  login: http://127.0.0.1:4433/self-service/login/browser
+  # skip_consent still redirects here with skip=true. Glue accepts without a screen.
+  consent: http://127.0.0.1:4456/
+  logout: http://127.0.0.1:4455/logout
+
+secrets:
+  system:
+    - ${HYDRA_SYSTEM_SECRET}
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - public
+    pairwise:
+      salt: ${HYDRA_PAIRWISE_SALT}
+
+ttl:
+  access_token: 1h
+  id_token: 1h
+  refresh_token: 720h

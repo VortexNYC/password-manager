@@ -1,15 +1,23 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/pquerna/otp/totp"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 	"github.com/vortexnyc/password-manager/internal/store"
@@ -148,6 +156,14 @@ func TestAgentCannotApprove(t *testing.T) {
 	}
 }
 
+func TestApproveDoesNotConsultSqliteHumans(t *testing.T) {
+	b, _, _, _, _ := setup(t, protocol.Level1)
+	outsider := protocol.Principal{Kind: protocol.PrincipalHuman, ID: "kratos-id", OrgID: "org-1"}
+	if _, err := b.Approve(outsider, "grant-1", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNoGrantDeniedAndNoFetch(t *testing.T) {
 	b, _, _, upstream, _ := setup(t, protocol.Level2)
 	other := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-2", OrgID: "org-1"}
@@ -180,5 +196,478 @@ func TestFetchOtherHostDenied(t *testing.T) {
 	}
 	if got.Reason != "host_not_allowed" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestTOTPMintedAtInjectNeverReturned(t *testing.T) {
+	const seed = "JBSWY3DPEHPK3PXP"
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	code, err := totp.GenerateCode(seed, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var sawAuth, sawTOTP string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuth = r.Header.Get("Authorization")
+		sawTOTP = r.Header.Get("X-TOTP")
+		w.Header().Set("X-Echo-TOTP", sawTOTP)
+		_, _ = io.WriteString(w, `{"token":"`+strings.TrimPrefix(sawAuth, "Bearer ")+`","totp":"`+sawTOTP+`","seed":"`+seed+`"}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	item := protocol.Item{
+		ID:      "item-1",
+		OrgID:   "org-1",
+		Name:    "stripe-live",
+		Kind:    protocol.ItemAPIKey,
+		Owner:   protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		URIs:    []string{upstream.URL},
+		HasTOTP: true,
+	}
+	blob, err := material.Pack([]byte(secret), []byte(seed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(blob)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b := New(mem)
+	b.Now = func() time.Time { return now }
+
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1/customers"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("%+v", got)
+	}
+	if sawAuth != "Bearer "+secret {
+		t.Fatalf("auth=%q", sawAuth)
+	}
+	if sawTOTP != code {
+		t.Fatalf("upstream totp=%q want %q", sawTOTP, code)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{secret, seed, code} {
+		if scrub.Contains(raw, []byte(leak)) {
+			t.Fatalf("leaked %q in %s", leak, raw)
+		}
+	}
+	events, err := b.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustNoLeak(t, events)
+	if scrub.Contains(mustJSON(t, events), []byte(seed)) || scrub.Contains(mustJSON(t, events), []byte(code)) {
+		t.Fatal("audit leaked totp material")
+	}
+}
+
+func TestOAuthRefreshInjectsAccessTokenNeverRefresh(t *testing.T) {
+	const refresh = "refresh_DO_NOT_LEAK"
+	const access = "access_DO_NOT_LEAK"
+	var sawRefresh string
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		sawRefresh = r.Form.Get("refresh_token")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"`+access+`","token_type":"Bearer","expires_in":3600}`)
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	var sawAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuth = r.Header.Get("Authorization")
+		_, _ = io.WriteString(w, sawAuth)
+	}))
+	t.Cleanup(upstream.Close)
+
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	blob, err := material.PackOAuth([]byte(refresh), []byte(tokenSrv.URL), []byte("client"), []byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := protocol.Item{
+		ID:    "item-1",
+		OrgID: "org-1",
+		Name:  "gmail",
+		Kind:  protocol.ItemOAuth,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		URIs:  []string{upstream.URL},
+	}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(blob)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(mem).Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("%+v", got)
+	}
+	if sawRefresh != refresh {
+		t.Fatalf("token endpoint saw %q", sawRefresh)
+	}
+	if sawAuth != "Bearer "+access {
+		t.Fatalf("auth=%q", sawAuth)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{refresh, access, "secret"} {
+		if scrub.Contains(raw, []byte(leak)) {
+			t.Fatalf("leaked %q in %s", leak, raw)
+		}
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestChildEnvInjectsLevel2AndScrubsAudit(t *testing.T) {
+	b, agent, _, _, sec := setup(t, protocol.Level2)
+	pairs, err := b.ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := EnvName("stripe-live") + "=" + sec
+	if len(pairs) != 1 || pairs[0] != want {
+		t.Fatalf("%q", pairs)
+	}
+	events, err := b.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Action != protocol.ActionEnv || events[0].Decision != protocol.DecisionAllow {
+		t.Fatalf("audit=%+v", events)
+	}
+	mustNoLeak(t, events)
+}
+
+func TestChildEnvSkipsLevel1WithoutApproval(t *testing.T) {
+	b, agent, _, _, _ := setup(t, protocol.Level1)
+	pairs, err := b.ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 0 {
+		t.Fatalf("prompted via env: %q", pairs)
+	}
+	events, err := b.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Decision != protocol.DecisionNeedApproval {
+		t.Fatalf("audit=%+v", events)
+	}
+	mustNoLeak(t, events)
+}
+
+func TestChildEnvSkipsSSH(t *testing.T) {
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	item := protocol.Item{
+		ID:    "github",
+		OrgID: "org-1",
+		Name:  "github",
+		Kind:  protocol.ItemSSH,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+	}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret([]byte("-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pairs, err := New(mem).ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 0 {
+		t.Fatalf("ssh in env: %q", pairs)
+	}
+}
+
+func TestChildEnvSkipsPasskey(t *testing.T) {
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	item := protocol.Item{
+		ID:    "pk-github",
+		OrgID: "org-1",
+		Name:  "pk-github",
+		Kind:  protocol.ItemPasskey,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		URIs:  []string{"https://github.com"},
+	}
+	pem := []byte("-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----")
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(pem)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch, protocol.ActionEnv},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b := New(mem)
+	pairs, err := b.ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 0 {
+		t.Fatalf("passkey in env: %q", pairs)
+	}
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: item.ID,
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: "https://github.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "not_injectable" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestChildEnvSkipsFileAndArchived(t *testing.T) {
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	file := protocol.Item{
+		ID:      "note",
+		OrgID:   "org-1",
+		Name:    "note",
+		Kind:    protocol.ItemFile,
+		Owner:   protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		HasFile: true,
+	}
+	archived := protocol.Item{
+		ID:       "old",
+		OrgID:    "org-1",
+		Name:     "old",
+		Kind:     protocol.ItemAPIKey,
+		Owner:    protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		Archived: true,
+	}
+	if err := mem.PutItem(file, store.Secret([]byte("file-secret"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(archived, store.Secret([]byte(secret))); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"note", "old"} {
+		if err := mem.PutGrant(protocol.Grant{
+			ID:      "g-" + id,
+			OrgID:   "org-1",
+			AgentID: agent.ID,
+			ItemID:  id,
+			Level:   protocol.Level2,
+			Actions: []protocol.ActionKind{protocol.ActionFetch},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pairs, err := New(mem).ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 0 {
+		t.Fatalf("env=%q", pairs)
+	}
+}
+
+func TestChildEnvMintsTOTPNotSeed(t *testing.T) {
+	const seed = "JBSWY3DPEHPK3PXP"
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	blob, err := material.Pack([]byte(secret), []byte(seed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := protocol.Item{
+		ID:      "stripe",
+		OrgID:   "org-1",
+		Name:    "stripe",
+		Kind:    protocol.ItemAPIKey,
+		Owner:   protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		HasTOTP: true,
+	}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(blob)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b := New(mem)
+	b.Now = func() time.Time { return time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC) }
+	pairs, err := b.ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(pairs, "\n")
+	if !strings.HasPrefix(joined, "STRIPE="+secret+"\nSTRIPE_TOTP=") {
+		t.Fatalf("%q", pairs)
+	}
+	code := strings.TrimPrefix(pairs[1], "STRIPE_TOTP=")
+	if len(code) != 6 {
+		t.Fatalf("totp %q", code)
+	}
+	if strings.Contains(joined, seed) {
+		t.Fatal("seed in env")
+	}
+	events, err := b.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustNoLeak(t, events)
+	if scrub.Contains(mustJSON(t, events), []byte(seed)) {
+		t.Fatal("seed in audit")
+	}
+}
+
+func TestUseLogHasNoSecret(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	b, agent, _, upstream, _ := setup(t, protocol.Level2)
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1/customers?token=" + secret},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("decision=%s", got.Decision)
+	}
+	line := buf.String()
+	if strings.Contains(line, secret) {
+		t.Fatal("secret in slog")
+	}
+	if !strings.Contains(line, `"item":"stripe-live"`) || !strings.Contains(line, `"decision":"allow"`) {
+		t.Fatalf("log=%s", line)
+	}
+	if strings.Contains(line, "token=") {
+		t.Fatal("query in slog")
+	}
+}
+
+func TestUseSpanHasNoSecret(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	b, agent, _, upstream, _ := setup(t, protocol.Level2)
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1/customers?token=" + secret},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("decision=%s", got.Decision)
+	}
+	ended := sr.Ended()
+	if len(ended) < 2 {
+		t.Fatalf("spans=%d", len(ended))
+	}
+	var sawUse bool
+	for _, sp := range ended {
+		for _, a := range sp.Attributes() {
+			if strings.Contains(a.Value.AsString(), secret) || strings.Contains(a.Value.AsString(), "token=") {
+				t.Fatalf("secret in span %s %s=%s", sp.Name(), a.Key, a.Value.AsString())
+			}
+		}
+		if sp.Name() == "use" {
+			sawUse = true
+		}
+	}
+	if !sawUse {
+		t.Fatal("missing use span")
 	}
 }

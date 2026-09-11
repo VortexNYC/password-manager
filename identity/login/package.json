@@ -1,0 +1,26 @@
+{
+  "name": "identity-login",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --port 4455",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ory/client-fetch": "1.22.22",
+    "@ory/elements-react": "1.2.1",
+    "@tanstack/react-router": "1.132.47",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@tanstack/router-plugin": "1.132.47",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.0.2",
+    "typescript": "^5",
+    "vite": "7.1.5"
+  }
+}

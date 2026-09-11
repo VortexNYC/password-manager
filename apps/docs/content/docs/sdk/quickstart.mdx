@@ -1,0 +1,72 @@
+---
+title: SDK quickstart
+description: Generated TypeScript, Python, and Go clients. Use injects. Never GetSecret.
+---
+
+# SDK quickstart
+
+Generated from the same OpenAPI contract as the [API reference](/reference).
+Do not handwrite clients. `pnpm run sdk:generate`.
+
+## TypeScript
+
+```bash
+pnpm add @vortex-api/pwm-sdk
+```
+
+```ts
+import { createClient, listItems, useItem } from "@vortex-api/pwm-sdk";
+
+const client = createClient({
+  baseUrl: "https://veil.nyc",
+  headers: { Authorization: `Bearer ${process.env.PWM_OIDC_TOKEN}` },
+});
+
+const listed = await listItems({ client });
+const used = await useItem({
+  client,
+  body: {
+    item: "stripe",
+    url: "https://api.stripe.com/v1/customers",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "bot@vortex.nyc" }),
+  },
+});
+```
+
+## Python
+
+```bash
+pip install vortex-pwm-sdk
+```
+
+```py
+import os
+import vortex_pwm
+
+configuration = vortex_pwm.Configuration(host="https://veil.nyc")
+configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
+api = vortex_pwm.AgentApi(vortex_pwm.ApiClient(configuration))
+api.list_items()
+api.use_item(vortex_pwm.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers"))
+```
+
+## Go
+
+```bash
+go get github.com/vortexnyc/pwm-go
+```
+
+```go
+cfg := vortexpwm.NewConfiguration()
+cfg.Host = "veil.nyc"
+cfg.Scheme = "https"
+cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
+client := vortexpwm.NewAPIClient(cfg)
+_, _, _ = client.AgentAPI.ListItems(context.Background()).Execute()
+```
+
+## What the SDK does not do
+
+It does not reveal vault material. `run`, `gen`, and `item write` stay on the owner CLI.

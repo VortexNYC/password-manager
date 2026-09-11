@@ -1,0 +1,141 @@
+version: v26.2.0
+
+serve:
+  public:
+    host: 0.0.0.0
+    port: 4433
+    base_url: https://accounts.veil.nyc/
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://login.veil.nyc
+      allowed_methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+      allowed_headers:
+        - Authorization
+        - Cookie
+        - Content-Type
+        - X-CSRF-Token
+      exposed_headers:
+        - Content-Type
+        - Set-Cookie
+  admin:
+    host: 0.0.0.0
+    port: 4434
+
+selfservice:
+  default_browser_return_url: https://login.veil.nyc/
+  allowed_return_urls:
+    - https://login.veil.nyc
+    - https://id.veil.nyc
+    - https://app.veil.nyc
+    - http://127.0.0.1:4460
+    - http://127.0.0.1:4470
+
+  methods:
+    password:
+      enabled: true
+    code:
+      enabled: true
+    totp:
+      enabled: true
+      config:
+        issuer: Veil
+    webauthn:
+      enabled: true
+      config:
+        passwordless: false
+        rp:
+          display_name: Veil
+          id: login.veil.nyc
+          origins:
+            - https://login.veil.nyc
+    lookup_secret:
+      enabled: true
+
+  flows:
+    error:
+      ui_url: https://login.veil.nyc/error
+    settings:
+      ui_url: https://login.veil.nyc/settings
+      privileged_session_max_age: 15m
+    recovery:
+      enabled: true
+      ui_url: https://login.veil.nyc/recovery
+      use: code
+    verification:
+      enabled: true
+      ui_url: https://login.veil.nyc/verification
+      use: code
+    logout:
+      after:
+        default_browser_return_url: https://login.veil.nyc/login
+    login:
+      ui_url: https://login.veil.nyc/login
+      lifespan: 10m
+    registration:
+      lifespan: 10m
+      ui_url: https://login.veil.nyc/registration
+      after:
+        password:
+          hooks:
+            - hook: session
+
+log:
+  level: info
+  format: json
+  leak_sensitive_values: false
+
+secrets:
+  cookie:
+    - ${SECRETS_COOKIE}
+  cipher:
+    - ${SECRETS_CIPHER}
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+hashers:
+  algorithm: bcrypt
+  bcrypt:
+    cost: 8
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/kratos/identity.schema.json
+
+courier:
+  delivery_strategy: http
+  smtp:
+    from_address: noreply@veil.nyc
+    from_name: Veil
+  http:
+    request_config:
+      url: https://api.resend.com/emails
+      method: POST
+      headers:
+        Content-Type: application/json
+      auth:
+        type: api_key
+        config:
+          name: Authorization
+          in: header
+          value: unset
+      body: file:///etc/config/kratos/courier.resend.jsonnet
+
+session:
+  whoami:
+    required_aal: highest_available
+  cookie:
+    domain: veil.nyc
+    same_site: Lax
+
+oauth2_provider:
+  url: http://hydra.railway.internal:4445
+  override_return_to: true

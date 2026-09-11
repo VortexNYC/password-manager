@@ -99,9 +99,18 @@ func TestWrongAgentDenied(t *testing.T) {
 
 func TestHostNotOnItemDenied(t *testing.T) {
 	in := fixture(protocol.Level2)
-	in.TargetURL = "https://evil.example/steal"
+	in.TargetURL = "https://evil.example/exfil"
 	got := Evaluate(in)
 	if got.Reason != "host_not_allowed" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestArchivedItemDenied(t *testing.T) {
+	in := fixture(protocol.Level2)
+	in.Item.Archived = true
+	got := Evaluate(in)
+	if got.Reason != "item_archived" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -121,6 +130,26 @@ func TestActionNotOnGrantDenied(t *testing.T) {
 	in.Grant.Actions = nil
 	got := Evaluate(in)
 	if got.Reason != "action_not_allowed" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestEnvAllowedWhenFetchIsOnGrant(t *testing.T) {
+	in := fixture(protocol.Level2)
+	in.Action = protocol.ActionEnv
+	in.TargetURL = ""
+	got := Evaluate(in)
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestEnvNeedsApprovalAtLevel1(t *testing.T) {
+	in := fixture(protocol.Level1)
+	in.Action = protocol.ActionEnv
+	in.TargetURL = ""
+	got := Evaluate(in)
+	if got.Decision != protocol.DecisionNeedApproval {
 		t.Fatalf("got %+v", got)
 	}
 }
