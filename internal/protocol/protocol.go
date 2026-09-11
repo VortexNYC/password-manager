@@ -102,6 +102,8 @@ type Item struct {
 	HasTOTP bool `json:"has_totp,omitempty"`
 	// HasFile is metadata. Bytes are not on this struct.
 	HasFile bool `json:"has_file,omitempty"`
+	// Login is the fill username. Metadata. Not a secret. Empty is honest.
+	Login string `json:"login,omitempty"`
 }
 
 // ItemVersion is history metadata. The sealed blob is not here.

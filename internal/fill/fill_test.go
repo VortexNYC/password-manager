@@ -193,8 +193,8 @@ func TestGetLoginsFillsMatchingURI(t *testing.T) {
 	if scrub.Contains(raw, []byte(secret)) {
 		t.Fatal("item list leaked the secret")
 	}
-	if scrub.Contains(raw, []byte("stripe@example.com")) {
-		t.Fatal("item list leaked login")
+	if !scrub.Contains(raw, []byte("stripe@example.com")) {
+		t.Fatal("item list omitted login")
 	}
 }
 
@@ -307,6 +307,17 @@ func TestInstallWritesManifestsNotExtension(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte(filepath.Join(vaultDir, HostFile))) {
 		t.Fatalf("manifest path %s", raw)
+	}
+	jsonChrome := filepath.Join(user, "Library/Application Support/Google/Chrome/NativeMessagingHosts", JSONHostName+".json")
+	jsonRaw, err := os.ReadFile(jsonChrome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(jsonRaw, []byte(JSONHostName)) {
+		t.Fatal(string(jsonRaw))
+	}
+	if bytes.Contains(jsonRaw, []byte("nacl")) || bytes.Contains(jsonRaw, []byte(NativeHostName)) {
+		t.Fatalf("json manifest mixed with kpxc: %s", jsonRaw)
 	}
 }
 

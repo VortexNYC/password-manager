@@ -30,7 +30,7 @@ class UpdateItemRequest(BaseModel):
     uri: Optional[StrictStr] = Field(default=None, description="Add this autofill host. Does not drop existing hosts.")
     uris: Optional[List[StrictStr]] = Field(default=None, description="Replace autofill hosts with this list.")
     tags: Optional[List[StrictStr]] = None
-    login: Optional[StrictStr] = Field(default=None, description="Fill username. Request only. Sealed. Never returned. Does not rotate the secret.")
+    login: Optional[StrictStr] = Field(default=None, description="Fill username. Metadata on the item. Also sealed in the envelope. Does not rotate the secret.")
     __properties: ClassVar[List[str]] = ["uri", "uris", "tags", "login"]
 
     model_config = ConfigDict(

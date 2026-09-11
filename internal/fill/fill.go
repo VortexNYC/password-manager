@@ -1,11 +1,13 @@
-// Package fill is the native host. We speak the keepassxc-browser wire
-// (slice 26 store listing, slice 31 passkeys-*). Customers get a Veil
-// extension (slice 37). We do not copy that extension into this tree and
-// we do not use KeePassXC as the vault.
+// Package fill is the native host. Two native-messaging names, one binary:
+// org.keepassxc.keepassxc_browser (nacl, store listing) and nyc.veil.fill
+// (plain JSON ping/match/fill). Customers get a Veil extension (slice 37).
+// We do not copy that extension into this tree and we do not use KeePassXC
+// as the vault.
 //
-// Wire: Chrome native messaging (uint32 LE + JSON) and TweetNaCl box
-// (golang.org/x/crypto/nacl/box). Fill writes into the page. The password
-// and passkey private key never return on an agent surface.
+// Wire: Chrome native messaging (uint32 LE + JSON). kpxc then TweetNaCl box
+// (golang.org/x/crypto/nacl/box). nyc.veil.fill does not box. Fill writes
+// into the page. The password and passkey private key never return on an
+// agent surface.
 package fill
 
 import (
@@ -35,10 +37,13 @@ import (
 const (
 	Version          = "2.7.7"
 	NativeHostName   = "org.keepassxc.keepassxc_browser"
+	JSONHostName     = "nyc.veil.fill"
+	JSONVersion      = "1"
 	maxMsg           = 1 << 20
 	assocFile        = "fill-assoc.json"
 	assocID          = "password-manager"
 	passkeysCanceled = 22
+	confirmReuse     = 30 * time.Second
 	// totpPresent tells KeePassXC-Browser to call get-totp. Not a code. Not the seed.
 	totpPresent = "*"
 )
@@ -56,9 +61,12 @@ type Host struct {
 	// Confirm is Touch ID (or a test fake) before a secret leaves the host.
 	Confirm func(reason string) error
 
-	mu       sync.Mutex
-	sessions map[string]*session
-	assocKey string
+	mu           sync.Mutex
+	sessions     map[string]*session
+	assocKey     string
+	index        []protocol.Item
+	indexOK      bool
+	confirmUntil time.Time
 }
 
 type session struct {
@@ -151,7 +159,12 @@ func (h *Host) Handle(raw []byte) []byte {
 	switch env.Action {
 	case "change-public-keys":
 		return h.changeKeys(env)
+	case "ping", "match", "fill":
+		return h.handleJSON(raw)
 	default:
+		if env.Nonce == "" && env.Message == "" {
+			return h.handleJSON(raw)
+		}
 		return h.encrypted(env)
 	}
 }
@@ -539,11 +552,19 @@ func (h *Host) passkeyErr(code int) []byte {
 }
 
 func (h *Host) originPOST(path string, body []byte) ([]byte, error) {
+	return h.originCall(http.MethodPost, path, body)
+}
+
+func (h *Host) originGET(path string) ([]byte, error) {
+	return h.originCall(http.MethodGet, path, nil)
+}
+
+func (h *Host) originCall(method, path string, body []byte) ([]byte, error) {
 	tok, err := h.bearer()
 	if err != nil {
 		return nil, err
 	}
-	raw, code, err := h.originDo(path, body, tok)
+	raw, code, err := h.originDo(method, path, body, tok)
 	if err != nil {
 		return nil, err
 	}
@@ -552,7 +573,8 @@ func (h *Host) originPOST(path string, body []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		raw, code, err = h.originDo(path, body, tok)
+		h.invalidateIndex()
+		raw, code, err = h.originDo(method, path, body, tok)
 		if err != nil {
 			return nil, err
 		}
@@ -563,13 +585,19 @@ func (h *Host) originPOST(path string, body []byte) ([]byte, error) {
 	return raw, nil
 }
 
-func (h *Host) originDo(path string, body []byte, tok string) ([]byte, int, error) {
-	req, err := http.NewRequest(http.MethodPost, h.Origin+path, bytes.NewReader(body))
+func (h *Host) originDo(method, path string, body []byte, tok string) ([]byte, int, error) {
+	var rdr io.Reader
+	if len(body) > 0 {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, h.Origin+path, rdr)
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("Content-Type", "application/json")
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, 0, err
@@ -597,10 +625,21 @@ func (h *Host) confirm(reason string) error {
 		fillDebug("confirm skipped")
 		return nil
 	}
+	now := time.Now()
+	h.mu.Lock()
+	until := h.confirmUntil
+	h.mu.Unlock()
+	if now.Before(until) {
+		fillDebug("confirm reuse")
+		return nil
+	}
 	if err := h.Confirm(reason); err != nil {
 		fillDebug("confirm denied")
 		return err
 	}
+	h.mu.Lock()
+	h.confirmUntil = time.Now().Add(confirmReuse)
+	h.mu.Unlock()
 	fillDebug("confirm ok")
 	return nil
 }
@@ -788,6 +827,16 @@ func FirefoxID() string {
 	return "keepassxc-browser@keepassxc.org"
 }
 
+// JSONChromeOrigin is the allowlist until increment 4 ships the MV3.
+// Chrome native-host IDs are [a-p]{32}.
+func JSONChromeOrigin() string {
+	return "chrome-extension://fillfillfillfillfillfillfillfill/"
+}
+
+func JSONFirefoxID() string {
+	return "nyc.veil.fill@veil.nyc"
+}
+
 func ManifestChrome(hostPath string) []byte {
 	raw, _ := json.MarshalIndent(struct {
 		Name           string   `json:"name"`
@@ -818,6 +867,40 @@ func ManifestFirefox(hostPath string) []byte {
 		Path:              hostPath,
 		Type:              "stdio",
 		AllowedExtensions: []string{FirefoxID()},
+	}, "", "  ")
+	return append(raw, '\n')
+}
+
+func ManifestJSONChrome(hostPath string) []byte {
+	raw, _ := json.MarshalIndent(struct {
+		Name           string   `json:"name"`
+		Description    string   `json:"description"`
+		Path           string   `json:"path"`
+		Type           string   `json:"type"`
+		AllowedOrigins []string `json:"allowed_origins"`
+	}{
+		Name:           JSONHostName,
+		Description:    "Veil fill host",
+		Path:           hostPath,
+		Type:           "stdio",
+		AllowedOrigins: []string{JSONChromeOrigin()},
+	}, "", "  ")
+	return append(raw, '\n')
+}
+
+func ManifestJSONFirefox(hostPath string) []byte {
+	raw, _ := json.MarshalIndent(struct {
+		Name              string   `json:"name"`
+		Description       string   `json:"description"`
+		Path              string   `json:"path"`
+		Type              string   `json:"type"`
+		AllowedExtensions []string `json:"allowed_extensions"`
+	}{
+		Name:              JSONHostName,
+		Description:       "Veil fill host",
+		Path:              hostPath,
+		Type:              "stdio",
+		AllowedExtensions: []string{JSONFirefoxID()},
 	}, "", "  ")
 	return append(raw, '\n')
 }

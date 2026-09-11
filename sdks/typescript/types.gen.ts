@@ -15,6 +15,10 @@ export type Item = {
     archived?: boolean;
     has_totp?: boolean;
     has_file?: boolean;
+    /**
+     * Fill username. Metadata. Not a secret. Empty if unset.
+     */
+    login?: string;
 };
 
 export type Owner = {
@@ -89,7 +93,7 @@ export type CreateItemRequest = {
      */
     totp_seed?: string;
     /**
-     * Fill username. Request only. Sealed. Never returned. Not MCP.
+     * Fill username. Metadata on the item. Also sealed in the envelope. Not a secret.
      */
     login?: string;
 };
@@ -105,7 +109,7 @@ export type UpdateItemRequest = {
     uris?: Array<string>;
     tags?: Array<string>;
     /**
-     * Fill username. Request only. Sealed. Never returned. Does not rotate the secret.
+     * Fill username. Metadata on the item. Also sealed in the envelope. Does not rotate the secret.
      */
     login?: string;
 };

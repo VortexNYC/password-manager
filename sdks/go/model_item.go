@@ -31,6 +31,8 @@ type Item struct {
 	Archived *bool `json:"archived,omitempty"`
 	HasTotp *bool `json:"has_totp,omitempty"`
 	HasFile *bool `json:"has_file,omitempty"`
+	// Fill username. Metadata. Not a secret. Empty if unset.
+	Login *string `json:"login,omitempty"`
 }
 
 type _Item Item
@@ -330,6 +332,38 @@ func (o *Item) SetHasFile(v bool) {
 	o.HasFile = &v
 }
 
+// GetLogin returns the Login field value if set, zero value otherwise.
+func (o *Item) GetLogin() string {
+	if o == nil || IsNil(o.Login) {
+		var ret string
+		return ret
+	}
+	return *o.Login
+}
+
+// GetLoginOk returns a tuple with the Login field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Item) GetLoginOk() (*string, bool) {
+	if o == nil || IsNil(o.Login) {
+		return nil, false
+	}
+	return o.Login, true
+}
+
+// HasLogin returns a boolean if a field has been set.
+func (o *Item) HasLogin() bool {
+	if o != nil && !IsNil(o.Login) {
+		return true
+	}
+
+	return false
+}
+
+// SetLogin gets a reference to the given string and assigns it to the Login field.
+func (o *Item) SetLogin(v string) {
+	o.Login = &v
+}
+
 func (o Item) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -357,6 +391,9 @@ func (o Item) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.HasFile) {
 		toSerialize["has_file"] = o.HasFile
+	}
+	if !IsNil(o.Login) {
+		toSerialize["login"] = o.Login
 	}
 	return toSerialize, nil
 }

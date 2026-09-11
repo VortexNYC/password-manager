@@ -17,6 +17,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/device"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/vortexnyc/password-manager/internal/store"
 )
 
 const secret = "sk_live_APP_TEST_SECRET"
@@ -581,8 +582,180 @@ func TestFillLoginsUsesEnvelopeLoginNotName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scrub.Contains(raw, []byte(login)) || scrub.Contains(raw, []byte("other@example.com")) {
-		t.Fatal("item list leaked login")
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("item list leaked secret")
+	}
+	if len(items) != 1 || items[0].Login != "other@example.com" {
+		t.Fatalf("login should be on the item: %+v", items)
+	}
+}
+
+type secretProbe struct {
+	store.Store
+	n int
+}
+
+func (p *secretProbe) Secret(id string) (store.Secret, error) {
+	p.n++
+	return p.Store.Secret(id)
+}
+
+func TestMatchNeverDecrypts(t *testing.T) {
+	const login = "stripe@example.com"
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.PutItem(ItemOpts{
+		Name:  "stripe",
+		URI:   "https://dashboard.stripe.com",
+		Token: []byte(secret),
+		Login: login,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(ItemOpts{
+		Name:  "github",
+		URI:   "https://github.com",
+		Token: []byte(secret),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	probe := &secretProbe{Store: a.Store}
+	a.Store = probe
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	got, err := a.Match(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.n != 0 {
+		t.Fatalf("Match called Secret %d times", probe.n)
+	}
+	if len(got) != 1 || got[0].Name != "stripe" || got[0].Login != login || got[0].ID != "stripe" || !got[0].Kind.Injects() {
+		t.Fatalf("%+v", got)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("match leaked secret")
+	}
+	empty, err := a.Match(human, "https://github.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.n != 0 {
+		t.Fatalf("Match called Secret %d times", probe.n)
+	}
+	if len(empty) != 1 || empty[0].Name != "github" || empty[0].Login != "" {
+		t.Fatalf("empty login must be honest: %+v", empty)
+	}
+	miss, err := a.Match(human, "https://evil.example/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(miss) != 0 {
+		t.Fatalf("wrong host %+v", miss)
+	}
+	if _, err := a.Match(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}, "https://dashboard.stripe.com"); err == nil {
+		t.Fatal("agent match")
+	}
+}
+
+func TestFillLoginDecryptsOne(t *testing.T) {
+	const loginA = "a@example.com"
+	const loginB = "b@example.com"
+	secretA := secret + "-a"
+	secretB := secret + "-b"
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.PutItem(ItemOpts{Name: "stripe-a", URI: "https://dashboard.stripe.com", Token: []byte(secretA), Login: loginA}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(ItemOpts{Name: "stripe-b", URI: "https://dashboard.stripe.com", Token: []byte(secretB), Login: loginB}); err != nil {
+		t.Fatal(err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	probe := &secretProbe{Store: a.Store}
+	a.Store = probe
+	all, err := a.FillLogins(human, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("url form %+v", all)
+	}
+	if probe.n != 2 {
+		t.Fatalf("url form Secret %d", probe.n)
+	}
+	probe.n = 0
+	one, err := a.FillLogin(human, "stripe-a", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.n != 1 {
+		t.Fatalf("uuid form Secret %d", probe.n)
+	}
+	if one.UUID != "stripe-a" || one.Login != loginA || one.Password != secretA {
+		t.Fatalf("%+v", one)
+	}
+	if one.Password == secretB || strings.Contains(one.Password, secretB) {
+		t.Fatal("decrypted the other item")
+	}
+	if _, err := a.FillLogin(human, "missing", false); err == nil {
+		t.Fatal("missing uuid")
+	}
+	if _, err := a.FillLogin(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}, "stripe-a", false); err == nil {
+		t.Fatal("agent fill")
+	}
+}
+
+func TestFillLoginMintTotp(t *testing.T) {
+	const seed = "JBSWY3DPEHPK3PXP"
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.PutItem(ItemOpts{
+		Name:     "stripe",
+		URI:      "https://dashboard.stripe.com",
+		Token:    []byte(secret),
+		TOTPSeed: []byte(seed),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	star, err := a.FillLogin(human, "stripe", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if star.TOTP != "*" || star.Password != secret {
+		t.Fatalf("%+v", star)
+	}
+	got, err := a.FillLogin(human, "stripe", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.TOTP) != 6 || got.TOTP == seed || got.TOTP == "*" {
+		t.Fatalf("mint %+v", got)
+	}
+	if got.Password != secret {
+		t.Fatal("mint totp dropped the password")
+	}
+	if _, err := a.PutItem(ItemOpts{Name: "github", URI: "https://github.com", Token: []byte(secret)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.FillLogin(human, "github", true); err == nil {
+		t.Fatal("mint without seed")
 	}
 }
 
@@ -677,6 +850,13 @@ func TestHumanGrantFillIsNotAFamilyVault(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("member without grant is a family vault: %+v", got)
 	}
+	matched, err := a.Match(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 0 {
+		t.Fatalf("member match without grant: %+v", matched)
+	}
 	if _, err := a.GrantUntil(familyHuman, "stripe", protocol.Level2, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -686,6 +866,13 @@ func TestHumanGrantFillIsNotAFamilyVault(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Password != secret || got[0].Name != "stripe" {
 		t.Fatalf("granted fill %+v", got)
+	}
+	matched, err = a.Match(member, "https://dashboard.stripe.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 || matched[0].Name != "stripe" {
+		t.Fatalf("granted match %+v", matched)
 	}
 	listed, err := a.ItemsForPrincipal(member)
 	if err != nil {

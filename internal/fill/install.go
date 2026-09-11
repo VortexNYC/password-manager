@@ -34,9 +34,15 @@ func InstallOrigin(env InstallEnv) error {
 	if err := os.WriteFile(filepath.Join(chromeDir, NativeHostName+".json"), ManifestChrome(host), 0o644); err != nil {
 		return err
 	}
+	if err := os.WriteFile(filepath.Join(chromeDir, JSONHostName+".json"), ManifestJSONChrome(host), 0o644); err != nil {
+		return err
+	}
 	ffDir := filepath.Join(env.UserHome, "Library/Application Support/Mozilla/NativeMessagingHosts")
 	if err := os.MkdirAll(ffDir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(ffDir, NativeHostName+".json"), ManifestFirefox(host), 0o644)
+	if err := os.WriteFile(filepath.Join(ffDir, NativeHostName+".json"), ManifestFirefox(host), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(ffDir, JSONHostName+".json"), ManifestJSONFirefox(host), 0o644)
 }

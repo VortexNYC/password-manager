@@ -30,7 +30,7 @@ type CreateItemRequest struct {
 	Secret *string `json:"secret,omitempty"`
 	// TOTP seed. Request only. Never returned.
 	TotpSeed *string `json:"totp_seed,omitempty"`
-	// Fill username. Request only. Sealed. Never returned. Not MCP.
+	// Fill username. Metadata on the item. Also sealed in the envelope. Not a secret.
 	Login *string `json:"login,omitempty"`
 }
 

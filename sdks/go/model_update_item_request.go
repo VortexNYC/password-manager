@@ -24,7 +24,7 @@ type UpdateItemRequest struct {
 	// Replace autofill hosts with this list.
 	Uris []string `json:"uris,omitempty"`
 	Tags []string `json:"tags,omitempty"`
-	// Fill username. Request only. Sealed. Never returned. Does not rotate the secret.
+	// Fill username. Metadata on the item. Also sealed in the envelope. Does not rotate the secret.
 	Login *string `json:"login,omitempty"`
 }
 

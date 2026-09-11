@@ -34,7 +34,7 @@ class CreateItemRequest(BaseModel):
     kind: Optional[StrictStr] = None
     secret: Optional[StrictStr] = Field(default=None, description="Vault material. Request only. Never returned.")
     totp_seed: Optional[StrictStr] = Field(default=None, description="TOTP seed. Request only. Never returned.")
-    login: Optional[StrictStr] = Field(default=None, description="Fill username. Request only. Sealed. Never returned. Not MCP.")
+    login: Optional[StrictStr] = Field(default=None, description="Fill username. Metadata on the item. Also sealed in the envelope. Not a secret.")
     __properties: ClassVar[List[str]] = ["name", "uri", "uris", "tags", "kind", "secret", "totp_seed", "login"]
 
     @field_validator('kind')

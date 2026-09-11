@@ -514,7 +514,7 @@ func itemCmd(home *string) *cobra.Command {
 	}
 	add.Flags().StringVar(&uri, "uri", "", "host this item may be used against, e.g. https://api.stripe.com")
 	add.Flags().StringSliceVar(&tags, "tag", nil, "owner label. not ACL")
-	add.Flags().StringVar(&login, "login", "", "fill username. sealed. not list. not MCP")
+	add.Flags().StringVar(&login, "login", "", "fill username. metadata on the item. not a secret")
 	add.Flags().StringVar(&secretFile, "secret-file", "", "file containing the API key (`-` for stdin)")
 	add.Flags().StringVar(&sshFile, "ssh-file", "", "OpenSSH/PEM private key file. Never argv. Kind becomes ssh.")
 	add.Flags().StringVar(&totpFile, "totp-file", "", "file containing the TOTP seed, never the 6-digit code")
@@ -1344,6 +1344,7 @@ func fillCmd(home *string) *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), fill.NativeHostName)
+			fmt.Fprintln(cmd.OutOrStdout(), fill.JSONHostName)
 			return nil
 		},
 	})

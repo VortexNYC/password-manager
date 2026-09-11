@@ -70,8 +70,8 @@ func TestMCPFetchDoesNotReturnSecret(t *testing.T) {
 	if scrub.Contains(list, []byte(secret)) {
 		t.Fatal("list_items leaked secret")
 	}
-	if scrub.Contains(list, []byte(login)) {
-		t.Fatal("list_items leaked login")
+	if !scrub.Contains(list, []byte(login)) {
+		t.Fatal("list_items omitted login")
 	}
 }
 

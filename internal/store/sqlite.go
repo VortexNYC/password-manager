@@ -118,6 +118,7 @@ func (s *SQLite) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN has_file INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN login TEXT NOT NULL DEFAULT ''`)
 	return s.rewrapLegacy()
 }
 
@@ -253,14 +254,15 @@ func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
 	if item.HasFile {
 		hf = 1
 	}
-	_, err = s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err = s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
 			owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
 			uris=excluded.uris, secret=excluded.secret, has_totp=excluded.has_totp,
-			tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file`,
-		item.ID, item.OrgID, item.Name, item.Kind, item.Owner.Kind, item.Owner.ID, uris, blob, has, tags, arch, hf)
+			tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file,
+			login=excluded.login`,
+		item.ID, item.OrgID, item.Name, item.Kind, item.Owner.Kind, item.Owner.ID, uris, blob, has, tags, arch, hf, item.Login)
 	return err
 }
 
@@ -268,7 +270,7 @@ func (s *SQLite) scanItem(scan func(dest ...any) error) (protocol.Item, error) {
 	var item protocol.Item
 	var uris, tags []byte
 	var has, arch, hf int
-	err := scan(&item.ID, &item.OrgID, &item.Name, &item.Kind, &item.Owner.Kind, &item.Owner.ID, &uris, &has, &tags, &arch, &hf)
+	err := scan(&item.ID, &item.OrgID, &item.Name, &item.Kind, &item.Owner.Kind, &item.Owner.ID, &uris, &has, &tags, &arch, &hf, &item.Login)
 	if err == sql.ErrNoRows {
 		return protocol.Item{}, ErrNotFound
 	}
@@ -288,17 +290,17 @@ func (s *SQLite) scanItem(scan func(dest ...any) error) (protocol.Item, error) {
 }
 
 func (s *SQLite) Item(id string) (protocol.Item, error) {
-	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file FROM items WHERE id=?`, id)
+	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE id=?`, id)
 	return s.scanItem(row.Scan)
 }
 
 func (s *SQLite) ItemByName(orgID, name string) (protocol.Item, error) {
-	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file FROM items WHERE org_id=? AND name=?`, orgID, name)
+	row := s.db.QueryRow(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE org_id=? AND name=?`, orgID, name)
 	return s.scanItem(row.Scan)
 }
 
 func (s *SQLite) ListItems() ([]protocol.Item, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file FROM items WHERE archived=0 ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE archived=0 ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}

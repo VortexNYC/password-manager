@@ -91,7 +91,9 @@ type AgentsResponse struct {
 }
 
 type FillLoginsRequest struct {
-	URL string `json:"url"`
+	URL      string `json:"url,omitempty"`
+	UUID     string `json:"uuid,omitempty"`
+	MintTOTP bool   `json:"mintTotp,omitempty"`
 }
 
 type FillLogin struct {
@@ -399,6 +401,25 @@ func (s *Server) fillLogins(w http.ResponseWriter, r *http.Request) {
 	}
 	var in FillLoginsRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(in.UUID) != "" {
+		got, err := s.App.FillLogin(p, in.UUID, in.MintTOTP)
+		if err != nil {
+			http.Error(w, "fill failed", http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, FillLoginsResponse{Entries: []FillLogin{{
+			Login:    got.Login,
+			Name:     got.Name,
+			Password: got.Password,
+			UUID:     got.UUID,
+			TOTP:     got.TOTP,
+		}}})
+		return
+	}
+	if in.MintTOTP {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}

@@ -32,7 +32,7 @@ Take the patterns that work, and stop:
 - TOTP lives on the item and is minted at use.
 - Shells speak Resolve / Use / Approve. They do not grow a second API.
 
-Add back only: logins, TOTP, API keys, OAuth refresh, SSH, env into a child, passkeys, grants, audit.
+Add back only: logins, TOTP, API keys, OAuth refresh, SSH, env into a child, passkeys, grants, audit, **cards, identities**. Cards and identities are fill items (checkout / address fields). They do not inject into an agent env. PAN/CVV never on MCP. Filling those fields is not placing an order.
 
 Level 1 last step is a human: CLI, Touch ID, Face ID, or a push. Level 2 finishes the ceremony without that human. Both still inject outside the model.
 
@@ -56,7 +56,7 @@ Passkeys: we are the authenticator when the site is someone else. Level 1 user v
 | proxy | HTTPS_PROXY MITM so unmodified SDKs work | broker | Infisical MITM; use `elazarl/goproxy` not a hand-rolled CONNECT |
 | mcp-cli | Streamable HTTP MCP. Bearer is the agent. CLI for humans. | protocol, broker | MCP spec 2025-03-26; MeowPass CLI; Infisical `vault run` |
 | totp | Mint at use-time, inject, never return the code | broker | Bitwarden item field; 1Password fill |
-| passkey | Two jobs. Site side when we are the relying party. Fill when the site is someone else. | broker | Site: `go-webauthn` or Kratos. Fill: native-messaging + nacl box, our host. Product chrome is the Veil extension. |
+| passkey | Two jobs. Site side when we are the relying party. Fill when the site is someone else. | broker | Site: `go-webauthn` or Kratos. Fill: native host. Product chrome is the Veil extension (JSON native messaging). kpxc nacl box is the slice-26 proof only. |
 | workload | Laptop == cloud. Verify provider OIDC; map subject to an existing agent. | grant | Entra federation; `coreos/go-oidc` |
 | oauth | Refresh stays in the broker. Inject the access token. | broker | Authsome; `golang.org/x/oauth2` |
 | humans | Sibling plane. Directory, issuer, identity-plane RBAC. | identity schema, login UI | Official Ory Kratos + Hydra + Keto images. Go clients for the glue. |
@@ -85,7 +85,8 @@ The next slices, in this order, and nothing else until each is proven:
                          planted `self` is tests and CLI without Hydra.
 5  agent Hydra client   written. client_credentials, jwt, not a Kratos human
 6  laptop socket        written. unix HTTP. Bearer is the Hydra JWT
-7  fill host            written. native-messaging + nacl box. we answer
+7  fill host            written. native-messaging. kpxc nacl box is
+                         the store-listing proof. Slice 37 is JSON.
 8  ssh                  written. x/crypto/ssh/agent. key never leaves
 9  env into a child     written. Infisical vault run. never the prompt
 10 owner-key wrap       written. one DEK per owner. master unwraps
@@ -116,16 +117,32 @@ The next slices, in this order, and nothing else until each is proven:
                          Cursor live: list_items + fetch GitHub /user
                          allow/200, token absent from the tool payload.
                          Codex/Devin laptop same. Not `${file:}`.
-23 one store              written. origin is the vault. PWM_ORIGIN CLI
-                         item/grant/list/fill/run/proxy HTTP. Never opens
-                         sqlite. `run`/`proxy` MITM POST /v1/use. Child env
+23 one store              written. origin is the source of truth.
+                         PWM_ORIGIN CLI item/grant/list/fill/run/proxy HTTP.
+                         `openApp` refuses a *second product vault*.
+                         The fill host may hold an **encrypted replica**
+                         of origin (docs/fill.md). Same item IDs. Local
+                         sqlite, local AEAD, device.key unwraps *this
+                         machine’s* master. Not a copy of origin’s master.
+                         Online fill **before** replica: one uuid on origin.
+                         After replica: fill is local; origin is sync + create.
+                         Offline: replica, queue pushes. Match is RAM-index
+                         (one GET /v1/items at host start), then replica.
+                         Never GET /v1/items per navigation.
+                         MCP and cloud agents are origin only. The
+                         replica is not in the extension. Not Connect.
+                         Not a CRDT. Pull/push + item_versions.
+                         `run`/`proxy` MITM POST /v1/use. Child env
                          is the dummy `veil-inject`, never the secret.
-                         `--inject` stays local vault. PrincipalFromOIDC:
-                         bound agent, else human+Keto. POST /v1/items and
-                         /v1/grants are owner. Secret in create request,
-                         never in response. Fill path /v1/fill/logins is
-                         human native-host only, not OpenAPI, not MCP.
-                         Chrome URI fill is slice 26. Passkeys fill is 31.
+                         `--inject` stays local vault (or replica when
+                         origin is unreachable on the laptop).
+                         PrincipalFromOIDC: bound agent, else human+Keto.
+                         POST /v1/items and /v1/grants are owner (family
+                         member creating a login they own is fill.md).
+                         Secret in create request, never in response.
+                         Fill path /v1/fill/* is human native-host only,
+                         not OpenAPI, not MCP. Chrome URI fill is 26.
+                         Passkeys fill is 31. Cards/identities are fill.
 24 human mint             written. `human login --out-file`. Hydra PKCE.
                          prompt=login so remint cannot skip TOTP. ID token
                          to disk. never stdout. amr must include totp.
@@ -183,38 +200,38 @@ The next slices, in this order, and nothing else until each is proven:
 32 Mac helper             not written. later. menu-bar accessory .app.
                          no vault UI. Settings > Passwords.
                          ASCredentialProvider: native Mac apps.
-                         not Chrome. not the Safari Web Extension
-                         (that is 37). Chrome stays the browser
-                         extension (26 wire, 37 product).
-33 iOS app                not written. proper app. add + fill only.
-                         ASCredentialProviderViewController. Face ID
+                         Choose mode via the OS bar. Same jobs as
+                         docs/fill.md. not Chrome. not the Safari
+                         Web Extension (that is 37).
+33 iOS app                not written. later, no pressure. proper app.
+                         add + fill only. OS AutoFill is choose;
+                         picking a row writes the field. Face ID
                          in that process. not grants/agents/audit.
-34 Android app            not written. proper app. add + fill only.
-                         AutofillService / Credential Manager.
-                         not grants/agents/audit.
+34 Android app            not written. later, no pressure. proper app.
+                         add + fill only. AutofillService /
+                         Credential Manager. not grants/agents/audit.
 35 Windows helper         not written. tray. Chrome still the Veil
-                         extension.
+                         extension (37, both fill modes).
                          Revisit then: WebAuthn plugin (passkeys, Win11),
                          Auto-Type, whatever shipped since this spec.
                          Do not assume an Apple-style password fill API.
 36 Linux helper           not written. tray. Chrome still the Veil
-                         extension.
+                         extension (37, both fill modes).
                          Revisit then: Secret Service (store, not fill),
                          Auto-Type / portals, whatever shipped since.
                          Do not assume a Freedesktop Autofill portal.
-37 Veil browser extension not written. next after KeePassXC-Browser
-                         fill is proven on this Mac. Chrome / Edge /
-                         Firefox / Safari Web Extension. One thin
-                         client. Speaks the same native-messaging +
-                         nacl box host as 26. Origin does fill,
-                         passkeys, remint. Replaces store
-                         keepassxc-browser for customers. Do not copy
-                         keepassxc-browser into this tree (GPL-3).
-                         Safari Web Extension is this slice.
+37 Veil browser extension not written. next. Chrome / Edge /
+                         Firefox / Safari Web Extension. Thin client.
+                         Design: docs/fill.md. Two modes: choose
+                         (click field, pick a match) and execute
+                         (trusted focus, unambiguous, write the
+                         chain). Native messaging JSON. Not nacl.
+                         Do not copy keepassxc-browser or Bitwarden
+                         (GPL-3). Safari Web Extension is this slice.
                          ASCredentialProvider is still 32.
 ```
 
-Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. After KeePassXC-Browser fill is proven, next is slice 37 (thin WebExtension; origin does the work). Mac helper is slice 32 later (native-app AutoFill, not the Safari extension). Phone is slices 33–34 (add + fill). Windows/Linux helpers are 35–36 and re-check the OS APIs on that slice, not now. Do not wrap the SPA in Native SDK / Tauri / Electron.
+Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. After KeePassXC-Browser fill is proven, next is slice 37 (thin WebExtension; origin does the work). Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Mac helper is slice 32 later (native-app AutoFill, not the Safari extension). Phone is slices 33–34 (add + fill). Windows/Linux helpers are 35–36 and re-check the OS APIs on that slice, not now. Do not wrap the SPA in Native SDK / Tauri / Electron.
 
 ## What the broker is
 
@@ -291,6 +308,13 @@ item
   passkey            native host           written. passkeys-get/register.
                      Veil extension        slice 37. store listing is 26.
                      go-webauthn           only if we are the site. not fill
+  card               fill host             not written. PAN+exp+name sealed.
+                                           CVV sealed. never MCP, never env.
+                                           never OpenAPI response. checkout
+                                           autocomplete. docs/fill.md.
+  identity           fill host             not written. name, address, phone,
+                                           email. never MCP. checkout / forms.
+                                           docs/fill.md.
   ssh                x/crypto/ssh/agent    written. CLI `ssh`. key never leaves
   file               sealed BLOB          written. owner `item write --out-file`.
                                            not MCP. not env.
@@ -314,6 +338,8 @@ use
                                            not OAuth refresh_token. not ory/mcp.
   scrub / audit      this process          built. `audit` is owner CLI. not MCP
   passgen            crypto/rand           written. CLI `gen`. not MCP. not a vault item
+                                           until item add. Fill `generate` (docs/fill.md)
+                                           mints + POST /v1/items + writes the field.
 
 
 org
@@ -335,27 +361,31 @@ org
 device
   pairing            nacl box            written. wrap master to a device
                                            public key. device.key + wraps/.
-                                           not plaintext master. not a second
-                                           vault. not iOS
+                                           not plaintext master. not iOS.
+                                           that wrap also opens the fill replica.
 
 computer
   vault UI           the SPA           chosen. Cloudflare. shadcn from Core.
                                            every human option lives here.
                                            not Native SDK. not Tauri. not Electron.
                                            not the phone.
-  host               Go native host   written. native-messaging + nacl box.
-                                           background. SSH agent. Touch ID at
-                                           Mac fill. Remints the human JWT.
+  host               Go native host   written. native-messaging.
+                                           kpxc nacl box = slice 26 proof.
+                                           37 = JSON. SSH agent. Touch ID.
+                                           Remints the human JWT.
   chrome/edge/firefox extension       required. Veil ships it (slice 37).
                                            Chromium does not call
                                            Apple/Windows AutoFill for HTML
                                            forms. do not delete this.
                                            store keepassxc-browser is the
                                            slice-26 wire only.
-  mac helper         menu-bar .app    later. accessory, no vault UI.
-                                           Settings > Passwords. Safari +
-                                           native Mac apps via
-                                           ASCredentialProvider. not Chrome.
+                                           choose + execute: docs/fill.md.
+  safari web extension                slice 37. containing .app hosts
+                                           native messaging. not 32.
+  mac helper         menu-bar .app    later (32). accessory, no vault UI.
+                                           Settings > Passwords. native
+                                           Mac apps via ASCredentialProvider.
+                                           not Chrome. not Safari pages.
   win/linux helper   tray binary      later. same Go.
                                            Windows: WebAuthn plugin is
                                            passkeys, not password fill into
@@ -398,7 +428,7 @@ how Approve reaches the human
   the CLI stays for tests and the local stand-in
 ```
 
-Passkey at a site is fill. The wire is native messaging + `nacl/box`. Our process is the native host. We do not use KeePassXC as the vault. Slice 26 proves the host with store [keepassxc-browser](https://github.com/keepassxreboot/keepassxc-browser). Slice 31 speaks `passkeys-get` / `passkeys-register` on that host; we are the authenticator, not the RP. Customers get a Veil-branded extension (slice 37). Do not copy keepassxc-browser into this tree (GPL-3). Fill may write a secret into the page. It never returns a secret to an agent.
+Passkey at a site is fill. Slice 26 proves the host against store [keepassxc-browser](https://github.com/keepassxreboot/keepassxc-browser) on their native-messaging + `nacl/box` wire. Slice 31 speaks `passkeys-get` / `passkeys-register` on that host; we are the authenticator, not the RP. Slice 37 is our extension: native messaging JSON to the same Go host, no nacl box, origin already TLS. Do not copy keepassxc-browser or Bitwarden into this tree (GPL-3). Fill may write a secret into the page. It never returns a secret to an agent.
 
 `go-webauthn` is only the site side, when this product is the relying party. Kratos already does that for human login.
 
@@ -416,9 +446,10 @@ computer
                Chrome / Edge / Firefox / Safari Web Extension.
                Later: Mac menu-bar accessory .app (native-app AutoFill).
   what         Browser fill is the extension + host. Origin does fill,
-               passkeys, remint. Extension is a thin client. Native
-               Mac apps are an OS credential provider (slice 32).
-               No vault window. Menu bar is status, not the SPA.
+               passkeys, remint. Extension is a thin client.
+               Choose vs execute: docs/fill.md. Native Mac apps are
+               an OS credential provider (slice 32). No vault window.
+               Menu bar is status, not the SPA.
   when         slice 26, then 31, then 37. 32 after that.
 
 phone
@@ -490,12 +521,16 @@ passkey
   who          this process is the host. CLI `fill`.
                Slice 26: store keepassxc-browser. Slice 31: passkeys-*.
                Slice 37: Veil extension.
-  what         native messaging + nacl box. get-logins writes into the page.
-               get-totp mints at fill time. the seed never leaves.
-               passkeys-get/register: we are the authenticator. ES256,
+  what         kpxc wire (nacl box, get-logins, get-totp, passkeys-*)
+               is the proof. 37 is native messaging JSON, four ops
+               (ping, match, fill, passkeyCreate, passkeyGet).
+               match has no secrets. fill returns login+password+
+               minted totp after one Touch ID. Two modes: choose
+               and execute. docs/fill.md.
+               Seed never leaves. We are the authenticator. ES256,
                none attestation. private key never on list/MCP/Use/env.
-               written. TestPasskeysRegisterThenGet
-  when         after fill logins
+               written for the kpxc wire. TestPasskeysRegisterThenGet
+  when         after fill logins logins
 
 ssh
   who          golang.org/x/crypto/ssh/agent
@@ -590,19 +625,28 @@ internal/publicapi      OpenAPI HTTP. /v1/items + /v1/use. GET /openapi.json
 internal/inject         ${NAME} / pwm:// into a child file. fail closed
 internal/passgen        human CLI. crypto/rand. not MCP
 internal/human          go-oidc verify Hydra; subject is the human
-internal/fill           keepassxc-browser native host. nacl box. passkeys-*. not the extension
+internal/fill           native host. kpxc nacl box (26/31). JSON (37). not the extension
 internal/device         nacl box wrap of master to a second machine
 internal/sshagent       x/crypto/ssh/agent. signs. key never leaves
 internal/socket         unix HTTP. Bearer JWT. laptop transport
 internal/workload       go-oidc verify; issuer+subject → agent
 internal/scrub          agent-visible redaction
-docs/                   spec + prior art
+docs/                   spec + prior art + fill product
+docs/fill.md            choose vs execute vs generate. browsers + OS. slice 37
 docs/openapi            the contract. CLI, MCP, SDKs, Blume /reference
 sdks/                   generated Go/TS/Python. never handwritten
 apps/docs               Blume. /reference consumes the spec
 ```
 
-Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac against origin (URI + TOTP + passkeys). Then design 37: thin WebExtension, origin does the work, do not copy keepassxc-browser. Do not scaffold 32–36 before 37. Do not scaffold Native SDK, Tauri, or Electron. The Chrome host is already Go. Windows/Linux fill APIs are reopened on 35–36, not designed now.
+Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac against origin (URI + TOTP + passkeys). Proven 2026-09-11. Design is [docs/fill.md](fill.md). Do not scaffold 32–36 before 37. Do not scaffold Native SDK, Tauri, or Electron. The Chrome host is already Go. Windows/Linux *native-app* fill APIs are reopened on 35–36. The two fill modes are already designed.
+
+## Slice 37
+
+Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpxc or Bitwarden (GPL-3). We do not inherit nacl.
+
+Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is the next layer of 37 after fill is proven — same 1Password/Apple signup gesture. `passgen` stays CLI; the host is what makes the value a vault item.
+
+Next: thin MV3. `nyc.veil.fill` JSON `ping` `match` `fill` + RAM index is written. Origin fill by uuid (`POST /v1/fill/logins {uuid, mintTotp?}`) is live. Generate and passkeys are later cases, not a gate. Kill kpxc when Chrome JSON is proven. Proof is Chrome URI + TOTP in one Touch ID session. Written-not-proven is not done.
 
 ## Testing
 
@@ -644,7 +688,7 @@ Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac agai
 - [x] `ApproveOIDC` Approves as that Hydra subject. Membership is Keto via glue. Live: subject and approval HumanID equal the Kratos identity id. Planted `self` stays tests and CLI when Hydra is not configured. If the issuer is set, `Approve` without a token fails.
 - [x] Agent that does not speak OIDC is a Hydra `client_credentials` client (`access_token_strategy=jwt`), not a Kratos human. Glue creates it. `agent hydra` binds issuer+subject. Secret is `--secret-file` only. Live: JWT verifies to that agent via go-oidc.
 - [x] Laptop socket is unix HTTP (`pwm.sock`). Bearer is that same JWT. Name is not identity. Live: Hydra JWT over the socket Uses as that agent. Secret absent from the response.
-- [x] Fill host speaks native messaging (`nacl/box`). `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret and no login. `fill install` writes the Go binary as the native host plus `fill.json` (origin and remint file paths, never the password). No shell wrapper. Product chrome is slice 37. Origin fill remints a stale/401 human JWT. Mac fill prompts Touch ID before a secret leaves (`PWM_FILL_TOUCHID=0` off). Cancel returns no password (`TestConfirmDeniedDoesNotReturnPassword`).
+- [x] Fill host speaks native messaging (`nacl/box`) for the store keepassxc-browser proof. `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret. Login username is item metadata (`protocol.Item.Login`). `fill install` writes the Go binary as the native host plus `fill.json` (origin and remint file paths, never the password). No shell wrapper. Product chrome is slice 37: native messaging JSON, not nacl box. Origin fill remints a stale/401 human JWT. Mac fill prompts Touch ID before a secret leaves (`PWM_FILL_TOUCHID=0` off). A success is reused for 30s so fill + TOTP + passkey is one gesture. Cancel returns no password (`TestConfirmDeniedDoesNotReturnPassword`).
 - [x] Passkeys fill is `passkeys-get` / `passkeys-register` on that host. We are the authenticator, not the RP. ES256, none attestation. Private key sealed; absent from list, MCP, Use, child env, OpenAPI. `POST /v1/fill/passkeys/*` is human native-host only. Wire version `2.7.7`. `TestPasskeysRegisterThenGet`. `TestRegisterThenAssertAgainstRP` verifies register+assert with go-webauthn as the RP so `SignASN1` truncation cannot ship.
 - [x] SSH agent is `golang.org/x/crypto/ssh/agent` on a local unix socket (`ssh.sock`). The broker signs. List/JSON has no PEM. `Add`/`Remove` refused. CLI `item add --ssh-file` never argv.
 - [x] Env into a child is Infisical `vault run`. `password-manager run` sets granted secrets in the child env and keeps `HTTPS_PROXY`. Broker stdout, MCP, and audit have no secret. Level 1 is skipped, never a prompt. SSH is not injected.
@@ -667,7 +711,7 @@ Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac agai
 - [x] OpenAPI is the contract (`docs/openapi/password-manager.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
-- [x] One store. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second sqlite. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
+- [x] One store. Origin is the source of truth. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host encrypted replica is designed in `docs/fill.md` System (local re-seal, not origin master; not written). Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
 - [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. `prompt=login` so Hydra cannot skip on a remembered session. `amr` must include totp. HTTP remint uses PWM_LOGIN_EMAIL + password/TOTP files. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 - [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
@@ -686,10 +730,10 @@ Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac agai
 | OAuth refresh | `golang.org/x/oauth2` | A token client |
 | TOTP | `pquerna/otp` | RFC 6238 by hand |
 | Passkeys, we are the site | `go-webauthn/webauthn` or Kratos | A custom ceremony. Using it to fill Stripe. |
-| Fill in a browser | Veil extension (37) + Go host. Slice 26 proves the wire with store keepassxc-browser. | Copying keepassxc-browser into this tree (GPL-3). KeePassXC as the vault. A desktop app as the fill host. |
+| Fill in a browser | Veil extension (37) + Go host. `docs/fill.md`. Slice 26 proves the wire with store keepassxc-browser. | Copying keepassxc-browser into this tree (GPL-3). KeePassXC as the vault. A desktop app as the fill host. Returning the password to an agent. |
 | Human vault UI | the SPA (Cloudflare). every option except add+fill on the phone | Native SDK. Tauri. Electron. A second Mac vault. Phone admin. |
 | Phone | add a password, fill a password (slices 33–34) | Grants, agents, audit, SSH, settings, embedding the SPA |
-| Mac helper | menu-bar accessory + ASCredentialProvider (slice 32) | A vault window. Using it to fill Chrome. |
+| Mac helper | menu-bar accessory + ASCredentialProvider (slice 32). Native apps only. Same choose job as `docs/fill.md`. | A vault window. Using it to fill Chrome. Using it as the Safari Web Extension (37). |
 | Windows / Linux helper | tray + Chrome extension. Revisit OS APIs on slices 35–36 | Inventing an Autofill API. Shipping Auto-Type before 26. |
 | Identity screens | Ory Elements in identity/login | Restyling Elements. Putting them in the broker. |
 | Vault UI widgets | shadcn from Core. Uniwind if a phone WebView/RN shell exists later | NativeWind. One component file in Swift. Native SDK as the UI. |
@@ -701,6 +745,10 @@ Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac agai
 
 None on the enemy. 1Password. Individual / Families / Teams / startup <100, plus the agents those people already run. Enterprise 1Password is not this product.
 
-Windows and Linux password-into-an-app fill: no Apple-style API as of 2026-09-10 (passkeys plugin / Secret Service / Auto-Type). Reopen on slices 35 and 36. Do not reopen now.
+Windows and Linux password-into-an-app fill: no Apple-style API as of 2026-09-10 (passkeys plugin / Secret Service / Auto-Type). The two *jobs* (choose vs execute) are in `docs/fill.md`. Reopen the OS APIs on slices 35 and 36. Do not reopen now.
+
+Import is a one-shot file onto origin after fill is proven (`docs/fill.md`). It is not 1Password Connect, not MCP. Replica sync (encrypted local, origin truth) is the airplane-mode path, not a second product vault. A family member must be able to create a login they own or fill-generate is owner-only.
+
+Cards and identities are fill items (`docs/fill.md`): write values into fields. PAN/CVV never on MCP, never child env. We are not a payment processor. We do not click Pay. Agents filling a card field is fill; agents placing an order is spending money and is out. Pay-button auto-submit is never on.
 
 Product is Veil. Repo/CLI stay `password-manager`.

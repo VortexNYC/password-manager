@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from vortex_pwm.models.owner import Owner
 from typing import Optional, Set
@@ -38,7 +38,8 @@ class Item(BaseModel):
     archived: Optional[StrictBool] = None
     has_totp: Optional[StrictBool] = None
     has_file: Optional[StrictBool] = None
-    __properties: ClassVar[List[str]] = ["id", "org_id", "name", "kind", "owner", "uris", "tags", "archived", "has_totp", "has_file"]
+    login: Optional[StrictStr] = Field(default=None, description="Fill username. Metadata. Not a secret. Empty if unset.")
+    __properties: ClassVar[List[str]] = ["id", "org_id", "name", "kind", "owner", "uris", "tags", "archived", "has_totp", "has_file", "login"]
 
     @field_validator('kind')
     def kind_validate_enum(cls, value):
@@ -110,7 +111,8 @@ class Item(BaseModel):
             "tags": obj.get("tags"),
             "archived": obj.get("archived"),
             "has_totp": obj.get("has_totp"),
-            "has_file": obj.get("has_file")
+            "has_file": obj.get("has_file"),
+            "login": obj.get("login")
         })
         return _obj
 

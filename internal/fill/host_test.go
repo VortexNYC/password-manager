@@ -11,6 +11,10 @@ func TestNativeHostArgsRewritesChromeLaunch(t *testing.T) {
 	if len(got) != 2 || got[1] != "fill" {
 		t.Fatalf("%v", got)
 	}
+	jsonHost := NativeHostArgs([]string{"/vault/" + HostFile, JSONChromeOrigin()})
+	if len(jsonHost) != 2 || jsonHost[1] != "fill" {
+		t.Fatalf("%v", jsonHost)
+	}
 	plain := NativeHostArgs([]string{"password-manager", "item", "list"})
 	if len(plain) != 3 || plain[1] != "item" {
 		t.Fatalf("%v", plain)

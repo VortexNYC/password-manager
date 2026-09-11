@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/grant"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
@@ -200,15 +201,21 @@ func TestFillLoginIsUsernameNotName(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("%d %s", code, raw)
 	}
-	if scrub.Contains(raw, []byte(login)) || scrub.Contains(raw, []byte(secret)) {
-		t.Fatal("create echoed login or secret")
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("create echoed secret")
+	}
+	if !scrub.Contains(raw, []byte(login)) {
+		t.Fatal("create omitted login")
 	}
 	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
 	if code != http.StatusOK {
 		t.Fatalf("%d %s", code, raw)
 	}
-	if scrub.Contains(raw, []byte(login)) {
-		t.Fatal("list leaked login")
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("list leaked secret")
+	}
+	if !scrub.Contains(raw, []byte(login)) {
+		t.Fatal("list omitted login")
 	}
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://dashboard.stripe.com/login"})
 	if code != http.StatusOK {
@@ -225,8 +232,11 @@ func TestFillLoginIsUsernameNotName(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("update %d %s", code, raw)
 	}
-	if scrub.Contains(raw, []byte("other@example.com")) {
-		t.Fatal("update echoed login")
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("update echoed secret")
+	}
+	if !scrub.Contains(raw, []byte("other@example.com")) {
+		t.Fatal("update omitted login")
 	}
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://dashboard.stripe.com/login"})
 	if code != http.StatusOK {
@@ -237,6 +247,148 @@ func TestFillLoginIsUsernameNotName(t *testing.T) {
 	}
 	if len(got.Entries) != 1 || got.Entries[0].Login != "other@example.com" || got.Entries[0].Password != secret {
 		t.Fatalf("update rotated or missed login: %+v", got)
+	}
+}
+
+func TestListIsChooseFillIsExecute(t *testing.T) {
+	const login = "stripe@example.com"
+	a := testApp(t)
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name:   "stripe",
+		URI:    "https://dashboard.stripe.com",
+		Secret: secret,
+		Login:  login,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("list leaked secret")
+	}
+	var listed ItemsResponse
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		t.Fatal(err)
+	}
+	var hit []protocol.Item
+	for _, item := range listed.Items {
+		if grant.HostAllowed(item, "https://dashboard.stripe.com/login") {
+			hit = append(hit, item)
+		}
+	}
+	if len(hit) != 1 || hit[0].Login != login || hit[0].Name != "stripe" {
+		t.Fatalf("choose from GET /v1/items without fill: %+v", hit)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://dashboard.stripe.com/login"})
+	if code != http.StatusOK {
+		t.Fatalf("fill %d %s", code, raw)
+	}
+	var filled FillLoginsResponse
+	if err := json.Unmarshal(raw, &filled); err != nil {
+		t.Fatal(err)
+	}
+	if len(filled.Entries) != 1 || filled.Entries[0].Login != login || filled.Entries[0].Password != secret {
+		t.Fatalf("execute %+v", filled)
+	}
+}
+
+func TestFillLoginsByUUIDDecryptsOne(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+	secretA := secret + "-a"
+	secretB := secret + "-b"
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name: "stripe-a", URI: "https://dashboard.stripe.com", Secret: secretA, Login: "a@example.com",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("a %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name: "stripe-b", URI: "https://dashboard.stripe.com", Secret: secretB, Login: "b@example.com",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("b %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://dashboard.stripe.com/login"})
+	if code != http.StatusOK {
+		t.Fatalf("url %d %s", code, raw)
+	}
+	var all FillLoginsResponse
+	if err := json.Unmarshal(raw, &all); err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Entries) != 2 {
+		t.Fatalf("url form %+v", all)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{UUID: "stripe-a"})
+	if code != http.StatusOK {
+		t.Fatalf("uuid %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secretB)) {
+		t.Fatal("uuid fill decrypted the other item")
+	}
+	var one FillLoginsResponse
+	if err := json.Unmarshal(raw, &one); err != nil {
+		t.Fatal(err)
+	}
+	if len(one.Entries) != 1 || one.Entries[0].UUID != "stripe-a" || one.Entries[0].Login != "a@example.com" || one.Entries[0].Password != secretA {
+		t.Fatalf("uuid form %+v", one)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{UUID: "missing"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "agent", FillLoginsRequest{UUID: "stripe-a"})
+	if code != http.StatusForbidden {
+		t.Fatalf("agent %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{MintTOTP: true})
+	if code != http.StatusBadRequest {
+		t.Fatalf("mint without uuid %d %s", code, raw)
+	}
+}
+
+func TestFillLoginsMintTotp(t *testing.T) {
+	const seed = "JBSWY3DPEHPK3PXP"
+	a := testApp(t)
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name: "stripe", URI: "https://dashboard.stripe.com", Secret: secret, TOTPSeed: seed,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{UUID: "stripe"})
+	if code != http.StatusOK {
+		t.Fatalf("star %d %s", code, raw)
+	}
+	var star FillLoginsResponse
+	if err := json.Unmarshal(raw, &star); err != nil {
+		t.Fatal(err)
+	}
+	if len(star.Entries) != 1 || star.Entries[0].TOTP != "*" || star.Entries[0].Password != secret {
+		t.Fatalf("%+v", star)
+	}
+	if star.Entries[0].TOTP == seed {
+		t.Fatal("returned the seed")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{UUID: "stripe", MintTOTP: true})
+	if code != http.StatusOK {
+		t.Fatalf("mint %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(seed)) {
+		t.Fatal("mint leaked seed")
+	}
+	var minted FillLoginsResponse
+	if err := json.Unmarshal(raw, &minted); err != nil {
+		t.Fatal(err)
+	}
+	if len(minted.Entries) != 1 || len(minted.Entries[0].TOTP) != 6 || minted.Entries[0].TOTP == "*" || minted.Entries[0].Password != secret {
+		t.Fatalf("mint %+v", minted)
 	}
 }
 

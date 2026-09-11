@@ -214,6 +214,53 @@ func TestSQLiteTOTPSeedNotOnDiskAndHasTOTPPersists(t *testing.T) {
 	}
 }
 
+func TestSQLiteLoginPersistsAsMetadata(t *testing.T) {
+	const login = "stripe@example.com"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	item := protocol.Item{
+		ID:    "stripe",
+		OrgID: "org",
+		Name:  "stripe",
+		Kind:  protocol.ItemAPIKey,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org"},
+		Login: login,
+	}
+	if err := s.PutItem(item, Secret("sk_live_token")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Item("stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Login != login {
+		t.Fatalf("login dropped: %+v", got)
+	}
+	listed, err := s.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Login != login {
+		t.Fatalf("list login %+v", listed)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("sk_live_token")) {
+		t.Fatal("token written in plaintext")
+	}
+}
+
 func TestSQLiteOwnerKeysDifferAndGrantHasNoDEK(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vault.db")

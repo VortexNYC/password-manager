@@ -372,7 +372,7 @@ func TestCLIItemAddTOTPNeverPrintsSeedOrCode(t *testing.T) {
 	}
 }
 
-func TestCLIItemLoginNotInList(t *testing.T) {
+func TestCLIItemLoginIsMetadataNotSecret(t *testing.T) {
 	const login = "stripe@example.com"
 	home := t.TempDir()
 	if _, err := run(t, home, "", "init"); err != nil {
@@ -386,22 +386,31 @@ func TestCLIItemLoginNotInList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scrub.Contains([]byte(addOut), []byte(login)) || scrub.Contains([]byte(addOut), []byte(secret)) {
-		t.Fatalf("item add printed login or secret: %s", addOut)
+	if scrub.Contains([]byte(addOut), []byte(secret)) {
+		t.Fatalf("item add printed secret: %s", addOut)
+	}
+	if !scrub.Contains([]byte(addOut), []byte(login)) {
+		t.Fatalf("item add omitted login: %s", addOut)
 	}
 	listOut, err := run(t, home, "", "item", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scrub.Contains([]byte(listOut), []byte(login)) {
-		t.Fatalf("list printed login: %s", listOut)
+	if scrub.Contains([]byte(listOut), []byte(secret)) {
+		t.Fatalf("list printed secret: %s", listOut)
+	}
+	if !scrub.Contains([]byte(listOut), []byte(login)) {
+		t.Fatalf("list omitted login: %s", listOut)
 	}
 	updOut, err := run(t, home, "", "item", "update", "stripe", "--login", "other@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scrub.Contains([]byte(updOut), []byte("other@example.com")) {
-		t.Fatalf("update printed login: %s", updOut)
+	if scrub.Contains([]byte(updOut), []byte(secret)) {
+		t.Fatalf("update printed secret: %s", updOut)
+	}
+	if !scrub.Contains([]byte(updOut), []byte("other@example.com")) {
+		t.Fatalf("update omitted login: %s", updOut)
 	}
 }
 

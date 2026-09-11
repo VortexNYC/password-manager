@@ -241,6 +241,7 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 		Tags:    opts.Tags,
 		HasTOTP: len(opts.TOTPSeed) > 0,
 		HasFile: len(opts.File) > 0,
+		Login:   strings.TrimSpace(opts.Login),
 	}
 	var blob []byte
 	var err error
@@ -308,7 +309,9 @@ func (a *App) UpdateItem(name string, replaceURIs, addURIs, tags []string, login
 		item.Tags = tags
 	}
 	raw := []byte(secret)
-	if strings.TrimSpace(login) != "" {
+	login = strings.TrimSpace(login)
+	if login != "" {
+		item.Login = login
 		raw, err = material.WithLogin([]byte(secret), login)
 		if err != nil {
 			return protocol.Item{}, err
@@ -448,11 +451,30 @@ func (a *App) ItemsForPrincipal(p protocol.Principal) ([]protocol.Item, error) {
 	return a.ItemsForAgent(p.ID)
 }
 
+// Match lists fill candidates for a URL. Metadata only. Never Secret().
+func (a *App) Match(p protocol.Principal, rawURL string) ([]protocol.Item, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return nil, fmt.Errorf("app: fill is human")
+	}
+	items, err := a.ItemsForPrincipal(p)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.Item, 0)
+	for _, item := range items {
+		if !grant.HostAllowed(item, rawURL) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
 // FillEntry is native-host material. Not protocol.Item. Not MCP.
 // Login is the fill username from the sealed envelope. Empty if unset.
-// Never fall back to item.Name.
+// Never fall back to item.Name on the URL form.
 // TOTP is "*" when a seed exists so KeePassXC-Browser will call get-totp.
-// It is never the seed and never a 6-digit code; FillTOTP mints that.
+// FillLogin(mintTotp) puts a 6-digit code instead. Never the seed.
 type FillEntry struct {
 	Login    string
 	Name     string
@@ -471,40 +493,90 @@ func (a *App) FillLogins(p protocol.Principal, rawURL string) ([]FillEntry, erro
 	}
 	var out []FillEntry
 	for _, item := range items {
-		if !item.Kind.Injects() {
-			continue
-		}
 		if !grant.HostAllowed(item, rawURL) {
 			continue
 		}
-		sec, err := a.Store.Secret(item.ID)
-		if err != nil {
+		e, ok := a.fillEntry(item)
+		if !ok {
 			continue
 		}
-		env := material.Unpack([]byte(sec))
-		if env.PasskeyPEM != "" {
-			continue
-		}
-		pass := env.Token
-		if pass == "" {
-			pass = string(sec)
-		}
-		totp := ""
-		if env.TOTP != "" {
-			totp = "*"
-		}
-		out = append(out, FillEntry{
-			Login:    env.Login,
-			Name:     item.Name,
-			Password: pass,
-			UUID:     item.ID,
-			TOTP:     totp,
-		})
+		out = append(out, e)
 	}
 	if out == nil {
 		out = []FillEntry{}
 	}
 	return out, nil
+}
+
+// FillLogin decrypts one item. mintTotp puts a 6-digit code in TOTP instead of "*".
+func (a *App) FillLogin(p protocol.Principal, uuid string, mintTotp bool) (FillEntry, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return FillEntry{}, fmt.Errorf("app: fill is human")
+	}
+	uuid = strings.TrimSpace(uuid)
+	if uuid == "" {
+		return FillEntry{}, fmt.Errorf("app: fill uuid")
+	}
+	if !a.mayFillItem(p, uuid) {
+		return FillEntry{}, fmt.Errorf("app: fill")
+	}
+	item, err := a.Store.Item(uuid)
+	if err != nil {
+		return FillEntry{}, fmt.Errorf("app: fill")
+	}
+	e, env, ok := a.unlockFill(item)
+	if !ok {
+		return FillEntry{}, fmt.Errorf("app: fill")
+	}
+	if e.Login == "" {
+		e.Login = item.Login
+	}
+	if !mintTotp {
+		return e, nil
+	}
+	if env.TOTP == "" {
+		return FillEntry{}, fmt.Errorf("app: no totp")
+	}
+	code, err := material.Mint(env.TOTP, time.Now())
+	if err != nil || code == "" {
+		return FillEntry{}, fmt.Errorf("app: no totp")
+	}
+	e.TOTP = code
+	return e, nil
+}
+
+func (a *App) fillEntry(item protocol.Item) (FillEntry, bool) {
+	e, _, ok := a.unlockFill(item)
+	return e, ok
+}
+
+func (a *App) unlockFill(item protocol.Item) (FillEntry, material.Envelope, bool) {
+	if !item.Kind.Injects() {
+		return FillEntry{}, material.Envelope{}, false
+	}
+	sec, err := a.Store.Secret(item.ID)
+	if err != nil {
+		return FillEntry{}, material.Envelope{}, false
+	}
+	env := material.Unpack([]byte(sec))
+	if env.PasskeyPEM != "" {
+		return FillEntry{}, material.Envelope{}, false
+	}
+	pass := env.Token
+	if pass == "" {
+		pass = string(sec)
+	}
+	totp := ""
+	if env.TOTP != "" {
+		totp = "*"
+	}
+	return FillEntry{
+		Login:    env.Login,
+		Name:     item.Name,
+		Password: pass,
+		UUID:     item.ID,
+		TOTP:     totp,
+	}, env, true
 }
 
 func (a *App) FillTOTP(p protocol.Principal, itemID string, now time.Time) (string, error) {

@@ -44,7 +44,7 @@ func New(a *app.App) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "veil", Version: "0.0.1"}, nil)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_items",
-		Description: "List items this agent may Use. Names and URIs only. Never secrets.",
+		Description: "List items this agent may Use. Names, URIs, login. Never secrets.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ListOut, error) {
 		agentID, err := principal(req)
 		if err != nil {
