@@ -144,9 +144,10 @@ The next slices, in this order, and nothing else until each is proven:
 27 totp enroll            written. `totp enroll --out-file --qr-file`.
                          otpauth QR is a PNG. seed then item add --totp-file.
                          not MCP. not a screenshot of the seed.
-28 kratos MFA             not written. totp and/or webauthn on Kratos
+28 kratos MFA             written. totp and webauthn on official Kratos
                          so a human unlocking Veil is not password+email
-                         only. Official Kratos methods. Not a DIY MFA.
+                         only. lookup_secret is the backup. Ory Elements
+                         settings/login. Not a DIY MFA.
 29 human grants           not written. family / small team: grant an item
                          to another Kratos human. Same grant object.
                          not a family vault. not collections.
@@ -636,6 +637,7 @@ Do not scaffold slices 30–36 until 26 is proven. Do not scaffold Native SDK, T
 - [x] One store. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` origin HTTP. `openApp` refuses a second sqlite. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
 - [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 - [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
+- [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
 
 ## Use what exists. Do not rewrite it.
 
