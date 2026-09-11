@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -235,5 +236,35 @@ func TestJSONFillUnambiguousUUIDOmitted(t *testing.T) {
 	}
 	if len(out.Entries) != 1 || out.Entries[0].UUID != "github" || out.Entries[0].Password != secret || out.Entries[0].Login != "ada" {
 		t.Fatalf("%+v", out)
+	}
+}
+
+func TestJSONNeedLoginOnDeadJWT(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+	h := NewOrigin(t.TempDir(), srv.URL, "stale")
+	ping := jsonHandle(t, h, map[string]string{"action": "ping"})
+	var pong struct {
+		Version string `json:"version"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(ping, &pong); err != nil {
+		t.Fatal(err)
+	}
+	if pong.Version != JSONVersion || pong.Error != "need_login" {
+		t.Fatalf("ping %s", ping)
+	}
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://example.com/login"})
+	var out struct {
+		Error   string          `json:"error"`
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Error != "need_login" || len(out.Entries) != 0 {
+		t.Fatalf("fill %s", got)
 	}
 }

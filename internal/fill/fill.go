@@ -67,6 +67,7 @@ type Host struct {
 	index        []protocol.Item
 	indexOK      bool
 	confirmUntil time.Time
+	needLogin    bool
 }
 
 type session struct {
@@ -559,9 +560,18 @@ func (h *Host) originGET(path string) ([]byte, error) {
 	return h.originCall(http.MethodGet, path, nil)
 }
 
+type originStatusError struct {
+	code int
+}
+
+func (e originStatusError) Error() string {
+	return fmt.Sprintf("fill origin: http %d", e.code)
+}
+
 func (h *Host) originCall(method, path string, body []byte) ([]byte, error) {
 	tok, err := h.bearer()
 	if err != nil {
+		h.setNeedLogin(true)
 		return nil, err
 	}
 	raw, code, err := h.originDo(method, path, body, tok)
@@ -571,6 +581,7 @@ func (h *Host) originCall(method, path string, body []byte) ([]byte, error) {
 	if code == http.StatusUnauthorized && h.Refresh != nil {
 		tok, err = h.Refresh()
 		if err != nil {
+			h.setNeedLogin(true)
 			return nil, err
 		}
 		h.invalidateIndex()
@@ -579,10 +590,27 @@ func (h *Host) originCall(method, path string, body []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	if code == http.StatusUnauthorized {
+		h.setNeedLogin(true)
+		return nil, originStatusError{code: code}
+	}
 	if code < 200 || code >= 300 {
 		return nil, fmt.Errorf("fill origin: http %d", code)
 	}
+	h.setNeedLogin(false)
 	return raw, nil
+}
+
+func (h *Host) setNeedLogin(v bool) {
+	h.mu.Lock()
+	h.needLogin = v
+	h.mu.Unlock()
+}
+
+func (h *Host) loginNeeded() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.needLogin
 }
 
 func (h *Host) originDo(method, path string, body []byte, tok string) ([]byte, int, error) {
@@ -598,7 +626,7 @@ func (h *Host) originDo(method, path string, body []byte, tok string) ([]byte, i
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -827,10 +855,9 @@ func FirefoxID() string {
 	return "keepassxc-browser@keepassxc.org"
 }
 
-// JSONChromeOrigin is the allowlist until increment 4 ships the MV3.
-// Chrome native-host IDs are [a-p]{32}.
+// JSONChromeOrigin is apps/fill's unpacked ID (manifest key). [a-p]{32}.
 func JSONChromeOrigin() string {
-	return "chrome-extension://fillfillfillfillfillfillfillfill/"
+	return "chrome-extension://lhomafgilnbibogfibcekpppblokmpdo/"
 }
 
 func JSONFirefoxID() string {

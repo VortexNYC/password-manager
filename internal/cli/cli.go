@@ -1548,6 +1548,16 @@ func trimNL(b []byte) []byte {
 }
 
 func attachFillConfirm(h *fill.Host) {
+	if dir, err := fill.DirBesideHost(); err == nil {
+		if cfg, err := fill.ReadHostConfig(dir); err == nil && cfg.TouchID != nil && !*cfg.TouchID {
+			return
+		}
+	}
+	if dir := strings.TrimSpace(os.Getenv("PWM_HOME")); dir != "" {
+		if cfg, err := fill.ReadHostConfig(dir); err == nil && cfg.TouchID != nil && !*cfg.TouchID {
+			return
+		}
+	}
 	if confirm.Enabled() {
 		h.Confirm = confirm.TouchID
 	}

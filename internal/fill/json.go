@@ -37,29 +37,43 @@ func (h *Host) handleJSON(raw []byte) []byte {
 		UUID   string `json:"uuid"`
 	}
 	if json.Unmarshal(raw, &in) != nil {
-		return jsonBytes(struct {
-			Entries []jsonFillEntry `json:"entries"`
-		}{Entries: []jsonFillEntry{}})
+		return jsonFillReply(nil, "")
 	}
 	switch in.Action {
 	case "ping":
 		h.ensureIndex()
-		return jsonBytes(struct {
+		out := struct {
 			Version string `json:"version"`
-		}{Version: JSONVersion})
+			Error   string `json:"error,omitempty"`
+		}{Version: JSONVersion}
+		if h.loginNeeded() {
+			out.Error = "need_login"
+		}
+		return jsonBytes(out)
 	case "match":
 		return jsonBytes(struct {
 			Entries []jsonMatchEntry `json:"entries"`
 		}{Entries: h.jsonMatch(in.URL)})
 	case "fill":
-		return jsonBytes(struct {
-			Entries []jsonFillEntry `json:"entries"`
-		}{Entries: h.jsonFill(in.URL, in.UUID)})
+		entries := h.jsonFill(in.URL, in.UUID)
+		err := ""
+		if len(entries) == 0 && h.loginNeeded() {
+			err = "need_login"
+		}
+		return jsonFillReply(entries, err)
 	default:
-		return jsonBytes(struct {
-			Entries []jsonFillEntry `json:"entries"`
-		}{Entries: []jsonFillEntry{}})
+		return jsonFillReply(nil, "")
 	}
+}
+
+func jsonFillReply(entries []jsonFillEntry, err string) []byte {
+	if entries == nil {
+		entries = []jsonFillEntry{}
+	}
+	return jsonBytes(struct {
+		Entries []jsonFillEntry `json:"entries"`
+		Error   string          `json:"error,omitempty"`
+	}{Entries: entries, Error: err})
 }
 
 func (h *Host) jsonMatch(rawURL string) []jsonMatchEntry {

@@ -319,6 +319,9 @@ func TestInstallWritesManifestsNotExtension(t *testing.T) {
 	if bytes.Contains(jsonRaw, []byte("nacl")) || bytes.Contains(jsonRaw, []byte(NativeHostName)) {
 		t.Fatalf("json manifest mixed with kpxc: %s", jsonRaw)
 	}
+	if !bytes.Contains(jsonRaw, []byte(JSONChromeOrigin())) {
+		t.Fatalf("json host missing extension origin %s", jsonRaw)
+	}
 }
 
 func TestGetTOTPMintsCodeNotSeed(t *testing.T) {

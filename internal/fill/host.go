@@ -23,6 +23,9 @@ type HostConfig struct {
 	PasswordFile string `json:"kratos_password_file,omitempty"`
 	TOTPFile     string `json:"kratos_totp_file,omitempty"`
 	Debug        bool   `json:"debug,omitempty"`
+	// TouchID is Mac confirm. Chrome launches the host with no env we control.
+	// nil = default on. false writes PWM_FILL_TOUCHID=0 (tests / prove).
+	TouchID *bool `json:"touch_id,omitempty"`
 }
 
 type InstallEnv struct {
@@ -32,14 +35,18 @@ type InstallEnv struct {
 
 // NativeHostArgs rewrites Chrome/Firefox's launch of the host binary into
 // `fill`. The browser passes the extension origin as argv[1].
+// PWM_HOME is forced to the binary's directory so a login-shell
+// PWM_HOME/PWM_ORIGIN cannot point the host at a different vault.
 func NativeHostArgs(args []string) []string {
 	if len(args) == 0 {
 		return args
 	}
-	if filepath.Base(args[0]) == HostFile {
-		return []string{args[0], "fill"}
-	}
-	if len(args) > 1 && nativeMessagingOrigin(args[1]) {
+	if filepath.Base(args[0]) == HostFile || (len(args) > 1 && nativeMessagingOrigin(args[1])) {
+		dir := filepath.Dir(args[0])
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+		_ = os.Setenv("PWM_HOME", dir)
 		return []string{args[0], "fill"}
 	}
 	return args
@@ -94,6 +101,9 @@ func ApplyHostConfig(dir string) error {
 	setIfEmpty("PWM_KRATOS_TOTP_FILE", cfg.TOTPFile)
 	if cfg.Debug {
 		setIfEmpty("PWM_FILL_DEBUG", "1")
+	}
+	if cfg.TouchID != nil && !*cfg.TouchID {
+		_ = os.Setenv("PWM_FILL_TOUCHID", "0")
 	}
 	return nil
 }

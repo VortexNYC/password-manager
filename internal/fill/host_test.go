@@ -21,6 +21,19 @@ func TestNativeHostArgsRewritesChromeLaunch(t *testing.T) {
 	}
 }
 
+func TestNativeHostArgsBindsHomeToBinaryDir(t *testing.T) {
+	t.Setenv("PWM_HOME", "/Users/someone/.password-manager")
+	dir := t.TempDir()
+	bin := filepath.Join(dir, HostFile)
+	got := NativeHostArgs([]string{bin, JSONChromeOrigin()})
+	if len(got) != 2 || got[1] != "fill" {
+		t.Fatalf("%v", got)
+	}
+	if os.Getenv("PWM_HOME") != dir {
+		t.Fatalf("PWM_HOME=%s want %s", os.Getenv("PWM_HOME"), dir)
+	}
+}
+
 func TestApplyHostConfigSetsBlankEnv(t *testing.T) {
 	dir := t.TempDir()
 	if err := WriteHostConfig(dir, HostConfig{Origin: "https://veil.nyc", Home: dir}); err != nil {
@@ -64,6 +77,21 @@ func TestApplyHostConfigDebug(t *testing.T) {
 	}
 	if os.Getenv("PWM_FILL_DEBUG") != "1" {
 		t.Fatal("debug not applied")
+	}
+}
+
+func TestApplyHostConfigTouchIDOff(t *testing.T) {
+	dir := t.TempDir()
+	off := false
+	if err := WriteHostConfig(dir, HostConfig{TouchID: &off}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_FILL_TOUCHID", "")
+	if err := ApplyHostConfig(dir); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("PWM_FILL_TOUCHID") != "0" {
+		t.Fatal("touch id not off")
 	}
 }
 
