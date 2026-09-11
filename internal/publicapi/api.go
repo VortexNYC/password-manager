@@ -113,6 +113,16 @@ type FillTOTPResponse struct {
 	TOTP string `json:"totp"`
 }
 
+type FillPasskeysRequest struct {
+	Origin         string          `json:"origin"`
+	PublicKey      json.RawMessage `json:"publicKey"`
+	RelatedOrigins []string        `json:"relatedOrigins,omitempty"`
+}
+
+type FillPasskeysResponse struct {
+	Response json.RawMessage `json:"response"`
+}
+
 type Server struct {
 	App      *app.App
 	Identity func(ctx context.Context, token string) (protocol.Principal, error)
@@ -137,6 +147,8 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/events", s.listEvents)
 	mux.HandleFunc("POST /v1/fill/logins", s.fillLogins)
 	mux.HandleFunc("POST /v1/fill/totp", s.fillTOTP)
+	mux.HandleFunc("POST /v1/fill/passkeys/register", s.fillPasskeyRegister)
+	mux.HandleFunc("POST /v1/fill/passkeys/get", s.fillPasskeyGet)
 }
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
@@ -417,6 +429,38 @@ func (s *Server) fillTOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, FillTOTPResponse{TOTP: code})
+}
+
+func (s *Server) fillPasskeyRegister(w http.ResponseWriter, r *http.Request) {
+	s.fillPasskey(w, r, true)
+}
+
+func (s *Server) fillPasskeyGet(w http.ResponseWriter, r *http.Request) {
+	s.fillPasskey(w, r, false)
+}
+
+func (s *Server) fillPasskey(w http.ResponseWriter, r *http.Request, register bool) {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return
+	}
+	var in FillPasskeysRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var resp json.RawMessage
+	var err error
+	if register {
+		resp, err = s.App.FillPasskeyRegister(p, in.Origin, in.PublicKey, in.RelatedOrigins)
+	} else {
+		resp, err = s.App.FillPasskeyGet(p, in.Origin, in.PublicKey)
+	}
+	if err != nil {
+		http.Error(w, "fill failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, FillPasskeysResponse{Response: resp})
 }
 
 func (s *Server) resolve(r *http.Request) (protocol.Principal, error) {

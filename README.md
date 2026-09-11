@@ -57,7 +57,7 @@ Paste `mcp config` as the HTTP server block when the process has `PWM_OIDC_TOKEN
 
 `run` / `proxy` MITM: unmodified HTTP clients go through `HTTPS_PROXY`. Unknown hosts fail closed. A per-machine CA (`ca.pem`) is used for MITM — not goproxy's public default. Origin MITM with a real (non-dummy) Authorization header passes through, so Wrangler asset-upload JWTs keep working.
 
-`fill` is the native host (native messaging + nacl box). `password-manager fill install` registers this process. Slice 26 dogfoods store KeePassXC-Browser. Customers get a Veil-branded extension (SPEC slice 37). Fill writes into the page. Agents never receive the secret.
+`fill` is the native host (native messaging + nacl box). `password-manager fill install` registers this process. Slice 26 dogfoods store KeePassXC-Browser. Slice 31 speaks `passkeys-get` / `passkeys-register` on that host. Customers get a Veil-branded extension (SPEC slice 37). Fill writes into the page. Agents never receive the secret.
 
 `ssh` is the OpenSSH agent. Export `SSH_AUTH_SOCK` from its output. The broker signs. The private key never leaves. `item add --ssh-file` stores the PEM; never argv.
 

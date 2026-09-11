@@ -25,17 +25,21 @@ const (
 )
 
 type Envelope struct {
-	V         int    `json:"v"`
-	Token     string `json:"token,omitempty"`
-	Login     string `json:"login,omitempty"`
-	TOTP      string `json:"totp,omitempty"`
-	Refresh   string `json:"refresh,omitempty"`
-	TokenURL  string `json:"token_url,omitempty"`
-	ClientID  string `json:"client_id,omitempty"`
-	ClientSec string `json:"client_secret,omitempty"`
-	FileName  string `json:"file_name,omitempty"`
-	MIME      string `json:"mime,omitempty"`
-	FileB64   string `json:"file_b64,omitempty"`
+	V          int    `json:"v"`
+	Token      string `json:"token,omitempty"`
+	Login      string `json:"login,omitempty"`
+	TOTP       string `json:"totp,omitempty"`
+	Refresh    string `json:"refresh,omitempty"`
+	TokenURL   string `json:"token_url,omitempty"`
+	ClientID   string `json:"client_id,omitempty"`
+	ClientSec  string `json:"client_secret,omitempty"`
+	FileName   string `json:"file_name,omitempty"`
+	MIME       string `json:"mime,omitempty"`
+	FileB64    string `json:"file_b64,omitempty"`
+	PasskeyPEM string `json:"passkey_pem,omitempty"`
+	CredID     string `json:"cred_id,omitempty"`
+	RpID       string `json:"rp_id,omitempty"`
+	UserHandle string `json:"user_handle,omitempty"`
 }
 
 func PackFile(name, mime string, body []byte) ([]byte, error) {
@@ -85,6 +89,19 @@ func PackOAuth(refresh, tokenURL, clientID, clientSecret []byte) ([]byte, error)
 		TokenURL:  string(trim(tokenURL)),
 		ClientID:  string(trim(clientID)),
 		ClientSec: string(trim(clientSecret)),
+	})
+}
+
+func PackPasskey(pem, credID, rpID, userHandle string) ([]byte, error) {
+	if strings.TrimSpace(pem) == "" || credID == "" || rpID == "" {
+		return nil, fmt.Errorf("material: empty passkey")
+	}
+	return pack(Envelope{
+		V:          Version,
+		PasskeyPEM: pem,
+		CredID:     credID,
+		RpID:       rpID,
+		UserHandle: userHandle,
 	})
 }
 
@@ -187,6 +204,9 @@ func ScrubList(env Envelope, extra ...[]byte) [][]byte {
 	}
 	if env.ClientSec != "" {
 		out = append(out, []byte(env.ClientSec))
+	}
+	if env.PasskeyPEM != "" {
+		out = append(out, []byte(env.PasskeyPEM))
 	}
 	for _, e := range extra {
 		if len(e) > 0 {

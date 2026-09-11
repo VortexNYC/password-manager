@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/nacl/box"
@@ -407,5 +409,370 @@ func TestFillDoesNotAddAgentSurface(t *testing.T) {
 	}
 	if scrub.Contains(raw, []byte(secret)) {
 		t.Fatal(string(raw))
+	}
+}
+
+func associated(t *testing.T, h *Host) *client {
+	t.Helper()
+	c := newClient(t)
+	c.handshake(t, h)
+	inner, err := json.Marshal(map[string]string{"action": "associate", "key": c.idKey, "idKey": c.idKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.send(t, h, inner)
+	return c
+}
+
+func TestPasskeysRegisterThenGet(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	h := New(a)
+	c := associated(t, h)
+	keys := []assocKey{{ID: assocID, Key: c.idKey}}
+	create, err := json.Marshal(map[string]any{
+		"action": "passkeys-register",
+		"origin": "https://github.com",
+		"publicKey": map[string]any{
+			"challenge": "dGVzdGNoYWxsZW5nZQ",
+			"rp":        map[string]string{"id": "github.com", "name": "GitHub"},
+			"user":      map[string]string{"id": "dXNlcg", "name": "ada", "displayName": "Ada"},
+			"pubKeyCredParams": []map[string]any{
+				{"type": "public-key", "alg": -7},
+			},
+		},
+		"keys": keys,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg struct {
+		Success  string          `json:"success"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(c.send(t, h, create), &reg); err != nil {
+		t.Fatal(err)
+	}
+	if reg.Success != "true" {
+		t.Fatalf("%s", reg.Response)
+	}
+	var cred struct {
+		ID       string `json:"id"`
+		Response struct {
+			AttestationObject string `json:"attestationObject"`
+			Signature         string `json:"signature"`
+		} `json:"response"`
+		ErrorCode int `json:"errorCode"`
+	}
+	if err := json.Unmarshal(reg.Response, &cred); err != nil {
+		t.Fatal(err)
+	}
+	if cred.ErrorCode != 0 || cred.ID == "" || cred.Response.AttestationObject == "" {
+		t.Fatalf("%s", reg.Response)
+	}
+	if bytes.Contains(reg.Response, []byte("BEGIN")) {
+		t.Fatal("wire leaked pem")
+	}
+	get, err := json.Marshal(map[string]any{
+		"action": "passkeys-get",
+		"origin": "https://github.com",
+		"publicKey": map[string]any{
+			"challenge": "Z2V0Y2hhbGxlbmdlMTIz",
+			"rpId":      "github.com",
+			"allowCredentials": []map[string]string{
+				{"id": cred.ID, "type": "public-key"},
+			},
+		},
+		"keys": keys,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(c.send(t, h, get), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(got.Response, &cred); err != nil {
+		t.Fatal(err)
+	}
+	if cred.ErrorCode != 0 || cred.Response.Signature == "" {
+		t.Fatalf("%s", got.Response)
+	}
+	if bytes.Contains(got.Response, []byte("BEGIN")) {
+		t.Fatal("get leaked pem")
+	}
+	items, err := a.Store.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(listed, []byte("BEGIN")) || bytes.Contains(listed, []byte("passkey_pem")) {
+		t.Fatal("item list leaked passkey material")
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
+	logins, err := a.FillLogins(human, "https://github.com/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logins) != 0 {
+		t.Fatalf("get-logins returned passkey %+v", logins)
+	}
+}
+
+func TestPasskeysNeedsAssociate(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	h := New(a)
+	c := newClient(t)
+	c.handshake(t, h)
+	req, err := json.Marshal(map[string]any{
+		"action":    "passkeys-get",
+		"origin":    "https://github.com",
+		"publicKey": map[string]any{"challenge": "Z2V0Y2hhbGxlbmdlMTIz", "rpId": "github.com"},
+		"keys":      []assocKey{{ID: assocID, Key: c.idKey}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(c.send(t, h, req), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["success"] != "false" {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestPasskeysFromOrigin(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer human" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/v1/fill/passkeys/get" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"response":{"id":"abc","type":"public-key","authenticatorAttachment":"platform","response":{"signature":"c2ln"}}}`)
+	}))
+	t.Cleanup(origin.Close)
+	h := NewOrigin(t.TempDir(), origin.URL, "human")
+	c := associated(t, h)
+	req, err := json.Marshal(map[string]any{
+		"action":    "passkeys-get",
+		"origin":    "https://github.com",
+		"publicKey": map[string]any{"challenge": "Z2V0Y2hhbGxlbmdlMTIz", "rpId": "github.com"},
+		"keys":      []assocKey{{ID: assocID, Key: c.idKey}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(c.send(t, h, req), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Response, []byte(`"id":"abc"`)) {
+		t.Fatalf("%s", got.Response)
+	}
+}
+
+func envNoOrigin() []string {
+	var out []string
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "PWM_ORIGIN=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func (c *client) handshakeProc(t *testing.T, in io.Writer, out io.Reader) {
+	t.Helper()
+	nonce := make([]byte, 24)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(envelope{
+		Action:    "change-public-keys",
+		Nonce:     base64.StdEncoding.EncodeToString(nonce),
+		ClientID:  c.id,
+		PublicKey: base64.StdEncoding.EncodeToString(c.pub[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(in, raw); err != nil {
+		t.Fatal(err)
+	}
+	gotRaw, err := Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got envelope
+	if err := json.Unmarshal(gotRaw, &got); err != nil {
+		t.Fatal(err)
+	}
+	k, err := b64key(got.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.host = k
+}
+
+func (c *client) sendProc(t *testing.T, in io.Writer, out io.Reader, inner []byte) []byte {
+	t.Helper()
+	var nonce [24]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		t.Fatal(err)
+	}
+	boxed := box.Seal(nil, inner, &nonce, &c.host, c.priv)
+	raw, err := json.Marshal(envelope{
+		Action:   "get-logins",
+		Message:  base64.StdEncoding.EncodeToString(boxed),
+		Nonce:    base64.StdEncoding.EncodeToString(nonce[:]),
+		ClientID: c.id,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(in, raw); err != nil {
+		t.Fatal(err)
+	}
+	gotRaw, err := Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env envelope
+	if err := json.Unmarshal(gotRaw, &env); err != nil {
+		t.Fatal(err)
+	}
+	n, err := b64nonce(env.Nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, ok := box.Open(nil, mustB64(env.Message), &n, &c.host, c.priv)
+	if !ok {
+		t.Fatal("decrypt failed")
+	}
+	return plain
+}
+
+func TestPasskeysLiveCLI(t *testing.T) {
+	bin := os.Getenv("PWM_BIN")
+	if bin == "" {
+		t.Skip("PWM_BIN")
+	}
+	home := t.TempDir()
+	a, err := app.Init(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "fill", "--home", home)
+	cmd.Env = envNoOrigin()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	c := newClient(t)
+	c.handshakeProc(t, stdin, stdout)
+	assoc, err := json.Marshal(map[string]string{"action": "associate", "key": c.idKey, "idKey": c.idKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.sendProc(t, stdin, stdout, assoc)
+	keys := []assocKey{{ID: assocID, Key: c.idKey}}
+	create, err := json.Marshal(map[string]any{
+		"action": "passkeys-register",
+		"origin": "https://webauthn.io",
+		"publicKey": map[string]any{
+			"challenge": "dGVzdGNoYWxsZW5nZQ",
+			"rp":        map[string]string{"id": "webauthn.io", "name": "webauthn.io"},
+			"user":      map[string]string{"id": "dXNlcg", "name": "ada", "displayName": "Ada"},
+			"pubKeyCredParams": []map[string]any{
+				{"type": "public-key", "alg": -7},
+			},
+		},
+		"keys": keys,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg struct {
+		Success  string          `json:"success"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(c.sendProc(t, stdin, stdout, create), &reg); err != nil {
+		t.Fatal(err)
+	}
+	if reg.Success != "true" {
+		t.Fatalf("%s", reg.Response)
+	}
+	if bytes.Contains(reg.Response, []byte("BEGIN")) {
+		t.Fatal("cli leaked pem")
+	}
+	var cred struct {
+		ID        string `json:"id"`
+		ErrorCode int    `json:"errorCode"`
+	}
+	if err := json.Unmarshal(reg.Response, &cred); err != nil {
+		t.Fatal(err)
+	}
+	if cred.ErrorCode != 0 || cred.ID == "" {
+		t.Fatalf("%s", reg.Response)
+	}
+	get, err := json.Marshal(map[string]any{
+		"action": "passkeys-get",
+		"origin": "https://webauthn.io",
+		"publicKey": map[string]any{
+			"challenge":        "Z2V0Y2hhbGxlbmdlMTIz",
+			"rpId":             "webauthn.io",
+			"allowCredentials": []map[string]string{{"id": cred.ID, "type": "public-key"}},
+		},
+		"keys": keys,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(c.sendProc(t, stdin, stdout, get), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(got.Response, &cred); err != nil {
+		t.Fatal(err)
+	}
+	if cred.ErrorCode != 0 || cred.ID == "" {
+		t.Fatalf("%s", got.Response)
+	}
+	if bytes.Contains(got.Response, []byte("BEGIN")) {
+		t.Fatal("get leaked pem")
 	}
 }

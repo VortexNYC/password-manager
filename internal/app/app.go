@@ -20,6 +20,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/inject"
 	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/passkey"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/store"
 	"github.com/vortexnyc/password-manager/internal/workload"
@@ -199,6 +200,7 @@ type ItemOpts struct {
 	FileName     string
 	MIME         string
 	File         []byte
+	Passkey      []byte
 }
 
 func (a *App) AddItem(name, uri string, secret []byte) (protocol.Item, error) {
@@ -209,12 +211,14 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 	if !id.Valid(opts.Name) {
 		return protocol.Item{}, fmt.Errorf("app: invalid item name %q", opts.Name)
 	}
-	if len(opts.Token) == 0 && len(opts.TOTPSeed) == 0 && len(opts.Refresh) == 0 && len(opts.File) == 0 {
+	if len(opts.Token) == 0 && len(opts.TOTPSeed) == 0 && len(opts.Refresh) == 0 && len(opts.File) == 0 && len(opts.Passkey) == 0 {
 		return protocol.Item{}, fmt.Errorf("app: empty secret")
 	}
 	kind := opts.Kind
 	if kind == "" {
 		switch {
+		case len(opts.Passkey) > 0:
+			kind = protocol.ItemPasskey
 		case len(opts.File) > 0:
 			kind = protocol.ItemFile
 		case len(opts.Refresh) > 0:
@@ -241,6 +245,8 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 	var blob []byte
 	var err error
 	switch {
+	case len(opts.Passkey) > 0:
+		blob = opts.Passkey
 	case len(opts.File) > 0:
 		blob, err = material.PackFile(opts.FileName, opts.MIME, opts.File)
 	case len(opts.Refresh) > 0:
@@ -462,6 +468,9 @@ func (a *App) FillLogins(p protocol.Principal, rawURL string) ([]FillEntry, erro
 	}
 	var out []FillEntry
 	for _, item := range items {
+		if !item.Kind.Injects() {
+			continue
+		}
 		if !grant.HostAllowed(item, rawURL) {
 			continue
 		}
@@ -470,6 +479,9 @@ func (a *App) FillLogins(p protocol.Principal, rawURL string) ([]FillEntry, erro
 			continue
 		}
 		env := material.Unpack([]byte(sec))
+		if env.PasskeyPEM != "" {
+			continue
+		}
 		pass := env.Token
 		if pass == "" {
 			pass = string(sec)
@@ -508,6 +520,91 @@ func (a *App) FillTOTP(p protocol.Principal, itemID string, now time.Time) (stri
 		return "", fmt.Errorf("app: no totp")
 	}
 	return code, nil
+}
+
+func (a *App) FillPasskeyRegister(p protocol.Principal, origin string, publicKey json.RawMessage, extraURIs []string) (json.RawMessage, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return nil, fmt.Errorf("app: fill is human")
+	}
+	existing, err := a.passkeyRecords(p)
+	if err != nil {
+		return nil, err
+	}
+	cred, rec, code := passkey.Register(origin, publicKey, existing)
+	if code != 0 {
+		return passkey.ErrorResponse(code), nil
+	}
+	blob, err := material.PackPasskey(rec.PEM, rec.CredID, rec.RpID, rec.UserHandle)
+	if err != nil {
+		return passkey.ErrorResponse(passkey.ErrUnknown), nil
+	}
+	uris := []string{"https://" + rec.RpID}
+	if origin != "" {
+		uris = unionURIs(uris, []string{origin})
+	}
+	uris = unionURIs(uris, extraURIs)
+	if _, err := a.PutItem(ItemOpts{
+		Name:    passkey.ItemName(rec.RpID, rec.UserHandle),
+		Kind:    protocol.ItemPasskey,
+		URIs:    uris,
+		Login:   rec.UserName,
+		Passkey: blob,
+	}); err != nil {
+		return passkey.ErrorResponse(passkey.ErrUnknown), nil
+	}
+	raw, err := json.Marshal(cred)
+	if err != nil {
+		return passkey.ErrorResponse(passkey.ErrUnknown), nil
+	}
+	return raw, nil
+}
+
+func (a *App) FillPasskeyGet(p protocol.Principal, origin string, publicKey json.RawMessage) (json.RawMessage, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return nil, fmt.Errorf("app: fill is human")
+	}
+	recs, err := a.passkeyRecords(p)
+	if err != nil {
+		return nil, err
+	}
+	cred, code := passkey.Assert(origin, publicKey, recs)
+	if code != 0 {
+		return passkey.ErrorResponse(code), nil
+	}
+	raw, err := json.Marshal(cred)
+	if err != nil {
+		return passkey.ErrorResponse(passkey.ErrUnknown), nil
+	}
+	return raw, nil
+}
+
+func (a *App) passkeyRecords(p protocol.Principal) ([]passkey.Record, error) {
+	items, err := a.ItemsForPrincipal(p)
+	if err != nil {
+		return nil, err
+	}
+	var out []passkey.Record
+	for _, item := range items {
+		if item.Kind != protocol.ItemPasskey {
+			continue
+		}
+		sec, err := a.Store.Secret(item.ID)
+		if err != nil {
+			continue
+		}
+		env := material.Unpack([]byte(sec))
+		if env.PasskeyPEM == "" || env.CredID == "" || env.RpID == "" {
+			continue
+		}
+		out = append(out, passkey.Record{
+			PEM:        env.PasskeyPEM,
+			CredID:     env.CredID,
+			RpID:       env.RpID,
+			UserHandle: env.UserHandle,
+			UserName:   env.Login,
+		})
+	}
+	return out, nil
 }
 
 func (a *App) AddGrant(agentID, itemID string, level protocol.GrantLevel) (protocol.Grant, error) {

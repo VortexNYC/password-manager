@@ -134,6 +134,13 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	if dec.Decision != protocol.DecisionAllow {
 		return dec, nil
 	}
+	if !item.Kind.Injects() {
+		dec.Reason = "not_injectable"
+		dec.Decision = protocol.DecisionDeny
+		event.Decision = dec.Decision
+		event.Reason = dec.Reason
+		return dec, nil
+	}
 	if req.Action != protocol.ActionFetch || req.Fetch == nil {
 		dec.Reason = "unsupported_action"
 		dec.Decision = protocol.DecisionDeny

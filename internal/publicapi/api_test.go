@@ -165,6 +165,20 @@ func TestAgentCannotCreateItemOrFill(t *testing.T) {
 	if bytes.Contains(specRaw, []byte("/v1/fill")) {
 		t.Fatal("fill is on the generated contract")
 	}
+	pk, err := json.Marshal(map[string]any{
+		"challenge": "dGVzdGNoYWxsZW5nZQ",
+		"rpId":      "github.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/passkeys/get", "agent", FillPasskeysRequest{
+		Origin:    "https://github.com",
+		PublicKey: pk,
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("agent passkeys %d %s", code, raw)
+	}
 }
 
 func TestFillPathNotInOpenAPI(t *testing.T) {

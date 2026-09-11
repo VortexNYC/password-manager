@@ -36,7 +36,7 @@ func (b *Broker) ChildEnv(ctx context.Context, agent protocol.Principal) ([]stri
 		if err != nil {
 			return nil, err
 		}
-		if item.Kind == protocol.ItemSSH || item.Kind == protocol.ItemFile || item.Archived {
+		if !item.Kind.Injects() || item.Archived {
 			continue
 		}
 		cp := g

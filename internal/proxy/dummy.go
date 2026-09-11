@@ -36,7 +36,7 @@ func DummyEnv(items []protocol.Item) []string {
 		out = append(out, key+"="+DummySecret)
 	}
 	for _, item := range items {
-		if item.Archived || item.Kind == protocol.ItemSSH || item.Kind == protocol.ItemFile {
+		if item.Archived || !item.Kind.Injects() {
 			continue
 		}
 		add(broker.EnvName(item.Name))

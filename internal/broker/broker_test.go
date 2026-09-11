@@ -446,6 +446,55 @@ func TestChildEnvSkipsSSH(t *testing.T) {
 	}
 }
 
+func TestChildEnvSkipsPasskey(t *testing.T) {
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	item := protocol.Item{
+		ID:    "pk-github",
+		OrgID: "org-1",
+		Name:  "pk-github",
+		Kind:  protocol.ItemPasskey,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		URIs:  []string{"https://github.com"},
+	}
+	pem := []byte("-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----")
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(pem)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch, protocol.ActionEnv},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b := New(mem)
+	pairs, err := b.ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 0 {
+		t.Fatalf("passkey in env: %q", pairs)
+	}
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: item.ID,
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: "https://github.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "not_injectable" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestChildEnvSkipsFileAndArchived(t *testing.T) {
 	mem := store.NewMemory()
 	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}

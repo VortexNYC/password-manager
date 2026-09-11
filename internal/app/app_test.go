@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -730,5 +731,57 @@ func TestHumanGrantFillIsNotAFamilyVault(t *testing.T) {
 	}
 	if _, err := a.GrantUntil("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "stripe", protocol.Level2, nil); err == nil {
 		t.Fatal("granted to non-member")
+	}
+}
+
+func TestFillPasskeyHumanOnlyNoListLeak(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	create, err := json.Marshal(map[string]any{
+		"challenge": "dGVzdGNoYWxsZW5nZQ",
+		"rp":        map[string]string{"id": "github.com", "name": "GitHub"},
+		"user":      map[string]string{"id": "dXNlcg", "name": "ada", "displayName": "Ada"},
+		"pubKeyCredParams": []map[string]any{
+			{"type": "public-key", "alg": -7},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := a.FillPasskeyRegister(human, "https://github.com", create, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(resp, []byte("BEGIN")) {
+		t.Fatal("register leaked pem")
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}
+	if _, err := a.FillPasskeyGet(agent, "https://github.com", create); err == nil {
+		t.Fatal("agent fill passkey")
+	}
+	items, err := a.ItemsForPrincipal(human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(listed, []byte("BEGIN")) || bytes.Contains(listed, []byte("passkey_pem")) {
+		t.Fatal("list leaked passkey")
+	}
+	logins, err := a.FillLogins(human, "https://github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logins) != 0 {
+		t.Fatalf("password fill returned passkey %+v", logins)
 	}
 }

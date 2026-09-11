@@ -1,11 +1,11 @@
 // Package fill is the native host. We speak the keepassxc-browser wire
-// (slice 26 store listing). Customers get a Veil extension (slice 37).
-// We do not copy that extension into this tree and we do not use KeePassXC
-// as the vault.
+// (slice 26 store listing, slice 31 passkeys-*). Customers get a Veil
+// extension (slice 37). We do not copy that extension into this tree and
+// we do not use KeePassXC as the vault.
 //
 // Wire: Chrome native messaging (uint32 LE + JSON) and TweetNaCl box
 // (golang.org/x/crypto/nacl/box). Fill writes into the page. The password
-// never returns on an agent surface.
+// and passkey private key never return on an agent surface.
 package fill
 
 import (
@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	Version        = "2.7.0"
+	Version        = "2.7.7"
 	NativeHostName = "org.keepassxc.keepassxc_browser"
 	maxMsg         = 1 << 20
 	assocFile      = "fill-assoc.json"
@@ -198,13 +198,16 @@ func (h *Host) encrypted(env envelope) []byte {
 		return fail(env.Action, "decrypt")
 	}
 	var inner struct {
-		Action string     `json:"action"`
-		URL    string     `json:"url"`
-		ID     string     `json:"id"`
-		Key    string     `json:"key"`
-		IDKey  string     `json:"idKey"`
-		UUID   string     `json:"uuid"`
-		Keys   []assocKey `json:"keys"`
+		Action         string          `json:"action"`
+		URL            string          `json:"url"`
+		ID             string          `json:"id"`
+		Key            string          `json:"key"`
+		IDKey          string          `json:"idKey"`
+		UUID           string          `json:"uuid"`
+		Origin         string          `json:"origin"`
+		PublicKey      json.RawMessage `json:"publicKey"`
+		RelatedOrigins []string        `json:"relatedOrigins"`
+		Keys           []assocKey      `json:"keys"`
 	}
 	if err := json.Unmarshal(plain, &inner); err != nil {
 		fillDebug("bad inner json")
@@ -230,6 +233,16 @@ func (h *Host) encrypted(env envelope) []byte {
 		return h.reply(s, nonce, action, mustJSON(h.logins(inner.URL)))
 	case "get-totp":
 		body = h.totp(inner.UUID)
+	case "passkeys-register":
+		if !h.knownKey(inner.Keys) {
+			return h.reply(s, nonce, action, mustJSON(failMap("not associated")))
+		}
+		return h.reply(s, nonce, action, h.passkeysRegister(inner.Origin, inner.PublicKey, inner.RelatedOrigins))
+	case "passkeys-get":
+		if !h.knownKey(inner.Keys) {
+			return h.reply(s, nonce, action, mustJSON(failMap("not associated")))
+		}
+		return h.reply(s, nonce, action, h.passkeysGet(inner.Origin, inner.PublicKey))
 	default:
 		body = failMap("unknown action")
 	}
@@ -395,6 +408,86 @@ func (h *Host) originTOTP(uuid string) map[string]string {
 		"version": Version,
 		"success": "true",
 	}
+}
+
+type passkeyReply struct {
+	Success  string          `json:"success"`
+	Version  string          `json:"version"`
+	Hash     string          `json:"hash"`
+	Response json.RawMessage `json:"response"`
+}
+
+func (h *Host) passkeysRegister(origin string, publicKey json.RawMessage, extra []string) []byte {
+	if h.Origin != "" {
+		return h.originPasskeys("/v1/fill/passkeys/register", origin, publicKey, extra)
+	}
+	if h.App == nil {
+		return h.passkeyErr(31)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: h.App.HumanID, OrgID: h.App.OrgID}
+	resp, err := h.App.FillPasskeyRegister(human, origin, publicKey, extra)
+	if err != nil || len(resp) == 0 {
+		return h.passkeyErr(31)
+	}
+	return h.passkeyOK(resp)
+}
+
+func (h *Host) passkeysGet(origin string, publicKey json.RawMessage) []byte {
+	if h.Origin != "" {
+		return h.originPasskeys("/v1/fill/passkeys/get", origin, publicKey, nil)
+	}
+	if h.App == nil {
+		return h.passkeyErr(31)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: h.App.HumanID, OrgID: h.App.OrgID}
+	resp, err := h.App.FillPasskeyGet(human, origin, publicKey)
+	if err != nil || len(resp) == 0 {
+		return h.passkeyErr(31)
+	}
+	return h.passkeyOK(resp)
+}
+
+func (h *Host) originPasskeys(path, origin string, publicKey json.RawMessage, extra []string) []byte {
+	payload, err := json.Marshal(struct {
+		Origin         string          `json:"origin"`
+		PublicKey      json.RawMessage `json:"publicKey"`
+		RelatedOrigins []string        `json:"relatedOrigins,omitempty"`
+	}{Origin: origin, PublicKey: publicKey, RelatedOrigins: extra})
+	if err != nil {
+		return h.passkeyErr(31)
+	}
+	raw, err := h.originPOST(path, payload)
+	if err != nil {
+		return h.passkeyErr(31)
+	}
+	var out struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if json.Unmarshal(raw, &out) != nil || len(out.Response) == 0 {
+		return h.passkeyErr(31)
+	}
+	return h.passkeyOK(out.Response)
+}
+
+func (h *Host) passkeyOK(response json.RawMessage) []byte {
+	raw, err := json.Marshal(passkeyReply{
+		Success:  "true",
+		Version:  Version,
+		Hash:     h.hash(),
+		Response: response,
+	})
+	if err != nil {
+		return h.passkeyErr(31)
+	}
+	return raw
+}
+
+func (h *Host) passkeyErr(code int) []byte {
+	resp, err := json.Marshal(map[string]int{"errorCode": code})
+	if err != nil {
+		resp = []byte(`{"errorCode":31}`)
+	}
+	return h.passkeyOK(resp)
 }
 
 func (h *Host) originPOST(path string, body []byte) ([]byte, error) {

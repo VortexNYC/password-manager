@@ -125,7 +125,7 @@ The next slices, in this order, and nothing else until each is proven:
                          /v1/grants are owner. Secret in create request,
                          never in response. Fill path /v1/fill/logins is
                          human native-host only, not OpenAPI, not MCP.
-                         Chrome URI fill is slice 26.
+                         Chrome URI fill is slice 26. Passkeys fill is 31.
 24 human mint             written. `human login --out-file`. Hydra PKCE.
                          prompt=login so remint cannot skip TOTP. ID token
                          to disk. never stdout. amr must include totp.
@@ -167,9 +167,11 @@ The next slices, in this order, and nothing else until each is proven:
                          agents, audit against origin OpenAPI. Invites stay
                          CLI (--code-file); recovery code never in the SPA.
                          Settings links to Ory Elements. not Native SDK.
-31 passkeys fill          not written. passkeys-* on the same host
-                         after slice 26. customers use the Veil
-                         extension (37). store listing is the wire.
+31 passkeys fill          written. passkeys-get/register on the same
+                         host as 26. ES256 authenticator. private key
+                         sealed. POST /v1/fill/passkeys/* human-only,
+                         not OpenAPI. wire version 2.7.7. store listing
+                         is the wire until 37. TestPasskeysRegisterThenGet
 32 Mac helper             not written. menu-bar accessory .app.
                          no vault UI. Settings > Passwords.
                          ASCredentialProvider: Safari + native Mac apps.
@@ -273,7 +275,7 @@ item
   api key            broker inject         built
   oauth refresh      golang.org/x/oauth2   built
   totp               pquerna/otp           built. mint at inject
-  passkey            native host           slice 31. not written.
+  passkey            native host           written. passkeys-get/register.
                      Veil extension        slice 37. store listing is 26.
                      go-webauthn           only if we are the site. not fill
   ssh                x/crypto/ssh/agent    written. CLI `ssh`. key never leaves
@@ -383,7 +385,7 @@ how Approve reaches the human
   the CLI stays for tests and the local stand-in
 ```
 
-Passkey at a site is fill. The wire is native messaging + `nacl/box`. Our process is the native host. We do not use KeePassXC as the vault. Slice 26 proves the host with store [keepassxc-browser](https://github.com/keepassxreboot/keepassxc-browser). Customers get a Veil-branded extension (slice 37). Do not copy keepassxc-browser into this tree (GPL-3). Fill may write a secret into the page. It never returns a secret to an agent.
+Passkey at a site is fill. The wire is native messaging + `nacl/box`. Our process is the native host. We do not use KeePassXC as the vault. Slice 26 proves the host with store [keepassxc-browser](https://github.com/keepassxreboot/keepassxc-browser). Slice 31 speaks `passkeys-get` / `passkeys-register` on that host; we are the authenticator, not the RP. Customers get a Veil-branded extension (slice 37). Do not copy keepassxc-browser into this tree (GPL-3). Fill may write a secret into the page. It never returns a secret to an agent.
 
 `go-webauthn` is only the site side, when this product is the relying party. Kratos already does that for human login.
 
@@ -397,12 +399,13 @@ screens
 
 computer
   who          Go native host (exists). Slice 26: store keepassxc-browser.
-               Slice 37: Veil-branded Chrome / Edge / Firefox extension.
+               Slice 31: passkeys-* on that host. Slice 37: Veil-branded
+               Chrome / Edge / Firefox extension.
                Later: Mac menu-bar accessory .app (Safari/app fill).
   what         Chrome fill is the extension + host. Safari and native
                Mac apps are an OS credential provider inside that helper.
                No vault window. Menu bar is status, not the SPA.
-  when         slice 26, then 32, then 37.
+  when         slice 26, then 31, then 32, then 37.
 
 phone
   who          proper iOS/Android app. OS extension + add form.
@@ -471,12 +474,14 @@ proof
 
 passkey
   who          this process is the host. CLI `fill`.
-               Slice 26: store keepassxc-browser. Slice 37: Veil extension.
+               Slice 26: store keepassxc-browser. Slice 31: passkeys-*.
+               Slice 37: Veil extension.
   what         native messaging + nacl box. get-logins writes into the page.
                get-totp mints at fill time. the seed never leaves.
-               passkeys-get/register not this slice.
-               written. TestGetLoginsFillsMatchingURI
-  when         after the laptop socket
+               passkeys-get/register: we are the authenticator. ES256,
+               none attestation. private key never on list/MCP/Use/env.
+               written. TestPasskeysRegisterThenGet
+  when         after fill logins
 
 ssh
   who          golang.org/x/crypto/ssh/agent
@@ -571,7 +576,7 @@ internal/publicapi      OpenAPI HTTP. /v1/items + /v1/use. GET /openapi.json
 internal/inject         ${NAME} / pwm:// into a child file. fail closed
 internal/passgen        human CLI. crypto/rand. not MCP
 internal/human          go-oidc verify Hydra; subject is the human
-internal/fill           keepassxc-browser native host. nacl box. not the extension
+internal/fill           keepassxc-browser native host. nacl box. passkeys-*. not the extension
 internal/device         nacl box wrap of master to a second machine
 internal/sshagent       x/crypto/ssh/agent. signs. key never leaves
 internal/socket         unix HTTP. Bearer JWT. laptop transport
@@ -625,7 +630,8 @@ Do not scaffold slices 32–36 until 31 is proven on the same host as 26. Do not
 - [x] `ApproveOIDC` Approves as that Hydra subject. Membership is Keto via glue. Live: subject and approval HumanID equal the Kratos identity id. Planted `self` stays tests and CLI when Hydra is not configured. If the issuer is set, `Approve` without a token fails.
 - [x] Agent that does not speak OIDC is a Hydra `client_credentials` client (`access_token_strategy=jwt`), not a Kratos human. Glue creates it. `agent hydra` binds issuer+subject. Secret is `--secret-file` only. Live: JWT verifies to that agent via go-oidc.
 - [x] Laptop socket is unix HTTP (`pwm.sock`). Bearer is that same JWT. Name is not identity. Live: Hydra JWT over the socket Uses as that agent. Secret absent from the response.
-- [x] Fill host speaks native messaging (`nacl/box`). `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret and no login. `fill install` writes the native host manifest, not the extension. Product chrome is slice 37. `passkeys-*` is not this slice. Touch ID at fill is still open.
+- [x] Fill host speaks native messaging (`nacl/box`). `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret and no login. `fill install` writes the native host manifest, not the extension. Product chrome is slice 37. Touch ID at fill is still open.
+- [x] Passkeys fill is `passkeys-get` / `passkeys-register` on that host. We are the authenticator, not the RP. ES256, none attestation. Private key sealed; absent from list, MCP, Use, child env, OpenAPI. `POST /v1/fill/passkeys/*` is human native-host only. Wire version `2.7.7`. `TestPasskeysRegisterThenGet`.
 - [x] SSH agent is `golang.org/x/crypto/ssh/agent` on a local unix socket (`ssh.sock`). The broker signs. List/JSON has no PEM. `Add`/`Remove` refused. CLI `item add --ssh-file` never argv.
 - [x] Env into a child is Infisical `vault run`. `password-manager run` sets granted secrets in the child env and keeps `HTTPS_PROXY`. Broker stdout, MCP, and audit have no secret. Level 1 is skipped, never a prompt. SSH is not injected.
 - [x] Owner-key wrap: one DEK per owner, sealed with master via x/crypto. Grants and agent JSON have no key. Legacy secrets sealed with master rewrap on open.

@@ -40,11 +40,23 @@ const (
 type ItemKind string
 
 const (
-	ItemAPIKey ItemKind = "api_key"
-	ItemOAuth  ItemKind = "oauth"
-	ItemSSH    ItemKind = "ssh"
-	ItemFile   ItemKind = "file"
+	ItemAPIKey  ItemKind = "api_key"
+	ItemOAuth   ItemKind = "oauth"
+	ItemSSH     ItemKind = "ssh"
+	ItemFile    ItemKind = "file"
+	ItemPasskey ItemKind = "passkey"
 )
+
+// Injects is whether Use / child env may touch this kind. SSH stays on the
+// agent socket. Files are owner write. Passkeys are the fill host.
+func (k ItemKind) Injects() bool {
+	switch k {
+	case ItemSSH, ItemFile, ItemPasskey:
+		return false
+	default:
+		return true
+	}
+}
 
 type ActionKind string
 

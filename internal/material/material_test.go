@@ -108,3 +108,25 @@ func TestAuthorizationValue(t *testing.T) {
 		t.Fatalf("passthrough %q", got)
 	}
 }
+
+func TestPackPasskeyNeverInScrubMiss(t *testing.T) {
+	pem := "-----BEGIN PRIVATE KEY-----\npk\n-----END PRIVATE KEY-----"
+	raw, err := PackPasskey(pem, "cred", "github.com", "dXNlcg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := Unpack(raw)
+	if env.PasskeyPEM != pem || env.CredID != "cred" || env.RpID != "github.com" {
+		t.Fatalf("%+v", env)
+	}
+	hide := ScrubList(env)
+	found := false
+	for _, h := range hide {
+		if string(h) == pem {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("scrub missed pem")
+	}
+}
