@@ -273,9 +273,9 @@ item
   api key            broker inject         built
   oauth refresh      golang.org/x/oauth2   built
   totp               pquerna/otp           built. mint at inject
-  passkey            native host           written. get-logins + get-totp
+  passkey            native host           slice 31. not written.
                      Veil extension        slice 37. store listing is 26.
-                     go-webauthn           only if we are the site. not this slice
+                     go-webauthn           only if we are the site. not fill
   ssh                x/crypto/ssh/agent    written. CLI `ssh`. key never leaves
   file               sealed BLOB          written. owner `item write --out-file`.
                                            not MCP. not env.
@@ -583,11 +583,11 @@ sdks/                   generated Go/TS/Python. never handwritten
 apps/docs               Blume. /reference consumes the spec
 ```
 
-Do not scaffold slices 30–36 until 26 is proven. Do not scaffold Native SDK, Tauri, or Electron. The Chrome host is already Go. Windows/Linux fill APIs are reopened on 35–36, not designed now.
+Do not scaffold slices 32–36 until 31 is proven on the same host as 26. Do not scaffold Native SDK, Tauri, or Electron. The Chrome host is already Go. Windows/Linux fill APIs are reopened on 35–36, not designed now.
 
 ## Testing
 
-- `go test ./...` is the in-repo suite. It does not prove Mini origin.
+- `go test ./...` is the in-repo suite. It does not prove `https://veil.nyc`.
 - `make prove-identity` is local Docker Ory. It does not prove `veil.nyc`.
 - `make prove-live` is origin truth: `https://veil.nyc` and MCP. It mints a token, fails if GitHub/Linear/Firecrawl/Cloudflare Use is not allow/200, and fails if the secret appears in JSON. `make ci` does not run it.
 - `GET /health` is process up. `GET /ready` is Hydra discovery. A green health with a dead issuer is a lie; prove-live checks ready.

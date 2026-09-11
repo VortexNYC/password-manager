@@ -48,8 +48,7 @@ That list is a 1Password clone roundup. Most of it is a human vault, a file form
 
 1. **Sandbox session mint** (Infisical Agent Vault `sessions.create`). An orchestrator (Flue, Devin, Daytona) mints a short-lived, vault-scoped token and hands the sandbox only `HTTPS_PROXY` + CA. The 1h agent JWT is the long-lived principal. The sandbox does not get that JWT.
 2. **Revoke tree** (Vault). One command: this agent may not Use anything, and every grant it holds is dead. Incident response. We can delete a grant today; we cannot kill the principal’s whole tree.
-3. **Dummy placeholders** (Infisical `__github_pat__`). Some SDKs refuse to start with an empty `GITHUB_TOKEN`. `run --inject` already sets real env in a child. Placeholders are for processes that must *see* a value before the proxy rewrites the wire. Same protocol as inject; do not add GetSecret.
-4. **Honey item** (Infisical honey tokens). An item whose URI is a tripwire. Use is always deny + alert. No secret worth stealing.
+3. **Honey item** (Infisical honey tokens). An item whose URI is a tripwire. Use is always deny + alert. No secret worth stealing.
 
 ### Do not add
 
