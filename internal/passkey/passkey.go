@@ -234,9 +234,12 @@ func Assert(origin string, publicKey json.RawMessage, recs []Record) (Credential
 	}
 	short := authData(rpID, flagUP|flagUV, nil, nil)
 	client := clientData("webauthn.get", pk.Challenge, origin)
-	sum := sha256.Sum256(client)
-	msg := append(append([]byte{}, short...), sum[:]...)
-	sig, err := ecdsa.SignASN1(rand.Reader, priv, msg)
+	clientHash := sha256.Sum256(client)
+	// ES256 is ECDSA-SHA256 over authenticatorData || SHA-256(clientDataJSON).
+	// SignASN1 takes a digest, not the raw concatenation — passing 69 bytes
+	// truncates to the first 32 of authenticatorData and an RP will reject it.
+	digest := sha256.Sum256(append(append([]byte{}, short...), clientHash[:]...))
+	sig, err := ecdsa.SignASN1(rand.Reader, priv, digest[:])
 	if err != nil {
 		return Credential{}, ErrUnknown
 	}

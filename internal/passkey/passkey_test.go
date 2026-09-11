@@ -79,7 +79,8 @@ func TestRegisterThenAssert(t *testing.T) {
 	}
 	sum := sha256.Sum256(client)
 	msg := append(append([]byte{}, auth...), sum[:]...)
-	if !ecdsa.VerifyASN1(&priv.PublicKey, msg, sig) {
+	digest := sha256.Sum256(msg)
+	if !ecdsa.VerifyASN1(&priv.PublicKey, digest[:], sig) {
 		t.Fatal("assertion signature")
 	}
 }
