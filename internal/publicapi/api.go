@@ -99,6 +99,7 @@ type FillLogin struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
 	UUID     string `json:"uuid"`
+	TOTP     string `json:"totp,omitempty"`
 }
 
 type FillLoginsResponse struct {
@@ -408,7 +409,7 @@ func (s *Server) fillLogins(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := make([]FillLogin, 0, len(got))
 	for _, e := range got {
-		entries = append(entries, FillLogin{Login: e.Login, Name: e.Name, Password: e.Password, UUID: e.UUID})
+		entries = append(entries, FillLogin{Login: e.Login, Name: e.Name, Password: e.Password, UUID: e.UUID, TOTP: e.TOTP})
 	}
 	writeJSON(w, FillLoginsResponse{Entries: entries})
 }

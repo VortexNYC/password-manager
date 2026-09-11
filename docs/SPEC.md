@@ -134,9 +134,9 @@ The next slices, in this order, and nothing else until each is proven:
                          are set. Fill and owner HTTP use
                          PWM_HUMAN_TOKEN_FILE, not the agent JWT.
                          The fill host remints that JWT (stale, or
-                         origin 401). Native-host shim bakes
-                         PWM_LOGIN_EMAIL and password/TOTP *file
-                         paths*, never the password.
+                         origin 401). fill.json next to the Go host
+                         binary holds origin and remint *file paths*,
+                         never the password. No shell wrapper.
                          Live mint needs identity on origin (first-party
                          Hydra client, Kratos, Keto). Not MCP.
 25 identity on origin      written. Sibling Railway services: official
@@ -644,7 +644,7 @@ Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac agai
 - [x] `ApproveOIDC` Approves as that Hydra subject. Membership is Keto via glue. Live: subject and approval HumanID equal the Kratos identity id. Planted `self` stays tests and CLI when Hydra is not configured. If the issuer is set, `Approve` without a token fails.
 - [x] Agent that does not speak OIDC is a Hydra `client_credentials` client (`access_token_strategy=jwt`), not a Kratos human. Glue creates it. `agent hydra` binds issuer+subject. Secret is `--secret-file` only. Live: JWT verifies to that agent via go-oidc.
 - [x] Laptop socket is unix HTTP (`pwm.sock`). Bearer is that same JWT. Name is not identity. Live: Hydra JWT over the socket Uses as that agent. Secret absent from the response.
-- [x] Fill host speaks native messaging (`nacl/box`). `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret and no login. `fill install` writes the native host manifest, not the extension. Product chrome is slice 37. Origin fill remints a stale/401 human JWT. Shim bakes remint file paths, never the password. Mac fill prompts Touch ID before a secret leaves (`PWM_FILL_TOUCHID=0` off). Cancel returns no password (`TestConfirmDeniedDoesNotReturnPassword`).
+- [x] Fill host speaks native messaging (`nacl/box`). `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret and no login. `fill install` writes the Go binary as the native host plus `fill.json` (origin and remint file paths, never the password). No shell wrapper. Product chrome is slice 37. Origin fill remints a stale/401 human JWT. Mac fill prompts Touch ID before a secret leaves (`PWM_FILL_TOUCHID=0` off). Cancel returns no password (`TestConfirmDeniedDoesNotReturnPassword`).
 - [x] Passkeys fill is `passkeys-get` / `passkeys-register` on that host. We are the authenticator, not the RP. ES256, none attestation. Private key sealed; absent from list, MCP, Use, child env, OpenAPI. `POST /v1/fill/passkeys/*` is human native-host only. Wire version `2.7.7`. `TestPasskeysRegisterThenGet`. `TestRegisterThenAssertAgainstRP` verifies register+assert with go-webauthn as the RP so `SignASN1` truncation cannot ship.
 - [x] SSH agent is `golang.org/x/crypto/ssh/agent` on a local unix socket (`ssh.sock`). The broker signs. List/JSON has no PEM. `Add`/`Remove` refused. CLI `item add --ssh-file` never argv.
 - [x] Env into a child is Infisical `vault run`. `password-manager run` sets granted secrets in the child env and keeps `HTTPS_PROXY`. Broker stdout, MCP, and audit have no secret. Level 1 is skipped, never a prompt. SSH is not injected.

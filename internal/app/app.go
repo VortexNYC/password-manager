@@ -451,11 +451,14 @@ func (a *App) ItemsForPrincipal(p protocol.Principal) ([]protocol.Item, error) {
 // FillEntry is native-host material. Not protocol.Item. Not MCP.
 // Login is the fill username from the sealed envelope. Empty if unset.
 // Never fall back to item.Name.
+// TOTP is "*" when a seed exists so KeePassXC-Browser will call get-totp.
+// It is never the seed and never a 6-digit code; FillTOTP mints that.
 type FillEntry struct {
 	Login    string
 	Name     string
 	Password string
 	UUID     string
+	TOTP     string
 }
 
 func (a *App) FillLogins(p protocol.Principal, rawURL string) ([]FillEntry, error) {
@@ -486,11 +489,16 @@ func (a *App) FillLogins(p protocol.Principal, rawURL string) ([]FillEntry, erro
 		if pass == "" {
 			pass = string(sec)
 		}
+		totp := ""
+		if env.TOTP != "" {
+			totp = "*"
+		}
 		out = append(out, FillEntry{
 			Login:    env.Login,
 			Name:     item.Name,
 			Password: pass,
 			UUID:     item.ID,
+			TOTP:     totp,
 		})
 	}
 	if out == nil {

@@ -39,6 +39,8 @@ const (
 	assocFile        = "fill-assoc.json"
 	assocID          = "password-manager"
 	passkeysCanceled = 22
+	// totpPresent tells KeePassXC-Browser to call get-totp. Not a code. Not the seed.
+	totpPresent = "*"
 )
 
 type Host struct {
@@ -339,6 +341,7 @@ type loginEntry struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
 	UUID     string `json:"uuid"`
+	Totp     string `json:"totp,omitempty"`
 }
 
 func (h *Host) logins(rawURL string) loginReply {
@@ -355,7 +358,7 @@ func (h *Host) logins(rawURL string) loginReply {
 	}
 	entries := make([]loginEntry, 0, len(got))
 	for _, e := range got {
-		entries = append(entries, loginEntry{Login: e.Login, Name: e.Name, Password: e.Password, UUID: e.UUID})
+		entries = append(entries, loginEntry{Login: e.Login, Name: e.Name, Password: e.Password, UUID: e.UUID, Totp: e.TOTP})
 	}
 	return loginReply{
 		Count:   strconv.Itoa(len(entries)),
@@ -385,12 +388,29 @@ func (h *Host) originLogins(rawURL string) loginReply {
 	if out.Entries == nil {
 		out.Entries = []loginEntry{}
 	}
+	h.markTOTP(out.Entries)
 	return loginReply{
 		Count:   strconv.Itoa(len(out.Entries)),
 		Entries: out.Entries,
 		Success: "true",
 		Hash:    h.hash(),
 		Version: Version,
+	}
+}
+
+func (h *Host) markTOTP(entries []loginEntry) {
+	for i := range entries {
+		if entries[i].Totp != "" {
+			entries[i].Totp = totpPresent
+			continue
+		}
+		if h.Origin == "" {
+			continue
+		}
+		got := h.originTOTP(entries[i].UUID)
+		if got["success"] == "true" {
+			entries[i].Totp = totpPresent
+		}
 	}
 }
 
@@ -574,9 +594,15 @@ func (h *Host) bearer() (string, error) {
 
 func (h *Host) confirm(reason string) error {
 	if h.Confirm == nil {
+		fillDebug("confirm skipped")
 		return nil
 	}
-	return h.Confirm(reason)
+	if err := h.Confirm(reason); err != nil {
+		fillDebug("confirm denied")
+		return err
+	}
+	fillDebug("confirm ok")
+	return nil
 }
 
 func passkeyIsError(raw []byte) bool {
@@ -794,41 +820,4 @@ func ManifestFirefox(hostPath string) []byte {
 		AllowedExtensions: []string{FirefoxID()},
 	}, "", "  ")
 	return append(raw, '\n')
-}
-
-func Shim(bin, home string) string {
-	return FormatShim(ShimEnv{Bin: bin, VaultHome: home})
-}
-
-type ShimEnv struct {
-	Bin, VaultHome, UserHome, Origin   string
-	LoginEmail, PasswordFile, TOTPFile string
-}
-
-func ShimOrigin(bin, vaultHome, userHome, origin string) string {
-	return FormatShim(ShimEnv{Bin: bin, VaultHome: vaultHome, UserHome: userHome, Origin: origin})
-}
-
-func FormatShim(env ShimEnv) string {
-	esc := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
-	var b strings.Builder
-	b.WriteString("#!/bin/sh\n")
-	if env.UserHome != "" {
-		b.WriteString("export HOME=\"" + esc(env.UserHome) + "\"\n")
-	}
-	if env.Origin != "" {
-		b.WriteString("export PWM_ORIGIN=\"" + esc(env.Origin) + "\"\n")
-		token := "$HOME/.config/vortex/pwm-human.jwt"
-		if env.UserHome != "" {
-			token = env.UserHome + "/.config/vortex/pwm-human.jwt"
-		}
-		b.WriteString("export PWM_HUMAN_TOKEN_FILE=\"" + esc(token) + "\"\n")
-		if env.LoginEmail != "" && env.PasswordFile != "" && env.TOTPFile != "" {
-			b.WriteString("export PWM_LOGIN_EMAIL=\"" + esc(env.LoginEmail) + "\"\n")
-			b.WriteString("export PWM_KRATOS_PASSWORD_FILE=\"" + esc(env.PasswordFile) + "\"\n")
-			b.WriteString("export PWM_KRATOS_TOTP_FILE=\"" + esc(env.TOTPFile) + "\"\n")
-		}
-	}
-	b.WriteString("exec \"" + esc(env.Bin) + "\" fill --home \"" + esc(env.VaultHome) + "\"\n")
-	return b.String()
 }

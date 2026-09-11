@@ -277,7 +277,8 @@ func TestInstallWritesManifestsNotExtension(t *testing.T) {
 	user := t.TempDir()
 	vaultDir := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "password-manager")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	payload := []byte("pwm-host-binary\n")
+	if err := os.WriteFile(bin, payload, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := Install(bin, vaultDir, user); err != nil {
@@ -294,12 +295,18 @@ func TestInstallWritesManifestsNotExtension(t *testing.T) {
 	if bytes.Contains(raw, []byte(secret)) {
 		t.Fatal("secret in manifest")
 	}
-	shim, err := os.ReadFile(filepath.Join(vaultDir, "native-host"))
+	host, err := os.ReadFile(filepath.Join(vaultDir, HostFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(shim, []byte(" fill ")) {
-		t.Fatalf("%s", shim)
+	if !bytes.Equal(host, payload) {
+		t.Fatalf("host is not the binary: %q", host)
+	}
+	if bytes.HasPrefix(host, []byte("#!")) {
+		t.Fatal("host is a script")
+	}
+	if !bytes.Contains(raw, []byte(filepath.Join(vaultDir, HostFile))) {
+		t.Fatalf("manifest path %s", raw)
 	}
 }
 
@@ -331,31 +338,106 @@ func TestGetTOTPMintsCodeNotSeed(t *testing.T) {
 	}
 }
 
+func TestGetLoginsSignalsTOTPWithoutSeed(t *testing.T) {
+	const seed = "JBSWY3DPEHPK3PXP"
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	if _, err := a.PutItem(app.ItemOpts{Name: "stripe", URI: "https://dashboard.stripe.com", Token: []byte(secret), TOTPSeed: []byte(seed)}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(a)
+	c := associated(t, h)
+	req, _ := json.Marshal(struct {
+		Action string     `json:"action"`
+		URL    string     `json:"url"`
+		Keys   []assocKey `json:"keys"`
+	}{Action: "get-logins", URL: "https://dashboard.stripe.com/login", Keys: []assocKey{{ID: assocID, Key: c.idKey}}})
+	var got loginReply
+	if err := json.Unmarshal(c.send(t, h, req), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Entries) != 1 || got.Entries[0].Totp != totpPresent {
+		t.Fatalf("%+v", got.Entries)
+	}
+	if got.Entries[0].Totp == seed || len(got.Entries[0].Totp) == 6 {
+		t.Fatal("get-logins returned a code or seed")
+	}
+}
+
+func TestOriginLoginsProbesTOTPWithoutPuttingCode(t *testing.T) {
+	const code = "123456"
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer human" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/fill/logins":
+			_, _ = io.WriteString(w, `{"entries":[{"login":"stripe","name":"stripe","password":"sk_live_FILL_SECRET","uuid":"stripe"}]}`)
+		case "/v1/fill/totp":
+			_, _ = io.WriteString(w, `{"totp":"`+code+`"}`)
+		default:
+			http.Error(w, "nope", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(origin.Close)
+	h := NewOrigin(t.TempDir(), origin.URL, "human")
+	c := associated(t, h)
+	req, _ := json.Marshal(struct {
+		Action string     `json:"action"`
+		URL    string     `json:"url"`
+		Keys   []assocKey `json:"keys"`
+	}{Action: "get-logins", URL: "https://dashboard.stripe.com", Keys: []assocKey{{ID: assocID, Key: c.idKey}}})
+	var got loginReply
+	if err := json.Unmarshal(c.send(t, h, req), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Entries) != 1 || got.Entries[0].Totp != totpPresent {
+		t.Fatalf("%+v", got.Entries)
+	}
+	if got.Entries[0].Totp == code {
+		t.Fatal("put the minted code in get-logins")
+	}
+}
+
 func TestInstallOriginBakesOriginNotToken(t *testing.T) {
 	user := t.TempDir()
 	vaultDir := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "password-manager")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	payload := []byte("pwm-host-binary\n")
+	if err := os.WriteFile(bin, payload, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallOrigin(ShimEnv{Bin: bin, VaultHome: vaultDir, UserHome: user, Origin: "https://veil.nyc"}); err != nil {
+	if err := InstallOrigin(InstallEnv{Bin: bin, VaultHome: vaultDir, UserHome: user, Origin: "https://veil.nyc"}); err != nil {
 		t.Fatal(err)
 	}
-	shim, err := os.ReadFile(filepath.Join(vaultDir, "native-host"))
+	host, err := os.ReadFile(filepath.Join(vaultDir, HostFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(shim, []byte("PWM_ORIGIN=\"https://veil.nyc\"")) {
-		t.Fatalf("%s", shim)
+	if !bytes.Equal(host, payload) {
+		t.Fatalf("host is not the binary")
 	}
-	if !bytes.Contains(shim, []byte("PWM_HUMAN_TOKEN_FILE")) {
-		t.Fatalf("shim missing human token file: %s", shim)
+	cfg, err := ReadHostConfig(vaultDir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !bytes.Contains(shim, []byte("export HOME=")) {
-		t.Fatalf("shim missing HOME: %s", shim)
+	if cfg.Origin != "https://veil.nyc" {
+		t.Fatalf("%+v", cfg)
 	}
-	if bytes.Contains(shim, []byte(secret)) {
-		t.Fatal("token in shim")
+	if cfg.TokenFile == "" || !strings.Contains(cfg.TokenFile, "pwm-human.jwt") {
+		t.Fatalf("token file %q", cfg.TokenFile)
+	}
+	raw, err := os.ReadFile(ConfigPath(vaultDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(secret)) {
+		t.Fatal("token in fill.json")
 	}
 }
 
@@ -510,14 +592,14 @@ func TestInstallOriginBakesRemintPathsNotPassword(t *testing.T) {
 	user := t.TempDir()
 	vaultDir := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "password-manager")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("pwm-host-binary\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	passFile := filepath.Join(t.TempDir(), "kratos-pass")
 	if err := os.WriteFile(passFile, []byte("not-the-jwt-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallOrigin(ShimEnv{
+	if err := InstallOrigin(InstallEnv{
 		Bin:          bin,
 		VaultHome:    vaultDir,
 		UserHome:     user,
@@ -528,18 +610,25 @@ func TestInstallOriginBakesRemintPathsNotPassword(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	shim, err := os.ReadFile(filepath.Join(vaultDir, "native-host"))
+	raw, err := os.ReadFile(ConfigPath(vaultDir))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(shim, []byte("PWM_LOGIN_EMAIL=\"ada@veil.nyc\"")) {
-		t.Fatalf("%s", shim)
+	if !bytes.Contains(raw, []byte(`"login_email": "ada@veil.nyc"`)) {
+		t.Fatalf("%s", raw)
 	}
-	if !bytes.Contains(shim, []byte("PWM_KRATOS_PASSWORD_FILE=\""+passFile+"\"")) {
-		t.Fatalf("%s", shim)
+	if !bytes.Contains(raw, []byte(passFile)) {
+		t.Fatalf("%s", raw)
 	}
-	if bytes.Contains(shim, []byte("not-the-jwt-secret")) {
-		t.Fatal("password in shim")
+	if bytes.Contains(raw, []byte("not-the-jwt-secret")) {
+		t.Fatal("password in fill.json")
+	}
+	host, err := os.ReadFile(filepath.Join(vaultDir, HostFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.HasPrefix(host, []byte("#!")) {
+		t.Fatal("host is a script")
 	}
 }
 

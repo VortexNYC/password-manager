@@ -1,0 +1,144 @@
+package fill
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+const (
+	HostFile       = "native-host"
+	HostConfigFile = "fill.json"
+)
+
+// HostConfig is how Chrome launches fill. Native messaging has no argv
+// for our flags and no env we control. A shell wrapper is not a primitive.
+type HostConfig struct {
+	Origin       string `json:"origin,omitempty"`
+	Home         string `json:"home,omitempty"`
+	TokenFile    string `json:"human_token_file,omitempty"`
+	LoginEmail   string `json:"login_email,omitempty"`
+	PasswordFile string `json:"kratos_password_file,omitempty"`
+	TOTPFile     string `json:"kratos_totp_file,omitempty"`
+	Debug        bool   `json:"debug,omitempty"`
+}
+
+type InstallEnv struct {
+	Bin, VaultHome, UserHome, Origin   string
+	LoginEmail, PasswordFile, TOTPFile string
+}
+
+// NativeHostArgs rewrites Chrome/Firefox's launch of the host binary into
+// `fill`. The browser passes the extension origin as argv[1].
+func NativeHostArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	if filepath.Base(args[0]) == HostFile {
+		return []string{args[0], "fill"}
+	}
+	if len(args) > 1 && nativeMessagingOrigin(args[1]) {
+		return []string{args[0], "fill"}
+	}
+	return args
+}
+
+func nativeMessagingOrigin(s string) bool {
+	return strings.HasPrefix(s, "chrome-extension://") || strings.HasPrefix(s, "moz-extension://")
+}
+
+func HostPath(vaultHome string) string {
+	return filepath.Join(vaultHome, HostFile)
+}
+
+func ConfigPath(vaultHome string) string {
+	return filepath.Join(vaultHome, HostConfigFile)
+}
+
+func WriteHostConfig(dir string, cfg HostConfig) error {
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(ConfigPath(dir), append(raw, '\n'), 0o600)
+}
+
+func ReadHostConfig(dir string) (HostConfig, error) {
+	raw, err := os.ReadFile(ConfigPath(dir))
+	if err != nil {
+		return HostConfig{}, err
+	}
+	var cfg HostConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return HostConfig{}, fmt.Errorf("fill: %s: %w", HostConfigFile, err)
+	}
+	return cfg, nil
+}
+
+// ApplyHostConfig sets blank env from fill.json. Existing env wins.
+func ApplyHostConfig(dir string) error {
+	cfg, err := ReadHostConfig(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	setIfEmpty("PWM_ORIGIN", cfg.Origin)
+	setIfEmpty("PWM_HOME", cfg.Home)
+	setIfEmpty("PWM_HUMAN_TOKEN_FILE", cfg.TokenFile)
+	setIfEmpty("PWM_LOGIN_EMAIL", cfg.LoginEmail)
+	setIfEmpty("PWM_KRATOS_PASSWORD_FILE", cfg.PasswordFile)
+	setIfEmpty("PWM_KRATOS_TOTP_FILE", cfg.TOTPFile)
+	if cfg.Debug {
+		setIfEmpty("PWM_FILL_DEBUG", "1")
+	}
+	return nil
+}
+
+func setIfEmpty(key, val string) {
+	if val == "" || strings.TrimSpace(os.Getenv(key)) != "" {
+		return
+	}
+	_ = os.Setenv(key, val)
+}
+
+// DirBesideHost is the vault dir when Chrome launched native-host.
+func DirBesideHost() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if filepath.Base(exe) != HostFile {
+		return "", fmt.Errorf("fill: not %s", HostFile)
+	}
+	return filepath.Dir(exe), nil
+}
+
+func copyExecutable(src, dst string) error {
+	in, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if sameFile(src, dst) {
+		return os.Chmod(dst, 0o755)
+	}
+	return os.WriteFile(dst, in, 0o755)
+}
+
+func sameFile(a, b string) bool {
+	sa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	sb, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(sa, sb)
+}

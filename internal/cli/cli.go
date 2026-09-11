@@ -69,6 +69,19 @@ func New(version string) *cobra.Command {
 	return root
 }
 
+func resolveFillHome(home string) (string, error) {
+	if home != "" {
+		return home, nil
+	}
+	if v := os.Getenv("PWM_HOME"); v != "" {
+		return v, nil
+	}
+	if dir, err := fill.DirBesideHost(); err == nil {
+		return dir, nil
+	}
+	return resolveHome("")
+}
+
 func resolveHome(home string) (string, error) {
 	if home != "" {
 		return home, nil
@@ -1259,6 +1272,13 @@ func fillCmd(home *string) *cobra.Command {
 		Use:   "fill",
 		Short: "keepassxc-browser native host. Fill writes into the page. Agents never see the secret.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := resolveFillHome(*home)
+			if err != nil {
+				return err
+			}
+			if err := fill.ApplyHostConfig(dir); err != nil {
+				return err
+			}
 			if originBase() != "" {
 				dir, err := resolveHome(*home)
 				if err != nil {
@@ -1311,7 +1331,7 @@ func fillCmd(home *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env := fill.ShimEnv{
+			env := fill.InstallEnv{
 				Bin:          bin,
 				VaultHome:    dir,
 				UserHome:     user,
