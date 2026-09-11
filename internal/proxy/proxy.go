@@ -44,6 +44,8 @@ type Server struct {
 	ListenAddr  string
 	OutboundTLS *tls.Config
 	Now         func() time.Time
+	OriginItems []protocol.Item
+	OriginUse   OriginUse
 	httpProxy   *goproxy.ProxyHttpServer
 	srv         *http.Server
 	ln          net.Listener
@@ -168,6 +170,13 @@ func (s *Server) checkAuth(req *http.Request) bool {
 }
 
 func (s *Server) agentMayHost(raw string) bool {
+	if s.OriginUse != nil {
+		_, dec := s.originItem(raw)
+		return dec.Decision == protocol.DecisionAllow
+	}
+	if s.App == nil {
+		return false
+	}
 	items, err := s.App.ItemsForAgent(s.Agent.ID)
 	if err != nil {
 		return false
@@ -181,6 +190,9 @@ func (s *Server) agentMayHost(raw string) bool {
 }
 
 func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+	if s.OriginUse != nil {
+		return s.injectOrigin(req, ctx)
+	}
 	raw := destURL(req)
 	item, _, dec, err := s.lookup(raw)
 	if err != nil {

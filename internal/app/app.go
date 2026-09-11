@@ -263,7 +263,27 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 	return item, nil
 }
 
-func (a *App) UpdateItem(name string, uris, tags []string, login string) (protocol.Item, error) {
+func unionURIs(have, add []string) []string {
+	out := append([]string{}, have...)
+	seen := make(map[string]struct{}, len(out)+len(add))
+	for _, u := range out {
+		seen[u] = struct{}{}
+	}
+	for _, u := range add {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		if _, ok := seen[u]; ok {
+			continue
+		}
+		seen[u] = struct{}{}
+		out = append(out, u)
+	}
+	return out
+}
+
+func (a *App) UpdateItem(name string, replaceURIs, addURIs, tags []string, login string) (protocol.Item, error) {
 	item, err := a.Store.Item(name)
 	if err != nil {
 		return protocol.Item{}, err
@@ -272,8 +292,11 @@ func (a *App) UpdateItem(name string, uris, tags []string, login string) (protoc
 	if err != nil {
 		return protocol.Item{}, err
 	}
-	if uris != nil {
-		item.URIs = uris
+	if replaceURIs != nil {
+		item.URIs = replaceURIs
+	}
+	if len(addURIs) > 0 {
+		item.URIs = unionURIs(item.URIs, addURIs)
 	}
 	if tags != nil {
 		item.Tags = tags

@@ -200,6 +200,51 @@
         }
       }
     },
+    "/v1/agents": {
+      "get": {
+        "operationId": "listAgents",
+        "tags": ["Owner"],
+        "summary": "Agents in this org. Ids only. Never secrets. Not MCP.",
+        "responses": {
+          "200": {
+            "description": "Agents",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AgentsResponse" }
+              }
+            }
+          },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot list agents" }
+        }
+      },
+      "post": {
+        "operationId": "createAgent",
+        "tags": ["Owner"],
+        "summary": "Register an agent principal. Not a Hydra secret. Not MCP.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateAgentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent principal. No secret.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Agent" }
+              }
+            }
+          },
+          "400": { "description": "bad request" },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "agent cannot create agents" }
+        }
+      }
+    },
     "/v1/use": {
       "post": {
         "operationId": "useItem",
@@ -366,8 +411,8 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "uri": { "type": "string" },
-          "uris": { "type": "array", "items": { "type": "string" } },
+          "uri": { "type": "string", "description": "Add this autofill host. Does not drop existing hosts." },
+          "uris": { "type": "array", "items": { "type": "string" }, "description": "Replace autofill hosts with this list." },
           "tags": { "type": "array", "items": { "type": "string" } },
           "login": { "type": "string", "description": "Fill username. Request only. Sealed. Never returned. Does not rotate the secret." }
         }
@@ -406,6 +451,36 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/Grant" }
           }
+        }
+      },
+      "Agent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "org_id"],
+        "properties": {
+          "kind": { "type": "string" },
+          "id": { "type": "string" },
+          "org_id": { "type": "string" },
+          "owner": { "$ref": "#/components/schemas/Owner" }
+        }
+      },
+      "AgentsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agents"],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Agent" }
+          }
+        }
+      },
+      "CreateAgentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
         }
       }
     }

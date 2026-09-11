@@ -99,8 +99,9 @@ The next slices, in this order, and nothing else until each is proven:
                          Cloudflare Tunnel, not Workers. not iOS
 17 public Hydra mint     written. https://id.veil.nyc token+JWKS.
                          not admin. cloud agents client_credentials.
-18 Mini origin            written. Hydra+broker on the Mini.
-                         Tunnel there. laptop is not the origin.
+18 origin                 written. Hydra+broker on Railway. veil.nyc.
+                         laptop is not the origin. pwm.vortex.nyc is
+                         leftover Mini.
 19 item lifecycle + refs written. ${NAME}/pwm:// in run --inject.
                          archive/delete/history. Grant.ExpiresAt.
                          file BLOB owner-write. audit CLI. passgen CLI.
@@ -116,15 +117,22 @@ The next slices, in this order, and nothing else until each is proven:
                          allow/200, token absent from the tool payload.
                          Codex/Devin laptop same. Not `${file:}`.
 23 one store              written. origin is the vault. PWM_ORIGIN CLI
-                         item/grant/list/fill HTTP. Never opens sqlite.
-                         PrincipalFromOIDC: bound agent, else human+Keto.
-                         POST /v1/items and /v1/grants are owner. Secret
-                         in create request, never in response. Fill path
-                         /v1/fill/logins is human native-host only, not
-                         OpenAPI, not MCP. Chrome URI fill is slice 26.
+                         item/grant/list/fill/run/proxy HTTP. Never opens
+                         sqlite. `run`/`proxy` MITM POST /v1/use. Child env
+                         is the dummy `veil-inject`, never the secret.
+                         `--inject` stays local vault. PrincipalFromOIDC:
+                         bound agent, else human+Keto. POST /v1/items and
+                         /v1/grants are owner. Secret in create request,
+                         never in response. Fill path /v1/fill/logins is
+                         human native-host only, not OpenAPI, not MCP.
+                         Chrome URI fill is slice 26.
 24 human mint             written. `human login --out-file`. Hydra PKCE.
-                         ID token to disk. never stdout. Fill and owner
-                         HTTP use PWM_HUMAN_TOKEN_FILE, not the agent JWT.
+                         prompt=login so remint cannot skip TOTP. ID token
+                         to disk. never stdout. amr must include totp.
+                         HTTP remint (no browser) when PWM_LOGIN_EMAIL,
+                         PWM_KRATOS_PASSWORD_FILE, PWM_KRATOS_TOTP_FILE
+                         are set. Fill and owner HTTP use
+                         PWM_HUMAN_TOKEN_FILE, not the agent JWT.
                          Live mint needs identity on origin (first-party
                          Hydra client, Kratos, Keto). Not MCP.
 25 identity on origin      written. Sibling Railway services: official
@@ -152,10 +160,13 @@ The next slices, in this order, and nothing else until each is proven:
                          to another Kratos human. Same grant object.
                          `grant add --human`. fill/list is owned or
                          granted. not a family vault. not collections.
-30 SPA vault              not written. Cloudflare. shadcn from Core.
-                         every human option: items, grants, agents,
-                         invites, audit, settings. not Ory Elements.
-                         not Native SDK / Tauri / Electron.
+30 SPA vault              written. Cloudflare Worker `veil-vault` at
+                         app.veil.nyc. shadcn from Core (OperationalShell).
+                         PKCE in the browser. prompt=login. Install the
+                         ID token only if amr contains totp. Items, grants,
+                         agents, audit against origin OpenAPI. Invites stay
+                         CLI (--code-file); recovery code never in the SPA.
+                         Settings links to Ory Elements. not Native SDK.
 31 passkeys fill          not written. passkeys-* on the same host
                          after slice 26. customers use the Veil
                          extension (37). store listing is the wire.
@@ -237,7 +248,8 @@ human
   directory          Kratos image          pinned, not the running product
   password           Kratos                same
   recovery           Kratos code flow      same
-  mail               Kratos courier        mailpit in compose, not a product sender
+  mail               Kratos courier        origin: Resend HTTP, from noreply@veil.nyc.
+                                           compose still mailpit. Railway blocks outbound SMTP.
   who a human is     our schema            email only, on disk
   screens            Ory Elements on Vite+  written. React + TanStack Router.
   glue               kratos-client-go      written. identity/glue
@@ -622,11 +634,11 @@ Do not scaffold slices 30–36 until 26 is proven. Do not scaffold Native SDK, T
 - [x] One org id: `protocol.LocalOrgID` is the vault OrgID, Kratos `organization_id`, and the Keto object. A second company is not this product yet.
 - [x] Invites are Kratos: glue `CreateIdentity` + `CreateRecoveryCodeForIdentity`. CLI `human invite --code-file`. Owner-gated after bootstrap (`--oidc-token-file` / `PWM_HUMAN_TOKEN`). Email and recovery code never enter sqlite. ApproveOIDC requires Keto membership. organization_id is stamped. Keto owner/member is written by glue.
 - [x] Remote MCP is Streamable HTTP. Bearer is Hydra JWT / bound OIDC. `mcp config` prints url+header template, never the token. RFC 9728 metadata points at Hydra. Cloud agents fetch that URL. JSON has no secret. No bearer is 401. Cursor (no env interpolation) uses `mcp stdio` / `mcp laptop` against origin HTTP. Token file, never mcp.json. Laptop remints a stale JWT with `client_credentials` (`PWM_HYDRA_SECRET_FILE`). Agent clients stay `client_credentials` only. Not `@ory/mcp-oauth-provider`. Not auth-code as the human.
-- [x] Cloud MCP is `https://veil.nyc/mcp`. Railway origin. Cloudflare DNS only, not Tunnel, not Workers. `GET /health` is 200. No bearer on `/mcp` is 401. Flue, Codex, and Cloudflare Agents are principals; Bearer is still the agent.
+- [x] Cloud MCP is `https://veil.nyc/mcp`. Railway origin. Cloudflare is DNS plus Workers (`login.veil.nyc`, `app.veil.nyc`). Not Tunnel. `GET /health` is 200. No bearer on `/mcp` is 401. Flue, Codex, and Cloudflare Agents are principals; Bearer is still the agent.
 - [x] Hydra public mint is `https://id.veil.nyc` (token, JWKS, discovery). Not admin `:4445`. Not Kratos. Issuer in the JWT matches. RFC 9728 points there. Cloud agents `client_credentials` then Bearer to `/mcp`. Secret never in MCP JSON.
-- [x] Origin is the Mac Mini. Hydra and the broker run there. Cloudflare Tunnel points at that machine. The laptop is not a second public Hydra.
+- [x] Origin is Railway. Hydra, Kratos, Keto, glue, and the broker run there. The laptop is not a second public Hydra.
 - [x] Secret refs `${NAME}` and `pwm://name` resolve only in `run --inject` (and env). Unknown refs fail closed. Broker stdout has no secret.
-- [x] Item update, archive, delete, tags, extra URIs. Archived items are hidden from Use, list, fill, MCP. History is `item_versions` (sealed). Restore copies the sealed blob.
+- [x] Item update, archive, delete, tags, extra URIs. `PATCH uri` / CLI `--uri` adds a host and does not drop existing. `uris` replaces the list. Archived items are hidden from Use, list, fill, MCP. History is `item_versions` (sealed). Restore copies the sealed blob.
 - [x] File items are a sealed BLOB. Owner `item write --out-file`. Not MCP. Not child env.
 - [x] Grant expiry is `Grant.ExpiresAt` (`grant add --expires`). Zero is forever. Not a second share type.
 - [x] Owner `audit` lists events. No secret in JSON. Not an MCP tool. Origin `GET /v1/events` is this agent's events. `PWM_ORIGIN` makes CLI `use`/`audit` the same HTTP contract as the SDK.
@@ -635,11 +647,13 @@ Do not scaffold slices 30–36 until 26 is proven. Do not scaffold Native SDK, T
 - [x] OpenAPI is the contract (`docs/openapi/password-manager.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
-- [x] One store. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` origin HTTP. `openApp` refuses a second sqlite. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
-- [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
+- [x] One store. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second sqlite. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
+- [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. `prompt=login` so Hydra cannot skip on a remembered session. `amr` must include totp. HTTP remint uses PWM_LOGIN_EMAIL + password/TOTP files. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 - [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
+- [x] Origin Kratos courier is Resend HTTP (`api.resend.com`) from `noreply@veil.nyc`. Compose stays mailpit. `--watch-courier` on origin. Railway blocks outbound SMTP. Recovery email is a product sender.
 - [x] Human grants are the same grant object. `grant add --human` XOR `--agent`. CreateGrantRequest.human is a Kratos identity id, not email. Org owner fill/list is the vault; a member fills only granted items. Not a family vault. Not collections. Not Keto tuples.
+- [x] SPA vault is Cloudflare (`apps/vault`, `app.veil.nyc`). Core OperationalShell. Browser PKCE, `prompt=login`, ID token kept only if `amr` contains totp. Origin CORS for that origin. Hydra first-party keeps the laptop callback and adds the SPA. Items, grants, agents, audit via generated SDK. Invite recovery code stays `--code-file`. Settings is Ory Elements. Not Tauri. Not a Reveal.
 
 ## Use what exists. Do not rewrite it.
 

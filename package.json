@@ -5,10 +5,11 @@
   "packageManager": "pnpm@10.25.0",
   "scripts": {
     "login": "pnpm --filter identity-login dev",
+    "vault": "pnpm --filter veil-vault dev",
     "lint": "vp lint",
     "format": "vp fmt",
     "format:check": "vp fmt --check",
-    "typecheck": "pnpm --filter identity-login typecheck",
+    "typecheck": "pnpm --filter identity-login typecheck && pnpm --filter veil-vault typecheck",
     "sdk:generate": "pnpm exec tsx scripts/generate-sdks.ts",
     "docs:dev": "pnpm --filter @vortexnyc/pwm-docs dev",
     "docs:build": "pnpm --filter @vortexnyc/pwm-docs build",
@@ -18,6 +19,7 @@
     "@hey-api/client-fetch": "^0.13.1",
     "@hey-api/openapi-ts": "^0.98.2",
     "@openapitools/openapi-generator-cli": "^2.35.0",
+    "railway": "^3.11.0",
     "tsx": "^4.21.0",
     "vite-plus": "0.2.4"
   }

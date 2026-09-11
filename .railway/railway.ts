@@ -1,59 +1,57 @@
-import {
-  defineRailway,
-  image,
-  postgres,
-  preserve,
-  project,
-  service,
-  volume,
-} from "railway/iac";
+import { defineRailway, image, postgres, preserve, project, service, volume } from "railway/iac";
 
-// Hydra preDeploy is SQL migrate (no volume). pwm must not preDeploy:
-// Railway pre-deploy does not mount volumes.
-// pwm start is exec form (Dockerfile/distroless, no shell). Binary binds $PORT.
+// Full production plane: kratos, keto, glue, hydra, pwm, Postgres.
+// Omitting a service here and applying deletes it. Secrets stay preserve().
+// Do not apply unless `railway config plan` is the change you intend.
+
 export default defineRailway(() => {
-  const db = postgres("Postgres");
-
-  const hydra = service("hydra", {
-    source: image("oryd/hydra:v26.2.0"),
-    preDeploy: "hydra migrate sql -e --yes",
-    start: "hydra serve all --sqa-opt-out",
-    domains: ["id.veil.nyc"],
-    env: {
-      DSN: db.env.DATABASE_URL,
-      PORT: "4444",
-      SECRETS_SYSTEM: preserve(),
-      HYDRA_SYSTEM_SECRET: preserve(),
-      OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT: preserve(),
-      OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES: "public",
-      SERVE_PUBLIC_HOST: "0.0.0.0",
-      SERVE_PUBLIC_PORT: "4444",
-      SERVE_ADMIN_HOST: "0.0.0.0",
-      SERVE_ADMIN_PORT: "4445",
-      SERVE_COOKIES_SAME_SITE_MODE: "Lax",
-      URLS_SELF_ISSUER: "https://id.veil.nyc",
-      URLS_LOGIN: preserve(),
-      URLS_CONSENT: preserve(),
-      URLS_LOGOUT: preserve(),
-    },
+  const Postgres = postgres("Postgres", { region: "sfo" });
+  Postgres.networking = { privateNetworkEndpoint: "postgres" };
+  const brokerVolume = volume("broker-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
+  const pwmVolume = volume("pwm-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
+  const postgresVolume = volume("postgres-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
+  const kratos = service("kratos", {
+    build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "identity/kratos/Dockerfile" },
+    start: "kratos serve -c /etc/config/kratos/kratos.yml --sqa-opt-out --watch-courier",
+    healthcheck: "/health/ready",
+    preDeploy: "kratos -c /etc/config/kratos/kratos.yml migrate sql -e --yes",
+    replicas: { "sfo": 1 },
+    domains: [{ domain: "accounts.veil.nyc", port: 4433 }],
+    env: { COURIER_HTTP_REQUEST_CONFIG_AUTH_CONFIG_IN: preserve(), COURIER_HTTP_REQUEST_CONFIG_AUTH_CONFIG_NAME: preserve(), COURIER_HTTP_REQUEST_CONFIG_AUTH_CONFIG_VALUE: preserve(), COURIER_HTTP_REQUEST_CONFIG_AUTH_TYPE: preserve(), COURIER_SMTP_CONNECTION_URI: preserve(), DSN: preserve(), PORT: preserve(), RESEND_API_KEY: preserve(), RESEND_AUTHORIZATION: preserve(), SECRETS_CIPHER: preserve(), SECRETS_COOKIE: preserve(), SERVE_PUBLIC_PORT: preserve() },
   });
-
+  const keto = service("keto", {
+    build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "identity/keto/Dockerfile" },
+    start: "keto serve -c /etc/config/keto/keto.yml",
+    preDeploy: "keto -c /etc/config/keto/keto.yml migrate up -y",
+    replicas: { "sfo": 1 },
+    env: { DSN: preserve() },
+  });
   const pwm = service("pwm", {
     start: "/password-manager mcp",
-    domains: ["veil.nyc"],
-    env: {
-      PORT: "4461",
-      PWM_HOME: "/data",
-      PWM_HYDRA_ISSUER: "https://id.veil.nyc",
-      PWM_HYDRA_ADMIN: preserve(),
-      PWM_MCP_URL: "https://veil.nyc/mcp",
-    },
-    volumeMounts: {
-      "/data": volume("pwm-volume"),
-    },
+    healthcheck: "/health",
+    healthcheckTimeout: 300,
+    replicas: { "sfo": 1 },
+    domains: [{ domain: "veil.nyc", port: 4461 }],
+    volumeMounts: { "/data": pwmVolume },
+    env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: preserve(), OTEL_EXPORTER_OTLP_TRACES_HEADERS: preserve(), OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: preserve(), OTEL_RESOURCE_ATTRIBUTES: preserve(), OTEL_SERVICE_NAME: preserve(), PORT: preserve(), PWM_HOME: preserve(), PWM_HYDRA_ADMIN: preserve(), PWM_HYDRA_CLIENT_ID: preserve(), PWM_HYDRA_ISSUER: preserve(), PWM_KETO_READ: preserve(), PWM_KETO_WRITE: preserve(), PWM_KRATOS_ADMIN: preserve(), PWM_KRATOS_PUBLIC: preserve(), PWM_MCP_URL: preserve() },
+  });
+  const glue = service("glue", {
+    build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+    start: "/identity-glue",
+    replicas: { "sfo": 1 },
+    domains: [{ domain: "consent.veil.nyc", port: 4456 }],
+    env: { BOOTSTRAP_EMAIL: preserve(), BOOTSTRAP_PASSWORD: preserve(), BROKER_REDIRECT_URL: preserve(), HYDRA_ADMIN_URL: preserve(), HYDRA_CLIENT_ID: preserve(), KETO_READ_URL: preserve(), KETO_WRITE_URL: preserve(), KRATOS_ADMIN: preserve(), KRATOS_PUBLIC: preserve(), PORT: preserve() },
+  });
+  const hydra = service("hydra", {
+    source: image("oryd/hydra:v26.2.0"),
+    start: "hydra serve all --sqa-opt-out",
+    preDeploy: "hydra migrate sql -e --yes",
+    replicas: { "sfo": 1 },
+    domains: [{ domain: "id.veil.nyc", port: 4444 }],
+    env: { DSN: preserve(), HYDRA_SYSTEM_SECRET: preserve(), OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT: preserve(), OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES: preserve(), PORT: preserve(), SECRETS_SYSTEM: preserve(), SERVE_ADMIN_HOST: preserve(), SERVE_ADMIN_PORT: preserve(), SERVE_COOKIES_SAME_SITE_MODE: preserve(), SERVE_PUBLIC_CORS_ALLOWED_ORIGINS: preserve(), SERVE_PUBLIC_CORS_ALLOW_CREDENTIALS: preserve(), SERVE_PUBLIC_CORS_ENABLED: preserve(), SERVE_PUBLIC_HOST: preserve(), SERVE_PUBLIC_PORT: preserve(), URLS_CONSENT: preserve(), URLS_LOGIN: preserve(), URLS_LOGOUT: preserve(), URLS_SELF_ISSUER: preserve() },
   });
 
   return project("password-manager", {
-    resources: [db, hydra, pwm],
+    resources: [kratos, keto, pwm, Postgres, glue, hydra, brokerVolume, pwmVolume, postgresVolume],
   });
 });

@@ -562,7 +562,7 @@ func TestFillLoginsUsesEnvelopeLoginNotName(t *testing.T) {
 	if len(got) != 1 || got[0].Login != login || got[0].Name != "stripe" || got[0].Password != secret {
 		t.Fatalf("%+v", got)
 	}
-	if _, err := a.UpdateItem("stripe", nil, nil, "other@example.com"); err != nil {
+	if _, err := a.UpdateItem("stripe", nil, nil, nil, "other@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	got, err = a.FillLogins(human, "https://dashboard.stripe.com/login")
@@ -582,6 +582,43 @@ func TestFillLoginsUsesEnvelopeLoginNotName(t *testing.T) {
 	}
 	if scrub.Contains(raw, []byte(login)) || scrub.Contains(raw, []byte("other@example.com")) {
 		t.Fatal("item list leaked login")
+	}
+}
+
+func TestUpdateItemURIAddsWithoutDropping(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.PutItem(ItemOpts{
+		Name:  "github",
+		URI:   "https://api.github.com",
+		Token: []byte(secret),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.UpdateItem("github", nil, []string{"https://github.com"}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.URIs) != 2 || got.URIs[0] != "https://api.github.com" || got.URIs[1] != "https://github.com" {
+		t.Fatalf("add dropped a host: %+v", got.URIs)
+	}
+	again, err := a.UpdateItem("github", nil, []string{"https://github.com"}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.URIs) != 2 {
+		t.Fatalf("add duplicated: %+v", again.URIs)
+	}
+	replaced, err := a.UpdateItem("github", []string{"https://github.com"}, nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replaced.URIs) != 1 || replaced.URIs[0] != "https://github.com" {
+		t.Fatalf("uris did not replace: %+v", replaced.URIs)
 	}
 }
 

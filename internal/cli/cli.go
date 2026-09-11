@@ -412,6 +412,7 @@ type inviteDTO struct {
 func itemCmd(home *string) *cobra.Command {
 	c := &cobra.Command{Use: "item", Short: "Items (metadata only on list)"}
 	var uri, secretFile, totpFile, refreshFile, clientSecretFile, tokenURL, clientID, sshFile, attachFile, mime, login string
+	var updateURIs []string
 	var tags []string
 	add := &cobra.Command{
 		Use:   "add NAME",
@@ -533,29 +534,25 @@ func itemCmd(home *string) *cobra.Command {
 	}
 	update := &cobra.Command{
 		Use:   "update NAME",
-		Short: "Replace URIs and tags. Snapshots history. No secret on argv.",
+		Short: "Add autofill hosts, replace tags, set login. Snapshots history. No secret on argv.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if originBase() != "" {
-				return originItemUpdate(cmd, args[0], uri, tags, login)
+				return originItemUpdate(cmd, args[0], updateURIs, tags, login)
 			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
-			var uris []string
-			if uri != "" {
-				uris = []string{uri}
-			}
-			item, err := a.UpdateItem(args[0], uris, tags, login)
+			item, err := a.UpdateItem(args[0], nil, updateURIs, tags, login)
 			if err != nil {
 				return err
 			}
 			return encode(cmd, item)
 		},
 	}
-	update.Flags().StringVar(&uri, "uri", "", "replace autofill hosts with this one URI")
+	update.Flags().StringSliceVar(&updateURIs, "uri", nil, "add autofill host. repeatable. does not drop existing")
 	update.Flags().StringSliceVar(&tags, "tag", nil, "replace tags")
 	update.Flags().StringVar(&login, "login", "", "set fill username. does not rotate the secret")
 	archive := &cobra.Command{
@@ -1029,7 +1026,7 @@ func humanToken(tokenFile string) (string, error) {
 }
 
 func proxyCmd(home *string) *cobra.Command {
-	var agent, listen string
+	var agent, listen, tokenFile string
 	c := &cobra.Command{
 		Use:   "proxy",
 		Short: "HTTPS_PROXY inject. Bound to --agent. Unknown hosts fail closed.",
@@ -1039,6 +1036,9 @@ func proxyCmd(home *string) *cobra.Command {
 			}
 			if agent == "" {
 				return fmt.Errorf("--agent or PWM_AGENT is required")
+			}
+			if originBase() != "" {
+				return originProxyWait(cmd, *home, agent, tokenFile, listen)
 			}
 			a, err := openApp(*home)
 			if err != nil {
@@ -1068,11 +1068,12 @@ func proxyCmd(home *string) *cobra.Command {
 	}
 	c.Flags().StringVar(&agent, "agent", "", "agent id (or PWM_AGENT)")
 	c.Flags().StringVar(&listen, "listen", "127.0.0.1:0", "listen address")
+	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for PWM_ORIGIN. Never argv.")
 	return c
 }
 
 func runCmd(home *string) *cobra.Command {
-	var agent string
+	var agent, tokenFile string
 	var injects []string
 	c := &cobra.Command{
 		Use:   "run --agent NAME -- COMMAND [args...]",
@@ -1084,6 +1085,9 @@ func runCmd(home *string) *cobra.Command {
 			}
 			if agent == "" {
 				return fmt.Errorf("--agent or PWM_AGENT is required")
+			}
+			if originBase() != "" {
+				return originRun(cmd, *home, agent, tokenFile, injects, args)
 			}
 			a, err := openApp(*home)
 			if err != nil {
@@ -1122,6 +1126,7 @@ func runCmd(home *string) *cobra.Command {
 	}
 	c.Flags().StringVar(&agent, "agent", "", "agent id (or PWM_AGENT)")
 	c.Flags().StringArrayVar(&injects, "inject", nil, "template:dest. ${NAME} or pwm://name. dest is 0600. never stdout")
+	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for PWM_ORIGIN. Never argv.")
 	return c
 }
 

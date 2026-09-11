@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 
 type testIssuer struct {
 	URL    string
+	mux    *http.ServeMux
 	key    *rsa.PrivateKey
 	server *httptest.Server
 }
@@ -71,6 +74,7 @@ func newTestIssuer(t *testing.T) *testIssuer {
 			"id_token":     id,
 		})
 	})
+	iss.mux = mux
 	iss.server = httptest.NewServer(mux)
 	iss.URL = iss.server.URL
 	t.Cleanup(iss.server.Close)
@@ -89,7 +93,7 @@ func (i *testIssuer) token(t *testing.T, sub, aud string, exp time.Time) string 
 		Audience: jwt.Audience{aud},
 		Expiry:   jwt.NewNumericDate(exp),
 		IssuedAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
-	}).Serialize()
+	}).Claims(map[string]any{"amr": []string{"password", "totp"}}).Serialize()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +141,21 @@ func TestWrongAudienceRejected(t *testing.T) {
 	}
 }
 
+func TestAuthCodeURLForcesLogin(t *testing.T) {
+	iss := newTestIssuer(t)
+	v, err := New(Config{Issuer: iss.URL, RedirectURL: DefaultRedirect})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := v.AuthCodeURL(context.Background(), "state-1", "verifier-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(u, "prompt=login") || !strings.Contains(u, "max_age=0") {
+		t.Fatalf("remint can skip TOTP: %s", u)
+	}
+}
+
 func TestExchangeReturnsIDTokenNotAccess(t *testing.T) {
 	iss := newTestIssuer(t)
 	v, err := New(Config{Issuer: iss.URL, RedirectURL: DefaultRedirect})
@@ -156,5 +175,22 @@ func TestExchangeReturnsIDTokenNotAccess(t *testing.T) {
 	}
 	if h.ID != "id-human-1" {
 		t.Fatalf("%+v", h)
+	}
+}
+
+func TestRequireTOTP(t *testing.T) {
+	b64 := func(s string) string {
+		return base64.RawURLEncoding.EncodeToString([]byte(s))
+	}
+	with := "e30." + b64(`{"amr":["password","totp"]}`) + ".x"
+	without := "e30." + b64(`{"amr":["password"]}`) + ".x"
+	if err := RequireTOTP(with); err != nil {
+		t.Fatal(err)
+	}
+	if err := RequireTOTP(without); err == nil {
+		t.Fatal("accepted aal1")
+	}
+	if err := RequireTOTP("jwt-human-id-token"); err != nil {
+		t.Fatal("opaque test token")
 	}
 }

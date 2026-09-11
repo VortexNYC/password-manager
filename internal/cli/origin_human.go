@@ -35,8 +35,27 @@ func originHumanToken() (string, error) {
 	return "", fmt.Errorf("origin: PWM_HUMAN_TOKEN_FILE or PWM_HUMAN_TOKEN is required")
 }
 
-func originOwnerToken(ctx context.Context) (string, error) {
+func originHumanTokenLive(ctx context.Context) (string, error) {
 	tok, err := originHumanToken()
+	if err == nil && !jwtNeedsRefresh(tok) {
+		return tok, nil
+	}
+	out := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE"))
+	minted, merr := remintHumanHTTP(ctx, out)
+	if merr == nil {
+		return minted, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if jwtNeedsRefresh(tok) {
+		return "", fmt.Errorf("origin: human JWT expired; password-manager human login --out-file")
+	}
+	return tok, nil
+}
+
+func originOwnerToken(ctx context.Context) (string, error) {
+	tok, err := originHumanTokenLive(ctx)
 	if err == nil {
 		return tok, nil
 	}
@@ -46,6 +65,14 @@ func originOwnerToken(ctx context.Context) (string, error) {
 func humanLogin(cmd *cobra.Command, outFile string, visit func(string) error) error {
 	if outFile == "" {
 		return fmt.Errorf("human login: --out-file is required")
+	}
+	if httpLoginReady() {
+		raw, err := remintHumanHTTP(cmd.Context(), outFile)
+		if err != nil {
+			return err
+		}
+		_ = raw
+		return encode(cmd, map[string]string{"out_file": outFile})
 	}
 	iss := envOr("PWM_HYDRA_ISSUER", "https://id.veil.nyc")
 	v, err := human.New(human.Config{
@@ -121,10 +148,61 @@ func humanLogin(cmd *cobra.Command, outFile string, visit func(string) error) er
 	if err != nil {
 		return err
 	}
+	if err := human.RequireTOTP(raw); err != nil {
+		return err
+	}
 	if err := os.WriteFile(outFile, []byte(raw+"\n"), 0o600); err != nil {
 		return err
 	}
 	return encode(cmd, map[string]string{"out_file": outFile})
+}
+
+func httpLoginReady() bool {
+	return strings.TrimSpace(os.Getenv("PWM_LOGIN_EMAIL")) != "" &&
+		strings.TrimSpace(os.Getenv("PWM_KRATOS_PASSWORD_FILE")) != "" &&
+		strings.TrimSpace(os.Getenv("PWM_KRATOS_TOTP_FILE")) != ""
+}
+
+func remintHumanHTTP(ctx context.Context, outFile string) (string, error) {
+	if !httpLoginReady() {
+		return "", fmt.Errorf("origin: PWM_LOGIN_EMAIL, PWM_KRATOS_PASSWORD_FILE, and PWM_KRATOS_TOTP_FILE remint a human JWT")
+	}
+	password, err := readFileMaterial(os.Getenv("PWM_KRATOS_PASSWORD_FILE"))
+	if err != nil {
+		return "", err
+	}
+	seed, err := readFileMaterial(os.Getenv("PWM_KRATOS_TOTP_FILE"))
+	if err != nil {
+		return "", err
+	}
+	iss := envOr("PWM_HYDRA_ISSUER", "https://id.veil.nyc")
+	kratos := envOr("PWM_KRATOS_PUBLIC", "https://accounts.veil.nyc")
+	v, err := human.New(human.Config{
+		Issuer:      iss,
+		Audience:    envOr("PWM_HYDRA_CLIENT_ID", glue.DefaultClientID),
+		RedirectURL: envOr("PWM_HYDRA_REDIRECT", human.DefaultRedirect),
+	})
+	if err != nil {
+		return "", err
+	}
+	raw, err := v.LoginHTTP(ctx, human.HTTPLogin{
+		KratosPublic: kratos,
+		Email:        strings.TrimSpace(os.Getenv("PWM_LOGIN_EMAIL")),
+		Password:     string(password),
+		TOTPSeed:     string(seed),
+	})
+	if err != nil {
+		return "", err
+	}
+	if outFile == "" {
+		outFile = strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE"))
+	}
+	if outFile != "" {
+		if err := os.WriteFile(outFile, []byte(raw+"\n"), 0o600); err != nil {
+			return "", err
+		}
+	}
+	return raw, nil
 }
 
 func openBrowser(rawURL string) error {

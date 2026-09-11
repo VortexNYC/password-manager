@@ -218,6 +218,31 @@ func TestEnsureFirstPartySkipsConsent(t *testing.T) {
 	}
 }
 
+func TestEnsureFirstPartyAddsSPAWithoutDroppingLaptop(t *testing.T) {
+	ory := &fakeOry{}
+	k, h := ory.start(t)
+	g := newGlue(t, k, h)
+
+	err := g.EnsureFirstParty(context.Background(), FirstParty{
+		RedirectURL: "http://127.0.0.1:4460/oidc/callback",
+		RedirectURLs: []string{
+			"https://app.veil.nyc/oidc/callback",
+			"http://127.0.0.1:4470/oidc/callback",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uris, _ := ory.client["redirect_uris"].([]any)
+	if len(uris) != 3 {
+		t.Fatalf("redirect %v", ory.client["redirect_uris"])
+	}
+	joined := fmt.Sprint(uris)
+	if !strings.Contains(joined, "127.0.0.1:4460") || !strings.Contains(joined, "app.veil.nyc") {
+		t.Fatalf("redirect %v", uris)
+	}
+}
+
 func TestEnsureAgentIsNotAHuman(t *testing.T) {
 	ory := &fakeOry{}
 	k, h := ory.start(t)

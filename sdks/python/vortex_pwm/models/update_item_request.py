@@ -27,8 +27,8 @@ class UpdateItemRequest(BaseModel):
     """
     UpdateItemRequest
     """ # noqa: E501
-    uri: Optional[StrictStr] = None
-    uris: Optional[List[StrictStr]] = None
+    uri: Optional[StrictStr] = Field(default=None, description="Add this autofill host. Does not drop existing hosts.")
+    uris: Optional[List[StrictStr]] = Field(default=None, description="Replace autofill hosts with this list.")
     tags: Optional[List[StrictStr]] = None
     login: Optional[StrictStr] = Field(default=None, description="Fill username. Request only. Sealed. Never returned. Does not rotate the secret.")
     __properties: ClassVar[List[str]] = ["uri", "uris", "tags", "login"]

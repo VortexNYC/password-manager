@@ -206,6 +206,47 @@ paths:
         Not MCP. Not a family vault.
       tags:
       - Owner
+  /v1/agents:
+    get:
+      operationId: listAgents
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentsResponse"
+          description: Agents
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot list agents
+      summary: Agents in this org. Ids only. Never secrets. Not MCP.
+      tags:
+      - Owner
+    post:
+      operationId: createAgent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+          description: Agent principal. No secret.
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot create agents
+      summary: Register an agent principal. Not a Hydra secret. Not MCP.
+      tags:
+      - Owner
   /v1/use:
     post:
       operationId: useItem
@@ -548,8 +589,10 @@ components:
         login: login
       properties:
         uri:
+          description: Add this autofill host. Does not drop existing hosts.
           type: string
         uris:
+          description: Replace autofill hosts with this list.
           items:
             type: string
           type: array
@@ -644,6 +687,61 @@ components:
           default: null
       required:
       - grants
+    Agent:
+      additionalProperties: false
+      example:
+        kind: kind
+        id: id
+        org_id: org_id
+        owner:
+          kind: kind
+          id: id
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        org_id:
+          type: string
+        owner:
+          $ref: "#/components/schemas/Owner"
+      required:
+      - id
+      - kind
+      - org_id
+    AgentsResponse:
+      additionalProperties: false
+      example:
+        agents:
+        - kind: kind
+          id: id
+          org_id: org_id
+          owner:
+            kind: kind
+            id: id
+        - kind: kind
+          id: id
+          org_id: org_id
+          owner:
+            kind: kind
+            id: id
+      properties:
+        agents:
+          items:
+            $ref: "#/components/schemas/Agent"
+          type: array
+          default: null
+      required:
+      - agents
+    CreateAgentRequest:
+      additionalProperties: false
+      example:
+        name: name
+      properties:
+        name:
+          type: string
+      required:
+      - name
   securitySchemes:
     bearerAuth:
       bearerFormat: JWT

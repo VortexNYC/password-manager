@@ -19,7 +19,7 @@ ci:
 	pnpm run sdk:generate
 	$(MAKE) vet test
 	pnpm exec vp lint
-	pnpm --filter identity-login typecheck
+	pnpm run typecheck
 	pnpm run docs:build
 
 prove-cli-golden-flow:

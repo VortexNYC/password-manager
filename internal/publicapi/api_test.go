@@ -226,6 +226,40 @@ func TestFillLoginIsUsernameNotName(t *testing.T) {
 	}
 }
 
+func TestUpdateItemURIAddsWithoutDropping(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name:   "github",
+		URI:    "https://api.github.com",
+		Secret: secret,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPatch, "/v1/items/github", "human", UpdateItemRequest{URI: "https://github.com"})
+	if code != http.StatusOK {
+		t.Fatalf("add %d %s", code, raw)
+	}
+	var item protocol.Item
+	if err := json.Unmarshal(raw, &item); err != nil {
+		t.Fatal(err)
+	}
+	if len(item.URIs) != 2 || item.URIs[0] != "https://api.github.com" || item.URIs[1] != "https://github.com" {
+		t.Fatalf("uri dropped a host: %+v", item.URIs)
+	}
+	code, raw = doJSON(t, srv, http.MethodPatch, "/v1/items/github", "human", UpdateItemRequest{URIs: []string{"https://github.com"}})
+	if code != http.StatusOK {
+		t.Fatalf("replace %d %s", code, raw)
+	}
+	if err := json.Unmarshal(raw, &item); err != nil {
+		t.Fatal(err)
+	}
+	if len(item.URIs) != 1 || item.URIs[0] != "https://github.com" {
+		t.Fatalf("uris did not replace: %+v", item.URIs)
+	}
+}
+
 type fakeMembers struct {
 	owners  map[string]bool
 	members map[string]bool
@@ -309,5 +343,80 @@ func TestHumanGrantAPI(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte("github")) {
 		t.Fatalf("member list %s", raw)
+	}
+}
+
+func TestOwnerAgentsNoSecret(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/agents", "human", CreateAgentRequest{Name: "flue"})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("create agent leaked secret")
+	}
+	if !bytes.Contains(raw, []byte(`"flue"`)) {
+		t.Fatalf("create %s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/agents", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte("flue")) {
+		t.Fatalf("list %s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/agents", "agent", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("agent list %d %s", code, raw)
+	}
+}
+
+func TestCORSPreflightVaultOrigin(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/items", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	srv := httptest.NewServer(CORS(mux))
+	t.Cleanup(srv.Close)
+	req, err := http.NewRequest(http.MethodOptions, srv.URL+"/v1/items", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", "https://app.veil.nyc")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	req.Header.Set("Access-Control-Request-Headers", "authorization")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "https://app.veil.nyc" {
+		t.Fatalf("origin %q", got)
+	}
+}
+
+func TestCORSUnknownOrigin(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/items", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(CORS(mux))
+	t.Cleanup(srv.Close)
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/items", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", "https://evil.example")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("origin %q", got)
 	}
 }

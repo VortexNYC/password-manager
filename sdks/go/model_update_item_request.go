@@ -19,7 +19,9 @@ var _ MappedNullable = &UpdateItemRequest{}
 
 // UpdateItemRequest struct for UpdateItemRequest
 type UpdateItemRequest struct {
+	// Add this autofill host. Does not drop existing hosts.
 	Uri *string `json:"uri,omitempty"`
+	// Replace autofill hosts with this list.
 	Uris []string `json:"uris,omitempty"`
 	Tags []string `json:"tags,omitempty"`
 	// Fill username. Request only. Sealed. Never returned. Does not rotate the secret.

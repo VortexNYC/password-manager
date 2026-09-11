@@ -32,7 +32,9 @@ selfservice:
   allowed_return_urls:
     - https://login.veil.nyc
     - https://id.veil.nyc
+    - https://app.veil.nyc
     - http://127.0.0.1:4460
+    - http://127.0.0.1:4470
 
   methods:
     password:
@@ -109,10 +111,27 @@ identity:
       url: file:///etc/config/kratos/identity.schema.json
 
 courier:
+  delivery_strategy: http
   smtp:
-    connection_uri: smtp://127.0.0.1:1025/?disable_starttls=true
+    from_address: noreply@veil.nyc
+    from_name: Veil
+  http:
+    request_config:
+      url: https://api.resend.com/emails
+      method: POST
+      headers:
+        Content-Type: application/json
+      auth:
+        type: api_key
+        config:
+          name: Authorization
+          in: header
+          value: unset
+      body: file:///etc/config/kratos/courier.resend.jsonnet
 
 session:
+  whoami:
+    required_aal: highest_available
   cookie:
     domain: veil.nyc
     same_site: Lax

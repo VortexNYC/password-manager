@@ -89,7 +89,8 @@ func (v *Verifier) oauth(ctx context.Context) (*oauth2.Config, error) {
 	}, nil
 }
 
-// AuthCodeURL is the Hydra authorize URL. PKCE S256. The ID token is not here.
+// AuthCodeURL is the Hydra authorize URL. PKCE S256. prompt=login so Hydra
+// cannot skip on a remembered session (Kratos would then accept aal1).
 func (v *Verifier) AuthCodeURL(ctx context.Context, state, verifier string) (string, error) {
 	if state == "" || verifier == "" {
 		return "", fmt.Errorf("human: missing pkce")
@@ -98,7 +99,11 @@ func (v *Verifier) AuthCodeURL(ctx context.Context, state, verifier string) (str
 	if err != nil {
 		return "", err
 	}
-	return cfg.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)), nil
+	return cfg.AuthCodeURL(state,
+		oauth2.S256ChallengeOption(verifier),
+		oauth2.SetAuthURLParam("prompt", "login"),
+		oauth2.SetAuthURLParam("max_age", "0"),
+	), nil
 }
 
 // Human verifies rawToken against the configured Hydra issuer. Subject is the human id.

@@ -95,7 +95,13 @@ export type CreateItemRequest = {
 };
 
 export type UpdateItemRequest = {
+    /**
+     * Add this autofill host. Does not drop existing hosts.
+     */
     uri?: string;
+    /**
+     * Replace autofill hosts with this list.
+     */
     uris?: Array<string>;
     tags?: Array<string>;
     /**
@@ -132,6 +138,21 @@ export type Grant = {
 
 export type GrantsResponse = {
     grants: Array<Grant>;
+};
+
+export type Agent = {
+    kind: string;
+    id: string;
+    org_id: string;
+    owner?: Owner;
+};
+
+export type AgentsResponse = {
+    agents: Array<Agent>;
+};
+
+export type CreateAgentRequest = {
+    name: string;
 };
 
 export type GetHealthData = {
@@ -374,6 +395,64 @@ export type CreateGrantResponses = {
 };
 
 export type CreateGrantResponse = CreateGrantResponses[keyof CreateGrantResponses];
+
+export type ListAgentsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/agents';
+};
+
+export type ListAgentsErrors = {
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot list agents
+     */
+    403: unknown;
+};
+
+export type ListAgentsResponses = {
+    /**
+     * Agents
+     */
+    200: AgentsResponse;
+};
+
+export type ListAgentsResponse = ListAgentsResponses[keyof ListAgentsResponses];
+
+export type CreateAgentData = {
+    body: CreateAgentRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/agents';
+};
+
+export type CreateAgentErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot create agents
+     */
+    403: unknown;
+};
+
+export type CreateAgentResponses = {
+    /**
+     * Agent principal. No secret.
+     */
+    200: Agent;
+};
+
+export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponses];
 
 export type UseItemData = {
     body: UseRequest;

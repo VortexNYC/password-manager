@@ -12,6 +12,8 @@ export default defineConfig({
       "apps/docs/.blume/**",
       "apps/docs/.astro/**",
       "apps/docs/dist/**",
+      "apps/vault/dist/**",
+      "apps/vault/.wrangler/**",
     ],
   },
   lint: {
@@ -22,6 +24,8 @@ export default defineConfig({
       "apps/docs/.blume/**",
       "apps/docs/.astro/**",
       "apps/docs/dist/**",
+      "apps/vault/dist/**",
+      "apps/vault/.wrangler/**",
     ],
   },
 });

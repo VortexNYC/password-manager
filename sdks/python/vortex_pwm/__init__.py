@@ -29,7 +29,10 @@ __all__ = [
     "ApiKeyError",
     "ApiAttributeError",
     "ApiException",
+    "Agent",
+    "AgentsResponse",
     "AuditEvent",
+    "CreateAgentRequest",
     "CreateGrantRequest",
     "CreateItemRequest",
     "EventsResponse",
@@ -59,7 +62,10 @@ from vortex_pwm.exceptions import ApiAttributeError as ApiAttributeError
 from vortex_pwm.exceptions import ApiException as ApiException
 
 # import models into sdk package
+from vortex_pwm.models.agent import Agent as Agent
+from vortex_pwm.models.agents_response import AgentsResponse as AgentsResponse
 from vortex_pwm.models.audit_event import AuditEvent as AuditEvent
+from vortex_pwm.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
 from vortex_pwm.models.create_grant_request import CreateGrantRequest as CreateGrantRequest
 from vortex_pwm.models.create_item_request import CreateItemRequest as CreateItemRequest
 from vortex_pwm.models.events_response import EventsResponse as EventsResponse

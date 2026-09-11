@@ -13,7 +13,10 @@
 """  # noqa: E501
 
 # import models into model package
+from vortex_pwm.models.agent import Agent
+from vortex_pwm.models.agents_response import AgentsResponse
 from vortex_pwm.models.audit_event import AuditEvent
+from vortex_pwm.models.create_agent_request import CreateAgentRequest
 from vortex_pwm.models.create_grant_request import CreateGrantRequest
 from vortex_pwm.models.create_item_request import CreateItemRequest
 from vortex_pwm.models.events_response import EventsResponse

@@ -1,6 +1,8 @@
 packages:
   - "identity/login"
   - "apps/docs"
+  - "apps/vault"
+  - "sdks/typescript"
 
 allowBuilds:
   esbuild: true

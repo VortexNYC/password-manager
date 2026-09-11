@@ -94,7 +94,7 @@ func Mux(a *app.App, publicURL, issuer string) http.Handler {
 		mux.Handle("/.well-known/oauth-protected-resource", wellKnown)
 		mux.Handle("/.well-known/oauth-protected-resource/", wellKnown)
 	}
-	return otelsetup.Handler(mux)
+	return publicapi.CORS(otelsetup.Handler(mux))
 }
 
 // ready is origin truth: the process can answer agents only if Hydra discovery works.

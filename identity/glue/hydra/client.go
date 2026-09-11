@@ -11,8 +11,9 @@ import (
 )
 
 type FirstParty struct {
-	ID          string
-	RedirectURL string
+	ID           string
+	RedirectURL  string
+	RedirectURLs []string
 }
 
 func (fp FirstParty) id() string {
@@ -23,9 +24,26 @@ func (fp FirstParty) id() string {
 }
 
 func firstPartyClient(fp FirstParty) (*ory.OAuth2Client, error) {
-	redirect, err := absurl.Parse(fp.RedirectURL)
-	if err != nil {
-		return nil, fmt.Errorf("hydra: redirect: %w", err)
+	raw := make([]string, 0, 1+len(fp.RedirectURLs))
+	if fp.RedirectURL != "" {
+		raw = append(raw, fp.RedirectURL)
+	}
+	raw = append(raw, fp.RedirectURLs...)
+	uris := make([]string, 0, len(raw))
+	seen := map[string]struct{}{}
+	for _, r := range raw {
+		redirect, err := absurl.Parse(r)
+		if err != nil {
+			return nil, fmt.Errorf("hydra: redirect: %w", err)
+		}
+		if _, ok := seen[redirect]; ok {
+			continue
+		}
+		seen[redirect] = struct{}{}
+		uris = append(uris, redirect)
+	}
+	if len(uris) == 0 {
+		return nil, fmt.Errorf("hydra: redirect")
 	}
 	c := ory.NewOAuth2Client()
 	c.SetClientId(fp.id())
@@ -33,7 +51,7 @@ func firstPartyClient(fp FirstParty) (*ory.OAuth2Client, error) {
 	c.SetGrantTypes([]string{"authorization_code", "refresh_token"})
 	c.SetResponseTypes([]string{"code"})
 	c.SetScope("openid offline_access")
-	c.SetRedirectUris([]string{redirect})
+	c.SetRedirectUris(uris)
 	c.SetSkipConsent(true)
 	c.SetSkipLogoutConsent(true)
 	c.SetTokenEndpointAuthMethod("none")

@@ -1066,6 +1066,75 @@ func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
 	}
 }
 
+func TestCLIItemUpdateURIAddsWithoutDropping(t *testing.T) {
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	secFile := filepath.Join(home, "sec")
+	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "item", "add", "github", "--uri", "https://api.github.com", "--secret-file", secFile); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, home, "", "item", "update", "github", "--uri", "https://github.com")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	var item protocol.Item
+	if err := json.Unmarshal([]byte(out), &item); err != nil {
+		t.Fatal(err, out)
+	}
+	if len(item.URIs) != 2 || item.URIs[0] != "https://api.github.com" || item.URIs[1] != "https://github.com" {
+		t.Fatalf("update dropped a host: %+v", item.URIs)
+	}
+}
+
+func TestCLIOriginItemUpdateURIAdds(t *testing.T) {
+	var patches int
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer jwt-not-a-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodPatch || r.URL.Path != "/v1/items/github" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		patches++
+		raw, _ := io.ReadAll(r.Body)
+		if !bytes.Contains(raw, []byte(`"uri":"https://github.com"`)) {
+			t.Fatalf("patch body %s", raw)
+		}
+		if bytes.Contains(raw, []byte(`"uris"`)) {
+			t.Fatal("cli sent replace uris")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"github","org_id":"org","name":"github","kind":"api_key","owner":{"kind":"org","id":"org"},"uris":["https://api.github.com","https://github.com"]}`)
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
+	t.Setenv("PWM_OIDC_TOKEN", "")
+	home := t.TempDir()
+	out, err := run(t, home, "", "item", "update", "github", "--uri", "https://github.com")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if patches != 1 {
+		t.Fatalf("patches %d", patches)
+	}
+	if !strings.Contains(out, `"https://api.github.com"`) || !strings.Contains(out, `"https://github.com"`) {
+		t.Fatalf("out %s", out)
+	}
+}
+
 func TestCLIGrantHumanXORAgent(t *testing.T) {
 	cmd := New("test")
 	for _, c := range cmd.Commands() {
@@ -1519,6 +1588,91 @@ func TestCLIHumanLoginWritesTokenNotStdout(t *testing.T) {
 	}
 	if strings.Contains(out.String(), idTok) {
 		t.Fatal("cli printed the id token")
+	}
+}
+
+func TestCLIOriginRunDummyEnvNotSecret(t *testing.T) {
+	var listed bool
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer jwt-agent" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/items" {
+			listed = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"items":[{"id":"stripe","org_id":"org","name":"stripe","kind":"api_key","owner":{"kind":"org","id":"org"},"uris":["https://api.stripe.com"]}]}`)
+			return
+		}
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-agent\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
+	t.Setenv("PWM_OIDC_TOKEN", "")
+	t.Setenv("PWM_HUMAN_TOKEN_FILE", "")
+	t.Setenv("PWM_HUMAN_TOKEN", "")
+	home := t.TempDir()
+	out, err := run(t, home, "", "run", "--agent", "cursor", "--", "sh", "-c", `printf %s "$STRIPE"`)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !listed {
+		t.Fatal("did not hit origin GET /v1/items")
+	}
+	if strings.TrimSpace(out) != "veil-inject" {
+		t.Fatalf("child env %q", out)
+	}
+	if strings.Contains(out, secret) {
+		t.Fatal("secret in child")
+	}
+}
+
+func TestCLIOriginRunInjectRefused(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-agent\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
+	home := t.TempDir()
+	tmpl := filepath.Join(home, "tmpl")
+	if err := os.WriteFile(tmpl, []byte("${STRIPE}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := run(t, home, "", "run", "--agent", "cursor", "--inject", tmpl+":"+filepath.Join(home, "out"), "--", "true")
+	if err == nil {
+		t.Fatal("origin --inject")
+	}
+	if !strings.Contains(err.Error(), "HTTPS_PROXY") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestCLIOriginHumanExpiredNeedsLogin(t *testing.T) {
+	expired := "eyJhbGciOiJub25lIn0.eyJleHAiOjF9."
+	t.Setenv("PWM_ORIGIN", "https://veil.nyc")
+	t.Setenv("PWM_HUMAN_TOKEN", expired)
+	t.Setenv("PWM_HUMAN_TOKEN_FILE", "")
+	t.Setenv("PWM_OIDC_TOKEN", "")
+	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
+	t.Setenv("PWM_LOGIN_EMAIL", "")
+	t.Setenv("PWM_KRATOS_PASSWORD_FILE", "")
+	t.Setenv("PWM_KRATOS_TOTP_FILE", "")
+	_, err := originHumanTokenLive(context.Background())
+	if err == nil {
+		t.Fatal("expired human token")
+	}
+	if !strings.Contains(err.Error(), "human login --out-file") {
+		t.Fatalf("%v", err)
 	}
 }
 

@@ -82,6 +82,14 @@ type GrantsResponse struct {
 	Grants []GrantView `json:"grants"`
 }
 
+type CreateAgentRequest struct {
+	Name string `json:"name"`
+}
+
+type AgentsResponse struct {
+	Agents []protocol.Principal `json:"agents"`
+}
+
 type FillLoginsRequest struct {
 	URL string `json:"url"`
 }
@@ -123,6 +131,8 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/items/{name}", s.deleteItem)
 	mux.HandleFunc("GET /v1/grants", s.listGrants)
 	mux.HandleFunc("POST /v1/grants", s.createGrant)
+	mux.HandleFunc("GET /v1/agents", s.listAgents)
+	mux.HandleFunc("POST /v1/agents", s.createAgent)
 	mux.HandleFunc("POST /v1/use", s.useItem)
 	mux.HandleFunc("GET /v1/events", s.listEvents)
 	mux.HandleFunc("POST /v1/fill/logins", s.fillLogins)
@@ -180,11 +190,11 @@ func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	uris := in.URIs
+	var add []string
 	if in.URI != "" {
-		uris = []string{in.URI}
+		add = []string{in.URI}
 	}
-	item, err := s.App.UpdateItem(r.PathValue("name"), uris, in.Tags, in.Login)
+	item, err := s.App.UpdateItem(r.PathValue("name"), in.URIs, add, in.Tags, in.Login)
 	if err != nil {
 		http.Error(w, "update failed", http.StatusBadRequest)
 		return
@@ -277,6 +287,38 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, grantView(g))
+}
+
+func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireHuman(w, r); !ok {
+		return
+	}
+	agents, err := s.App.Store.ListAgents()
+	if err != nil {
+		http.Error(w, "list failed", http.StatusBadRequest)
+		return
+	}
+	if agents == nil {
+		agents = []protocol.Principal{}
+	}
+	writeJSON(w, AgentsResponse{Agents: agents})
+}
+
+func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireHuman(w, r); !ok {
+		return
+	}
+	var in CreateAgentRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	p, err := s.App.AddAgent(in.Name)
+	if err != nil {
+		http.Error(w, "create failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, p)
 }
 
 func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {

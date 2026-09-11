@@ -300,22 +300,33 @@ func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind pro
 	return encode(cmd, item)
 }
 
-func originItemUpdate(cmd *cobra.Command, name, uri string, tags []string, login string) error {
+func originItemUpdate(cmd *cobra.Command, name string, addURIs, tags []string, login string) error {
 	tok, err := originHumanToken()
 	if err != nil {
 		return err
 	}
-	in := publicapi.UpdateItemRequest{URI: uri, Tags: tags, Login: login}
-	payload, err := json.Marshal(in)
-	if err != nil {
-		return err
+	patches := addURIs
+	if len(patches) == 0 {
+		patches = []string{""}
 	}
-	raw, err := originDo(cmd.Context(), http.MethodPatch, "/v1/items/"+name, tok, payload)
-	if err != nil {
-		return err
+	var last []byte
+	for i, u := range patches {
+		in := publicapi.UpdateItemRequest{URI: u}
+		if i == 0 {
+			in.Tags = tags
+			in.Login = login
+		}
+		payload, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		last, err = originDo(cmd.Context(), http.MethodPatch, "/v1/items/"+name, tok, payload)
+		if err != nil {
+			return err
+		}
 	}
 	var item protocol.Item
-	if err := json.Unmarshal(raw, &item); err != nil {
+	if err := json.Unmarshal(last, &item); err != nil {
 		return err
 	}
 	return encode(cmd, item)

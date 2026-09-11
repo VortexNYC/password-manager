@@ -16,5 +16,8 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("PWM_HUMAN_TOKEN")
 	_ = os.Unsetenv("PWM_HUMAN_TOKEN_FILE")
 	_ = os.Unsetenv("PWM_LOGIN_NO_OPEN")
+	_ = os.Unsetenv("PWM_LOGIN_EMAIL")
+	_ = os.Unsetenv("PWM_KRATOS_PASSWORD_FILE")
+	_ = os.Unsetenv("PWM_KRATOS_TOTP_FILE")
 	os.Exit(m.Run())
 }
