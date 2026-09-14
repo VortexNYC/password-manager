@@ -19,11 +19,7 @@
     }
     if (msg.type === "write") {
       try {
-        veilFields.writeLogin(document, {
-          login: msg.login || "",
-          password: msg.password || "",
-          totp: msg.totp || "",
-        });
+        veilFields.writeEntry(document, msg.entry || msg);
         sendResponse({ ok: true });
       } catch {
         sendResponse({ ok: false });

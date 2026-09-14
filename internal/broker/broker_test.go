@@ -495,6 +495,66 @@ func TestChildEnvSkipsPasskey(t *testing.T) {
 	}
 }
 
+func TestCardUseIsNotInjectable(t *testing.T) {
+	const pan = "4111111111111111"
+	blob, err := material.PackCard(pan, "12", "2030", "123", "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	item := protocol.Item{
+		ID:    "amex",
+		OrgID: "org-1",
+		Name:  "amex",
+		Kind:  protocol.ItemCard,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		URIs:  []string{"https://www.amazon.com"},
+	}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(blob)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch, protocol.ActionEnv},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b := New(mem)
+	pairs, err := b.ChildEnv(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 0 {
+		t.Fatalf("card in env: %q", pairs)
+	}
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: item.ID,
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: "https://www.amazon.com/checkout"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "not_injectable" {
+		t.Fatalf("%+v", got)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(pan)) || scrub.Contains(raw, []byte("123")) {
+		t.Fatalf("pan in use: %s", raw)
+	}
+}
+
 func TestChildEnvSkipsFileAndArchived(t *testing.T) {
 	mem := store.NewMemory()
 	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}

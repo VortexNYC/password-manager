@@ -311,13 +311,14 @@ item
   passkey            native host           written. passkeys-get/register.
                      Veil extension        slice 37. store listing is 26.
                      go-webauthn           only if we are the site. not fill
-  card               fill host             not written. PAN+exp+name sealed.
-                                           CVV sealed. never MCP, never env.
-                                           never OpenAPI response. checkout
-                                           autocomplete. docs/fill.md.
-  identity           fill host             not written. name, address, phone,
-                                           email. never MCP. checkout / forms.
-                                           docs/fill.md.
+  card               fill host             written (JSON tests). PAN+exp+name
+                                           sealed. CVV sealed, never reuses.
+                                           never MCP, never env, never OpenAPI
+                                           response. checkout autocomplete.
+                                           docs/fill.md. not CFT/branded yet.
+  identity           fill host             written (JSON tests). name, address,
+                                           phone. never MCP. checkout / forms.
+                                           docs/fill.md. not CFT/branded yet.
   ssh                x/crypto/ssh/agent    written. CLI `ssh`. key never leaves
   file               sealed BLOB          written. owner `item write --out-file`.
                                            not MCP. not env.
@@ -651,12 +652,14 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
-Next: replica (docs/fill.md increment 7) for airplane fill. The local box is fully sealed; the wrapping key is Keychain, not `device.key`. Chrome JSON fill, generate, and passkeys are CFT + branded proven. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Firefox / Safari still later on this slice. Do not start 32.
+Next: CFT + branded card/identity fill (increment 8 written). Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP. Firefox after that. Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start 32.
 
 ## Testing
 
 - GitHub Actions runs `make ci`. That is the merge bar. A green `go test` with red lint, stale SDKs, or a broken vault typecheck is a lie.
-- `make ci` is: `sdk:generate` plus a dirty-tree check on `sdks/` and `internal/publicapi/spec.json`, `go vet`, `go test ./...` with agent/origin env unset and `PWM_FILL_TOUCHID=0` (so Chrome-launched host tests cannot inherit a laptop JWT), `vp lint`, login+vault typecheck, vault vitest, docs build. Fill `node --test` runs from Go (`TestFieldsJS`). It does not hit `https://veil.nyc`. It does not load Chrome.
+- `make ci` is: `sdk:generate` plus a dirty-tree check on `sdks/` and `internal/publicapi/spec.json`, `go vet`, `go test -race -shuffle=on ./...` with agent/origin env unset and `PWM_FILL_TOUCHID=0` (so Chrome-launched host tests cannot inherit a laptop JWT), `vp lint`, login+vault typecheck, vault vitest, docs build. Fill `node --test` runs from Go (`TestFieldsJS`). It does not hit `https://veil.nyc`. It does not load Chrome.
+- The Go suite **is** `testing` + `go test`. That is Vitest for this repo. `t.Run` is `describe`/`it`. `testing.F` seed values run in CI; `go test -fuzz=FuzzName ./pkg` is a laptop soak, not GitHub. `testing/synctest` is the fake clock (confirm 30s). `-race` and `-shuffle=on` are on `make test`. Do not add Ginkgo, testify, or a second runner.
+- Vitest is `apps/vault` only. Fill JS stays Node's `node:test`.
 - `go test ./...` is the Go suite. It does not prove `https://veil.nyc`.
 - `make prove-identity` is local Docker Ory. It does not prove `veil.nyc`.
 - `make prove-live` is origin truth: `https://veil.nyc` and MCP. It mints a token, fails if GitHub/Linear/Firecrawl/Cloudflare Use is not allow/200, and fails if the secret appears in JSON. `make ci` does not run it. Do not put it on GitHub.

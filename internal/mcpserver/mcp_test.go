@@ -18,6 +18,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
 
@@ -72,6 +74,34 @@ func TestMCPFetchDoesNotReturnSecret(t *testing.T) {
 	}
 	if !scrub.Contains(list, []byte(login)) {
 		t.Fatal("list_items omitted login")
+	}
+}
+
+func TestMCPListNeverHasPANOrCVV(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	const pan = "4111111111111111"
+	const cvv = "999"
+	blob, err := material.PackCard(pan, "01", "2031", cvv, "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(app.ItemOpts{Name: "amex", Kind: protocol.ItemCard, Token: blob}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := a.ItemsForPrincipal(protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(ListOut{Items: items})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(pan)) || scrub.Contains(raw, []byte(cvv)) {
+		t.Fatalf("list leaked card %s", raw)
 	}
 }
 

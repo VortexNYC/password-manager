@@ -53,6 +53,11 @@ chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
       login.className = "login";
       login.textContent = e.login;
       b.appendChild(login);
+    } else if (e.kind && e.kind !== "login") {
+      const kind = document.createElement("div");
+      kind.className = "login";
+      kind.textContent = e.kind;
+      b.appendChild(kind);
     }
     b.addEventListener("click", function () {
       chrome.runtime.sendMessage(

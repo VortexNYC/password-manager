@@ -65,7 +65,45 @@
         return /otp|totp|one-time|2fa/i.test(ident(el) + " " + auto(el));
       }) ||
       null;
-    return { username: username || null, password: current || null, newPassword: newPassword, totp: totp || null };
+    const number =
+      byAuto(["cc-number"]) ||
+      live.find(function (el) {
+        return /card.?number|cc-num/i.test(ident(el) + " " + auto(el));
+      }) ||
+      null;
+    const expMonth = byAuto(["cc-exp-month"]);
+    const expYear = byAuto(["cc-exp-year"]);
+    const exp = byAuto(["cc-exp"]);
+    const cvv = byAuto(["cc-csc", "cc-cvc"]);
+    const given = byAuto(["given-name", "cc-given-name"]);
+    const family = byAuto(["family-name", "cc-family-name"]);
+    const name = byAuto(["cc-name", "name"]);
+    const address = byAuto(["street-address", "address-line1"]);
+    const city = byAuto(["address-level2"]);
+    const region = byAuto(["address-level1"]);
+    const postal = byAuto(["postal-code"]);
+    const country = byAuto(["country", "country-name"]);
+    const phone = byAuto(["tel", "tel-national"]);
+    return {
+      username: username || null,
+      password: current || null,
+      newPassword: newPassword,
+      totp: totp || null,
+      number: number || null,
+      expMonth: expMonth || null,
+      expYear: expYear || null,
+      exp: exp || null,
+      cvv: cvv || null,
+      given: given || null,
+      family: family || null,
+      name: name || null,
+      address: address || null,
+      city: city || null,
+      region: region || null,
+      postal: postal || null,
+      country: country || null,
+      phone: phone || null,
+    };
   }
 
   function nativeSet(el, value) {
@@ -100,6 +138,49 @@
     writeField(fields.totp, entry.totp);
   }
 
+  function writeCard(doc, entry) {
+    const fields = pickFields(Array.prototype.slice.call(doc.querySelectorAll("input, textarea")));
+    writeField(fields.number, entry.number);
+    writeField(fields.expMonth, entry.expMonth);
+    writeField(fields.expYear, entry.expYear);
+    if (fields.exp && entry.expMonth && entry.expYear) {
+      writeField(fields.exp, entry.expMonth + "/" + String(entry.expYear).slice(-2));
+    }
+    writeField(fields.cvv, entry.cvv);
+    writeField(fields.given, entry.givenName);
+    writeField(fields.name, entry.givenName);
+  }
+
+  function writeIdentity(doc, entry) {
+    const fields = pickFields(Array.prototype.slice.call(doc.querySelectorAll("input, textarea")));
+    writeField(fields.given, entry.givenName);
+    writeField(fields.family, entry.familyName);
+    writeField(fields.address, entry.address);
+    writeField(fields.city, entry.city);
+    writeField(fields.region, entry.region);
+    writeField(fields.postal, entry.postal);
+    writeField(fields.country, entry.country);
+    writeField(fields.phone, entry.phone);
+    if (entry.givenName && entry.familyName) {
+      writeField(fields.name, entry.givenName + " " + entry.familyName);
+    }
+  }
+
+  function writeEntry(doc, entry) {
+    if (!entry) {
+      return;
+    }
+    if (entry.kind === "card") {
+      writeCard(doc, entry);
+      return;
+    }
+    if (entry.kind === "identity") {
+      writeIdentity(doc, entry);
+      return;
+    }
+    writeLogin(doc, entry);
+  }
+
   function isFillTarget(el) {
     if (!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) {
       return false;
@@ -112,7 +193,17 @@
       return true;
     }
     const a = auto(el);
-    return a === "username" || a === "email" || a === "current-password" || a === "one-time-code";
+    return (
+      a === "username" ||
+      a === "email" ||
+      a === "current-password" ||
+      a === "one-time-code" ||
+      a.indexOf("cc-") === 0 ||
+      a === "given-name" ||
+      a === "family-name" ||
+      a === "street-address" ||
+      a === "tel"
+    );
   }
 
   root.veilFields = {
@@ -120,6 +211,9 @@
     pickFields: pickFields,
     writeField: writeField,
     writeLogin: writeLogin,
+    writeCard: writeCard,
+    writeIdentity: writeIdentity,
+    writeEntry: writeEntry,
     isFillTarget: isFillTarget,
   };
   if (typeof module !== "undefined" && module.exports) {

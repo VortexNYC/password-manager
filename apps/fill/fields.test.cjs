@@ -67,4 +67,38 @@ test("empty is honest", () => {
   assert.equal(got.password, null);
   assert.equal(got.totp, null);
   assert.deepEqual(got.newPassword, []);
+  assert.equal(got.number, null);
+  assert.equal(got.cvv, null);
+});
+
+test("cc-number and cc-csc", () => {
+  const got = pickFields([
+    el({ autocomplete: "cc-number", name: "num" }),
+    el({ autocomplete: "cc-csc", name: "cvc" }),
+    el({ autocomplete: "cc-exp-month", name: "em" }),
+    el({ autocomplete: "cc-exp-year", name: "ey" }),
+  ]);
+  assert.equal(got.number.name, "num");
+  assert.equal(got.cvv.name, "cvc");
+  assert.equal(got.expMonth.name, "em");
+  assert.equal(got.expYear.name, "ey");
+});
+
+test("identity autocomplete", () => {
+  const { pickFields, isFillTarget } = require("./fields.js");
+  const got = pickFields([
+    el({ autocomplete: "given-name", name: "fn" }),
+    el({ autocomplete: "family-name", name: "ln" }),
+    el({ autocomplete: "street-address", name: "addr" }),
+    el({ autocomplete: "tel", name: "ph" }),
+  ]);
+  assert.equal(got.given.name, "fn");
+  assert.equal(got.family.name, "ln");
+  assert.equal(got.address.name, "addr");
+  assert.equal(got.phone.name, "ph");
+  assert.equal(got.number, null);
+  assert.equal(
+    isFillTarget(el({ tagName: "INPUT", autocomplete: "cc-number" })),
+    true,
+  );
 });

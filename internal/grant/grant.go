@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/publicsuffix"
+
 	"github.com/vortexnyc/password-manager/internal/protocol"
 )
 
@@ -149,4 +151,21 @@ func CanonicalHost(u *url.URL) string {
 
 func HostAllowed(item protocol.Item, rawURL string) bool {
 	return hostAllowed(item, rawURL) == ""
+}
+
+// Registrable is eTLD+1 for confirm scope. GitHub fill must not waive Amazon CVV.
+func Registrable(rawURL string) string {
+	u, err := ParseDest(rawURL)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return ""
+	}
+	etld, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil || etld == "" {
+		return host
+	}
+	return strings.ToLower(etld)
 }

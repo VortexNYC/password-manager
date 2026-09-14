@@ -40,21 +40,34 @@ const (
 type ItemKind string
 
 const (
-	ItemAPIKey  ItemKind = "api_key"
-	ItemOAuth   ItemKind = "oauth"
-	ItemSSH     ItemKind = "ssh"
-	ItemFile    ItemKind = "file"
-	ItemPasskey ItemKind = "passkey"
+	ItemAPIKey   ItemKind = "api_key"
+	ItemOAuth    ItemKind = "oauth"
+	ItemSSH      ItemKind = "ssh"
+	ItemFile     ItemKind = "file"
+	ItemPasskey  ItemKind = "passkey"
+	ItemCard     ItemKind = "card"
+	ItemIdentity ItemKind = "identity"
 )
 
 // Injects is whether Use / child env may touch this kind. SSH stays on the
-// agent socket. Files are owner write. Passkeys are the fill host.
+// agent socket. Files are owner write. Passkeys, cards, and identities are
+// fill-host only. PAN/CVV never enter a child env.
 func (k ItemKind) Injects() bool {
 	switch k {
-	case ItemSSH, ItemFile, ItemPasskey:
+	case ItemSSH, ItemFile, ItemPasskey, ItemCard, ItemIdentity:
 		return false
 	default:
 		return true
+	}
+}
+
+// Fillable is whether the fill host / OS provider may write this kind.
+func (k ItemKind) Fillable() bool {
+	switch k {
+	case ItemAPIKey, ItemPasskey, ItemCard, ItemIdentity:
+		return true
+	default:
+		return false
 	}
 }
 

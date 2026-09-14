@@ -12,6 +12,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/grant"
+	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
@@ -218,6 +219,37 @@ func TestFillSyncHumanOnly(t *testing.T) {
 	}
 	var out FillSyncResponse
 	if json.Unmarshal(raw, &out) != nil || len(out.Items) != 1 || out.Items[0].Item.Name != "github" {
+		t.Fatalf("sync body %s", raw)
+	}
+}
+
+func TestFillSyncIncludesCardMaterialNotList(t *testing.T) {
+	const pan = "4111111111111111"
+	a := testApp(t)
+	blob, err := material.PackCard(pan, "12", "2030", "123", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(app.ItemOpts{Name: "amex", Kind: protocol.ItemCard, Token: blob}); err != nil {
+		t.Fatal(err)
+	}
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(pan)) {
+		t.Fatal("list leaked pan")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/sync", "human", FillSyncRequest{})
+	if code != http.StatusOK {
+		t.Fatalf("sync %d %s", code, raw)
+	}
+	if !scrub.Contains(raw, []byte(pan)) {
+		t.Fatal("sync missing pan")
+	}
+	var out FillSyncResponse
+	if json.Unmarshal(raw, &out) != nil || len(out.Items) != 1 || out.Items[0].Item.Kind != protocol.ItemCard {
 		t.Fatalf("sync body %s", raw)
 	}
 }

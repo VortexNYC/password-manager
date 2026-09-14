@@ -27,3 +27,14 @@ func TestEmptySecretIsNoop(t *testing.T) {
 		t.Fatal("empty secret changed input")
 	}
 }
+
+func FuzzBytes(f *testing.F) {
+	f.Add([]byte("got sk_live_super_secret"), []byte("sk_live_super_secret"))
+	f.Add([]byte("hello"), []byte(""))
+	f.Fuzz(func(t *testing.T, body, secret []byte) {
+		got := Bytes(body, secret)
+		if Contains(got, secret) {
+			t.Fatal("secret survived scrub")
+		}
+	})
+}

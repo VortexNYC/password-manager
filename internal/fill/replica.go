@@ -6,6 +6,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/publicapi"
 )
 
@@ -40,7 +41,7 @@ func (h *Host) replicaFill(uuid string, mintTotp bool) (app.FillEntry, bool) {
 		return app.FillEntry{}, false
 	}
 	env := material.Unpack([]byte(raw))
-	if env.PasskeyPEM != "" {
+	if env.PasskeyPEM != "" || env.Number != "" || env.CVV != "" || env.GivenName != "" || env.Address != "" {
 		return app.FillEntry{}, false
 	}
 	itemName := uuid
@@ -69,4 +70,32 @@ func (h *Host) replicaFill(uuid string, mintTotp bool) (app.FillEntry, bool) {
 		}
 	}
 	return app.FillEntry{Login: env.Login, Name: itemName, Password: pass, UUID: uuid, TOTP: totp}, true
+}
+
+func (h *Host) fillEnvelope(uuid string) (protocol.Item, material.Envelope, bool) {
+	if h.Replica != nil {
+		raw := h.Replica.Material(uuid)
+		if raw != "" {
+			item := protocol.Item{ID: uuid, Name: uuid}
+			for _, it := range h.Replica.Items() {
+				if it.ID == uuid {
+					item = it
+					break
+				}
+			}
+			return item, material.Unpack([]byte(raw)), true
+		}
+	}
+	if h.App != nil && h.App.Store != nil {
+		item, err := h.App.Store.Item(uuid)
+		if err != nil {
+			return protocol.Item{}, material.Envelope{}, false
+		}
+		sec, err := h.App.Store.Secret(uuid)
+		if err != nil {
+			return protocol.Item{}, material.Envelope{}, false
+		}
+		return item, material.Unpack([]byte(sec)), true
+	}
+	return protocol.Item{}, material.Envelope{}, false
 }

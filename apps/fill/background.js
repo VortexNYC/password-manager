@@ -123,12 +123,7 @@ async function badge(tabId, n) {
 }
 
 async function writeTab(tabId, entry) {
-  const payload = {
-    type: "write",
-    login: entry.login || "",
-    password: entry.password || "",
-    totp: entry.totp || "",
-  };
+  const payload = { type: "write", entry: entry || {} };
   try {
     try {
       await chrome.tabs.sendMessage(tabId, payload);
@@ -136,16 +131,24 @@ async function writeTab(tabId, entry) {
       await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ["fields.js"] });
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
-        args: [{ login: payload.login, password: payload.password, totp: payload.totp }],
+        args: [entry || {}],
         func: function (got) {
-          globalThis.veilFields.writeLogin(document, got);
+          globalThis.veilFields.writeEntry(document, got);
         },
       });
     }
   } finally {
-    entry.login = "";
-    entry.password = "";
-    entry.totp = "";
+    if (entry) {
+      entry.login = "";
+      entry.password = "";
+      entry.totp = "";
+      entry.number = "";
+      entry.cvv = "";
+      entry.givenName = "";
+      entry.familyName = "";
+      entry.address = "";
+      entry.phone = "";
+    }
   }
 }
 
@@ -186,7 +189,7 @@ async function generateTab(tabId, url, login, passwordRules) {
   if (!msg || !msg.password) {
     return { ok: false, error: (msg && msg.error) || "empty" };
   }
-  await writeTab(tabId, { login: msg.login || login || "", password: msg.password, totp: "" });
+  await writeTab(tabId, { kind: "login", login: msg.login || login || "", password: msg.password, totp: "" });
   await matchTab(tabId, url);
   return { ok: true };
 }

@@ -14,6 +14,8 @@ import (
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/id"
+	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/publicapi"
 	"github.com/vortexnyc/password-manager/internal/replica"
 	"github.com/vortexnyc/password-manager/internal/scrub"
@@ -634,5 +636,133 @@ func TestJSONGenerateNeedLoginDoesNotMintOnDeadJWT(t *testing.T) {
 	}
 	if err := json.Unmarshal(got, &fail); err != nil || fail.Error != "need_login" || fail.Password != "" {
 		t.Fatalf("dead origin %s", got)
+	}
+}
+
+func TestJSONCardMatchFillAndCVVNeverReuses(t *testing.T) {
+	const pan = "4111111111111111"
+	const cvv = "123"
+	blob, err := material.PackCard(pan, "12", "2030", cvv, "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	key, err := replica.Unlock(replica.Mem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := replica.Open(replica.Path(dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := protocol.Item{ID: "amex", Name: "amex", Kind: protocol.ItemCard}
+	if err := box.Put(card, blob); err != nil {
+		t.Fatal(err)
+	}
+	loginBlob := []byte(`{"v":1,"token":"pw-github"}`)
+	if err := box.Put(protocol.Item{ID: "github", Name: "github", Kind: protocol.ItemAPIKey, URIs: []string{"https://github.com"}}, loginBlob); err != nil {
+		t.Fatal(err)
+	}
+	var nConfirm atomic.Int32
+	h := NewOrigin(dir, "http://127.0.0.1:1", "human")
+	h.Replica = box
+	h.Confirm = func(string) error {
+		nConfirm.Add(1)
+		return nil
+	}
+
+	match := jsonHandle(t, h, map[string]string{"action": "match", "url": "https://www.amazon.com/checkout"})
+	var listed struct {
+		Entries []jsonMatchEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(match, &listed); err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, e := range listed.Entries {
+		kinds = append(kinds, e.Kind)
+		if e.Kind == "card" && (e.Login != "" || strings.Contains(string(match), pan) || strings.Contains(string(match), cvv)) {
+			t.Fatalf("match leaked card secret %s", match)
+		}
+	}
+	if !strings.Contains(strings.Join(kinds, ","), "card") {
+		t.Fatalf("unbound card missing from match %s", match)
+	}
+
+	noUUID := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://www.amazon.com/checkout"})
+	var none struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(noUUID, &none); err != nil || len(none.Entries) != 0 {
+		t.Fatalf("card without uuid %+v", none)
+	}
+	if nConfirm.Load() != 0 {
+		t.Fatal("choose prompted")
+	}
+
+	gh := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://github.com/login", "uuid": "github"})
+	var ghOut struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(gh, &ghOut); err != nil || len(ghOut.Entries) != 1 || ghOut.Entries[0].Password != "pw-github" {
+		t.Fatalf("github fill %s", gh)
+	}
+	if nConfirm.Load() != 1 {
+		t.Fatalf("github confirm %d", nConfirm.Load())
+	}
+
+	first := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://www.amazon.com/checkout", "uuid": "amex"})
+	var cardOut struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(first, &cardOut); err != nil || len(cardOut.Entries) != 1 {
+		t.Fatalf("card fill %s", first)
+	}
+	e := cardOut.Entries[0]
+	if e.Kind != "card" || e.Number != pan || e.CVV != cvv || e.ExpMonth != "12" || e.Password != "" {
+		t.Fatalf("card entry %+v", e)
+	}
+	if nConfirm.Load() != 2 {
+		t.Fatalf("amazon cvv reused github confirm %d", nConfirm.Load())
+	}
+
+	again := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://www.amazon.com/checkout", "uuid": "amex"})
+	if err := json.Unmarshal(again, &none); err != nil || len(none.Entries) != 1 || none.Entries[0].CVV != cvv {
+		t.Fatalf("second cvv %s", again)
+	}
+	if nConfirm.Load() != 3 {
+		t.Fatalf("cvv reused %d", nConfirm.Load())
+	}
+}
+
+func TestJSONIdentityFill(t *testing.T) {
+	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "London", "", "SW1", "GB", "+44")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	key, err := replica.Unlock(replica.Mem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := replica.Open(replica.Path(dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := box.Put(protocol.Item{ID: "home", Name: "home", Kind: protocol.ItemIdentity}, blob); err != nil {
+		t.Fatal(err)
+	}
+	h := allowConfirm(NewOrigin(dir, "http://127.0.0.1:1", "human"))
+	h.Replica = box
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://store.example/checkout", "uuid": "home"})
+	var out struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil || len(out.Entries) != 1 {
+		t.Fatalf("%s", got)
+	}
+	e := out.Entries[0]
+	if e.Kind != "identity" || e.GivenName != "Ada" || e.Address != "1 Street" || e.Phone != "+44" || e.Number != "" {
+		t.Fatalf("%+v", e)
 	}
 }

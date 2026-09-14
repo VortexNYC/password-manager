@@ -29,6 +29,7 @@ import (
 	"golang.org/x/crypto/nacl/box"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/grant"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/replica"
 )
@@ -68,6 +69,7 @@ type Host struct {
 	index        []protocol.Item
 	indexOK      bool
 	confirmUntil time.Time
+	confirmScope string
 	needLogin    bool
 }
 
@@ -271,7 +273,7 @@ func (h *Host) encrypted(env envelope) []byte {
 		}
 		got := h.logins(inner.URL)
 		if len(got.Entries) > 0 {
-			if err := h.confirm("Veil wants to fill a password"); err != nil {
+			if err := h.confirm("Veil wants to fill a password", grant.Registrable(inner.URL), true); err != nil {
 				got = loginReply{Count: "0", Entries: []loginEntry{}, Success: "false", Hash: h.hash(), Version: Version}
 			}
 		}
@@ -279,7 +281,7 @@ func (h *Host) encrypted(env envelope) []byte {
 	case "get-totp":
 		body = h.totp(inner.UUID)
 		if body["success"] == "true" {
-			if err := h.confirm("Veil wants to fill a verification code"); err != nil {
+			if err := h.confirm("Veil wants to fill a verification code", h.lastConfirmScope(), true); err != nil {
 				body = failMap("canceled")
 			}
 		}
@@ -287,7 +289,7 @@ func (h *Host) encrypted(env envelope) []byte {
 		if !h.knownKey(inner.Keys) {
 			return h.reply(s, nonce, action, mustJSON(failMap("not associated")))
 		}
-		if err := h.confirm("Veil wants to save a passkey"); err != nil {
+		if err := h.confirm("Veil wants to save a passkey", grant.Registrable(inner.Origin), true); err != nil {
 			return h.reply(s, nonce, action, h.passkeyErr(passkeysCanceled))
 		}
 		return h.reply(s, nonce, action, h.passkeysRegister(inner.Origin, inner.PublicKey, inner.RelatedOrigins))
@@ -297,7 +299,7 @@ func (h *Host) encrypted(env envelope) []byte {
 		}
 		raw := h.passkeysGet(inner.Origin, inner.PublicKey)
 		if !passkeyIsError(raw) {
-			if err := h.confirm("Veil wants to use a passkey"); err != nil {
+			if err := h.confirm("Veil wants to use a passkey", grant.Registrable(inner.Origin), true); err != nil {
 				raw = h.passkeyErr(passkeysCanceled)
 			}
 		}
@@ -666,7 +668,13 @@ func (h *Host) bearer() (string, error) {
 	return "", fmt.Errorf("fill: no human token")
 }
 
-func (h *Host) confirm(reason string) error {
+func (h *Host) lastConfirmScope() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.confirmScope
+}
+
+func (h *Host) confirm(reason, scope string, reuse bool) error {
 	if h.Confirm == nil {
 		fillDebug("confirm missing")
 		return fmt.Errorf("fill: confirm not attached")
@@ -674,17 +682,28 @@ func (h *Host) confirm(reason string) error {
 	now := time.Now()
 	h.mu.Lock()
 	until := h.confirmUntil
+	prev := h.confirmScope
 	h.mu.Unlock()
-	if now.Before(until) {
+	if reuse && scope != "" && scope == prev && now.Before(until) {
 		fillDebug("confirm reuse")
 		return nil
 	}
 	if err := h.Confirm(reason); err != nil {
 		fillDebug("confirm denied")
+		h.mu.Lock()
+		h.confirmUntil = time.Time{}
+		h.confirmScope = ""
+		h.mu.Unlock()
 		return err
 	}
 	h.mu.Lock()
-	h.confirmUntil = time.Now().Add(confirmReuse)
+	if reuse && scope != "" {
+		h.confirmUntil = time.Now().Add(confirmReuse)
+		h.confirmScope = scope
+	} else {
+		h.confirmUntil = time.Time{}
+		h.confirmScope = ""
+	}
 	h.mu.Unlock()
 	fillDebug("confirm ok")
 	return nil

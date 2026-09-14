@@ -40,6 +40,18 @@ type Envelope struct {
 	CredID     string `json:"cred_id,omitempty"`
 	RpID       string `json:"rp_id,omitempty"`
 	UserHandle string `json:"user_handle,omitempty"`
+	Number     string `json:"number,omitempty"`
+	ExpMonth   string `json:"exp_month,omitempty"`
+	ExpYear    string `json:"exp_year,omitempty"`
+	CVV        string `json:"cvv,omitempty"`
+	GivenName  string `json:"given_name,omitempty"`
+	FamilyName string `json:"family_name,omitempty"`
+	Address    string `json:"address,omitempty"`
+	City       string `json:"city,omitempty"`
+	Region     string `json:"region,omitempty"`
+	Postal     string `json:"postal,omitempty"`
+	Country    string `json:"country,omitempty"`
+	Phone      string `json:"phone,omitempty"`
 }
 
 func PackFile(name, mime string, body []byte) ([]byte, error) {
@@ -90,6 +102,39 @@ func PackOAuth(refresh, tokenURL, clientID, clientSecret []byte) ([]byte, error)
 		ClientID:  string(trim(clientID)),
 		ClientSec: string(trim(clientSecret)),
 	})
+}
+
+func PackCard(number, expMonth, expYear, cvv, name string) ([]byte, error) {
+	number = strings.TrimSpace(number)
+	if number == "" {
+		return nil, fmt.Errorf("material: empty card")
+	}
+	return pack(Envelope{
+		V:         Version,
+		Number:    number,
+		ExpMonth:  strings.TrimSpace(expMonth),
+		ExpYear:   strings.TrimSpace(expYear),
+		CVV:       strings.TrimSpace(cvv),
+		GivenName: strings.TrimSpace(name),
+	})
+}
+
+func PackIdentity(given, family, address, city, region, postal, country, phone string) ([]byte, error) {
+	env := Envelope{
+		V:          Version,
+		GivenName:  strings.TrimSpace(given),
+		FamilyName: strings.TrimSpace(family),
+		Address:    strings.TrimSpace(address),
+		City:       strings.TrimSpace(city),
+		Region:     strings.TrimSpace(region),
+		Postal:     strings.TrimSpace(postal),
+		Country:    strings.TrimSpace(country),
+		Phone:      strings.TrimSpace(phone),
+	}
+	if env.GivenName == "" && env.FamilyName == "" && env.Address == "" && env.Phone == "" {
+		return nil, fmt.Errorf("material: empty identity")
+	}
+	return pack(env)
 }
 
 func PackPasskey(pem, credID, rpID, userHandle string) ([]byte, error) {
@@ -207,6 +252,11 @@ func ScrubList(env Envelope, extra ...[]byte) [][]byte {
 	}
 	if env.PasskeyPEM != "" {
 		out = append(out, []byte(env.PasskeyPEM))
+	}
+	for _, s := range []string{env.Number, env.CVV, env.GivenName, env.FamilyName, env.Address, env.Phone} {
+		if s != "" {
+			out = append(out, []byte(s))
+		}
 	}
 	for _, e := range extra {
 		if len(e) > 0 {

@@ -23,12 +23,24 @@ type jsonMatchEntry struct {
 }
 
 type jsonFillEntry struct {
-	Kind     string `json:"kind"`
-	Login    string `json:"login"`
-	Password string `json:"password"`
-	TOTP     string `json:"totp,omitempty"`
-	UUID     string `json:"uuid"`
-	Name     string `json:"name"`
+	Kind       string `json:"kind"`
+	Login      string `json:"login,omitempty"`
+	Password   string `json:"password,omitempty"`
+	TOTP       string `json:"totp,omitempty"`
+	UUID       string `json:"uuid"`
+	Name       string `json:"name"`
+	Number     string `json:"number,omitempty"`
+	ExpMonth   string `json:"expMonth,omitempty"`
+	ExpYear    string `json:"expYear,omitempty"`
+	CVV        string `json:"cvv,omitempty"`
+	GivenName  string `json:"givenName,omitempty"`
+	FamilyName string `json:"familyName,omitempty"`
+	Address    string `json:"address,omitempty"`
+	City       string `json:"city,omitempty"`
+	Region     string `json:"region,omitempty"`
+	Postal     string `json:"postal,omitempty"`
+	Country    string `json:"country,omitempty"`
+	Phone      string `json:"phone,omitempty"`
 }
 
 func (h *Host) handleJSON(raw []byte) []byte {
@@ -102,13 +114,11 @@ func (h *Host) jsonMatch(rawURL string) []jsonMatchEntry {
 	items := append([]protocol.Item(nil), h.index...)
 	h.mu.Unlock()
 	for _, item := range items {
-		if item.Archived {
+		if item.Archived || !item.Kind.Fillable() {
 			continue
 		}
-		if item.Kind == protocol.ItemSSH || item.Kind == protocol.ItemFile {
-			continue
-		}
-		if !grant.HostAllowed(item, rawURL) {
+		unbound := (item.Kind == protocol.ItemCard || item.Kind == protocol.ItemIdentity) && len(item.URIs) == 0
+		if !unbound && !grant.HostAllowed(item, rawURL) {
 			continue
 		}
 		out = append(out, matchEntry(item))
@@ -122,7 +132,7 @@ func (h *Host) jsonFill(rawURL, uuid string) []jsonFillEntry {
 	uuid = strings.TrimSpace(uuid)
 	var hit *jsonMatchEntry
 	if uuid == "" {
-		if len(matches) != 1 {
+		if len(matches) != 1 || matches[0].Kind != "login" || matches[0].Affiliated {
 			return empty
 		}
 		hit = &matches[0]
@@ -137,27 +147,72 @@ func (h *Host) jsonFill(rawURL, uuid string) []jsonFillEntry {
 			return empty
 		}
 	}
-	if hit.Kind != "login" || hit.Affiliated {
+	scope := grant.Registrable(rawURL)
+	switch hit.Kind {
+	case "login":
+		if hit.Affiliated {
+			return empty
+		}
+		if err := h.confirm("Veil wants to fill a saved sign-in", scope, true); err != nil {
+			return empty
+		}
+		got, ok := h.unlockJSONFill(hit.UUID, hit.HasTOTP)
+		if !ok {
+			return empty
+		}
+		if got.TOTP == totpPresent || len(got.TOTP) > 8 {
+			got.TOTP = ""
+		}
+		return []jsonFillEntry{{
+			Kind:     "login",
+			Login:    got.Login,
+			Password: got.Password,
+			TOTP:     got.TOTP,
+			UUID:     got.UUID,
+			Name:     got.Name,
+		}}
+	case "card":
+		item, env, ok := h.fillEnvelope(hit.UUID)
+		if !ok || env.Number == "" {
+			return empty
+		}
+		if err := h.confirm("Veil wants to fill a card", scope, env.CVV == ""); err != nil {
+			return empty
+		}
+		return []jsonFillEntry{{
+			Kind:      "card",
+			UUID:      item.ID,
+			Name:      item.Name,
+			Number:    env.Number,
+			ExpMonth:  env.ExpMonth,
+			ExpYear:   env.ExpYear,
+			CVV:       env.CVV,
+			GivenName: env.GivenName,
+		}}
+	case "identity":
+		item, env, ok := h.fillEnvelope(hit.UUID)
+		if !ok {
+			return empty
+		}
+		if err := h.confirm("Veil wants to fill an identity", scope, true); err != nil {
+			return empty
+		}
+		return []jsonFillEntry{{
+			Kind:       "identity",
+			UUID:       item.ID,
+			Name:       item.Name,
+			GivenName:  env.GivenName,
+			FamilyName: env.FamilyName,
+			Address:    env.Address,
+			City:       env.City,
+			Region:     env.Region,
+			Postal:     env.Postal,
+			Country:    env.Country,
+			Phone:      env.Phone,
+		}}
+	default:
 		return empty
 	}
-	if err := h.confirm("Veil wants to fill a saved sign-in"); err != nil {
-		return empty
-	}
-	got, ok := h.unlockJSONFill(hit.UUID, hit.HasTOTP)
-	if !ok {
-		return empty
-	}
-	if got.TOTP == totpPresent || len(got.TOTP) > 8 {
-		got.TOTP = ""
-	}
-	return []jsonFillEntry{{
-		Kind:     "login",
-		Login:    got.Login,
-		Password: got.Password,
-		TOTP:     got.TOTP,
-		UUID:     got.UUID,
-		Name:     got.Name,
-	}}
 }
 
 func (h *Host) unlockJSONFill(uuid string, mintTotp bool) (app.FillEntry, bool) {
@@ -252,9 +307,13 @@ func (h *Host) reloadIndex() {
 
 func matchEntry(item protocol.Item) jsonMatchEntry {
 	kind := "login"
-	hasPasskey := item.Kind == protocol.ItemPasskey
-	if hasPasskey {
+	switch item.Kind {
+	case protocol.ItemPasskey:
 		kind = "passkey"
+	case protocol.ItemCard:
+		kind = "card"
+	case protocol.ItemIdentity:
+		kind = "identity"
 	}
 	saved := ""
 	if len(item.URIs) > 0 {
@@ -268,7 +327,7 @@ func matchEntry(item protocol.Item) jsonMatchEntry {
 		Login:      item.Login,
 		Kind:       kind,
 		HasTOTP:    item.HasTOTP,
-		HasPasskey: hasPasskey,
+		HasPasskey: item.Kind == protocol.ItemPasskey,
 		SavedFor:   saved,
 	}
 }
@@ -292,7 +351,7 @@ func (h *Host) jsonGenerate(rawURL, login, rules string) []byte {
 			return jsonGenerateErr("choose")
 		}
 	}
-	if err := h.confirm("Veil wants to save a new password"); err != nil {
+	if err := h.confirm("Veil wants to save a new password", grant.Registrable(rawURL), true); err != nil {
 		return jsonGenerateErr("canceled")
 	}
 	secret, err := passgen.FromRules(rules)
@@ -372,7 +431,7 @@ func (h *Host) jsonPasskeyCreate(origin string, publicKey json.RawMessage, extra
 	if origin == "" || len(publicKey) == 0 {
 		return jsonPasskeyErr("failed")
 	}
-	if err := h.confirm("Veil wants to save a passkey"); err != nil {
+	if err := h.confirm("Veil wants to save a passkey", grant.Registrable(origin), true); err != nil {
 		return jsonPasskeyErr("canceled")
 	}
 	return jsonPasskeyFromHost(h.passkeysRegister(origin, publicKey, extra))
@@ -383,7 +442,7 @@ func (h *Host) jsonPasskeyGet(origin string, publicKey json.RawMessage) []byte {
 	if origin == "" || len(publicKey) == 0 {
 		return jsonPasskeyErr("failed")
 	}
-	if err := h.confirm("Veil wants to use a passkey"); err != nil {
+	if err := h.confirm("Veil wants to use a passkey", grant.Registrable(origin), true); err != nil {
 		return jsonPasskeyErr("canceled")
 	}
 	return jsonPasskeyFromHost(h.passkeysGet(origin, publicKey))

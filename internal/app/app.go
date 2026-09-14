@@ -471,7 +471,11 @@ func (a *App) Match(p protocol.Principal, rawURL string) ([]protocol.Item, error
 	}
 	out := make([]protocol.Item, 0)
 	for _, item := range items {
-		if !grant.HostAllowed(item, rawURL) {
+		if item.Archived || !item.Kind.Fillable() {
+			continue
+		}
+		unbound := (item.Kind == protocol.ItemCard || item.Kind == protocol.ItemIdentity) && len(item.URIs) == 0
+		if !unbound && !grant.HostAllowed(item, rawURL) {
 			continue
 		}
 		out = append(out, item)
@@ -577,7 +581,7 @@ func (a *App) FillSync(p protocol.Principal, since string) ([]FillSyncRow, strin
 			continue
 		}
 		switch item.Kind {
-		case protocol.ItemAPIKey, protocol.ItemPasskey:
+		case protocol.ItemAPIKey, protocol.ItemPasskey, protocol.ItemCard, protocol.ItemIdentity:
 		default:
 			continue
 		}

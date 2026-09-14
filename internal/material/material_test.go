@@ -130,3 +130,37 @@ func TestPackPasskeyNeverInScrubMiss(t *testing.T) {
 		t.Fatal("scrub missed pem")
 	}
 }
+
+func TestPackCardScrubsPAN(t *testing.T) {
+	raw, err := PackCard("4111111111111111", "12", "2030", "123", "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := Unpack(raw)
+	if env.Number != "4111111111111111" || env.CVV != "123" {
+		t.Fatalf("%+v", env)
+	}
+	hide := ScrubList(env)
+	found := 0
+	for _, h := range hide {
+		if string(h) == "4111111111111111" || string(h) == "123" {
+			found++
+		}
+	}
+	if found < 2 {
+		t.Fatal("scrub missed pan or cvv")
+	}
+}
+
+func FuzzUnpack(f *testing.F) {
+	packed, err := PackCard("4111111111111111", "12", "2030", "123", "Ada")
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(packed)
+	f.Add([]byte("sk_live_plain"))
+	f.Add([]byte(`{"v":1,"number":"4111"}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		_ = Unpack(raw)
+	})
+}
