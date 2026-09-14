@@ -587,7 +587,7 @@ func (a *App) FillSync(p protocol.Principal, since string) ([]FillSyncRow, strin
 		}
 		sec, err := a.Store.Secret(item.ID)
 		if err != nil {
-			continue
+			return nil, "", err
 		}
 		out = append(out, FillSyncRow{Item: item, Material: []byte(sec)})
 	}

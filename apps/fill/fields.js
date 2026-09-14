@@ -1,5 +1,30 @@
 // Field pick + write. WHATWG autocomplete first. No site catalog.
 (function (root) {
+  function fieldToken(s) {
+    const skip = {
+      on: true,
+      off: true,
+      shipping: true,
+      billing: true,
+      home: true,
+      work: true,
+      mobile: true,
+      fax: true,
+      pager: true,
+    };
+    const parts = String(s || "")
+      .toLowerCase()
+      .trim()
+      .split(/\s+/);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      if (!p || skip[p] || p.indexOf("section-") === 0) {
+        continue;
+      }
+      return p;
+    }
+    return "";
+  }
   function auto(el) {
     if (!el) {
       return "";
@@ -9,10 +34,8 @@
       tokens.push(el.getAttribute("autocomplete"), el.getAttribute("data-autocomplete"));
     }
     for (let i = 0; i < tokens.length; i++) {
-      const s = String(tokens[i] || "")
-        .toLowerCase()
-        .trim();
-      if (s && s !== "on" && s !== "off") {
+      const s = fieldToken(tokens[i]);
+      if (s) {
         return s;
       }
     }
@@ -202,7 +225,15 @@
       a === "given-name" ||
       a === "family-name" ||
       a === "street-address" ||
-      a === "tel"
+      a === "address-line1" ||
+      a === "address-level1" ||
+      a === "address-level2" ||
+      a === "postal-code" ||
+      a === "country" ||
+      a === "country-name" ||
+      a === "tel" ||
+      a === "tel-national" ||
+      a === "name"
     );
   }
 

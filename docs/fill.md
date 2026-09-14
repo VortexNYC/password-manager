@@ -150,7 +150,7 @@ Locked after walking the drawings. These beat older sentences in this file.
 
 1. **No session submit.** Not “default off.” Delete it. An agent that needs Sign in clicks Sign in. That is the cursor. Write-without-submit is still execute. Submit is the incident (2FA-appended-to-password, pay buttons, the gate list).
 2. **After replica exists, fill is always local.** Origin is sync + create only. No second decrypt path via `POST /v1/fill/logins {uuid}`. Freshness is pull-then-fill. TOTP mints from the local seed. Until replica ships, online fill still decrypts **one** uuid on origin.
-3. **Match never hits origin on every navigation.** The host keeps a **RAM index** (item metadata, process lifetime). One `GET /v1/items` at host start / remint. Then `match` is local. That is not a replica. It does not need AEAD. It unblocks Chrome fill without airplane mode and without hammering origin. Replica later replaces RAM with sqlite.
+3. **Match never hits origin on every navigation.** The host keeps a **RAM index** (item metadata, process lifetime). One `GET /v1/items` at host start / remint. Then `match` is local. That is not a replica. It does not need AEAD. It unblocks Chrome fill without airplane mode and without hammering origin. Replica later replaces RAM with `replica.box`.
 4. **Warm replica + Touch ID fills.** A dead JWT with a reachable origin is not a different human. Remint in the background. `need_login` only when we cannot fill: no replica (and no RAM secret — RAM has no secrets) **and** origin will not decrypt. Before replica, online fill still needs origin, so a dead JWT then *is* `need_login`. A Mac unlock still does not authorize a cloud agent.
 5. **Confirm `scope` waits for cards.** Global 30s reuse is enough for GitHub → TOTP → passkey. Per-registrable-domain is load-bearing once CVV exists (GitHub must not waive Amazon). Do not expand `Prompt` until slice cards.
 6. **Host JSON v1 is `ping` `match` `fill`.** Do not block the Chrome wedge on generate or passkeys. Those are later cases on the same dispatcher. kpxc nacl listing is not installed.
@@ -516,7 +516,7 @@ Human defaults: write on trusted focus or shortcut. Never submit. There is no �
 
 ## Replica
 
-See **System → Replica**. Origin is truth. Local sqlite is a re-seal of the same item IDs, not a copy of Railway’s master. CLI `openApp` still refuses. MCP still origin.
+See **System → Replica**. Origin is truth. Local `replica.box` is a re-seal of the same item IDs, not a copy of Railway’s master. CLI `openApp` still refuses. MCP still origin.
 
 ## Out
 

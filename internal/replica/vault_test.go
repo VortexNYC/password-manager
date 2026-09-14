@@ -2,6 +2,7 @@ package replica
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,11 @@ import (
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
+
+type errStore struct{ err error }
+
+func (e errStore) Get() ([]byte, error) { return nil, e.err }
+func (e errStore) Put([]byte) error     { return nil }
 
 func TestSealedBoxHidesCatalogAndSecret(t *testing.T) {
 	dir := t.TempDir()
@@ -77,6 +83,8 @@ func TestSealedBoxHidesCatalogAndSecret(t *testing.T) {
 
 func TestMemKeyNeverTouchesDisk(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("TMPDIR", dir)
 	ks := Mem()
 	key, err := Unlock(ks)
 	if err != nil {
@@ -95,6 +103,43 @@ func TestMemKeyNeverTouchesDisk(t *testing.T) {
 	}
 	if !bytes.Equal(key, again) {
 		t.Fatal("key rotated")
+	}
+}
+
+func TestUnlockDoesNotMintOnGetError(t *testing.T) {
+	if _, err := Unlock(errStore{err: errors.New("keychain down")}); err == nil {
+		t.Fatal("minted over a Get error")
+	}
+	if _, err := Unlock(shortStore{}); err == nil {
+		t.Fatal("accepted a short key")
+	}
+}
+
+type shortStore struct{}
+
+func (shortStore) Get() ([]byte, error) { return []byte("short"), nil }
+func (shortStore) Put([]byte) error     { return nil }
+
+func TestPutFlushFailureDoesNotKeepRow(t *testing.T) {
+	dir := t.TempDir()
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := Open(Path(dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker := filepath.Join(dir, "notdir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v.path = filepath.Join(blocker, FileName)
+	if err := v.Put(protocol.Item{ID: "x", Name: "x"}, []byte(`{"v":1}`)); err == nil {
+		t.Fatal("flush")
+	}
+	if v.Len() != 0 {
+		t.Fatalf("kept row after flush fail %d", v.Len())
 	}
 }
 

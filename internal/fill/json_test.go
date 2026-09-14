@@ -766,3 +766,27 @@ func TestJSONIdentityFill(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+func TestReplicaFillRejectsIdentityKind(t *testing.T) {
+	blob, err := material.PackIdentity("", "Lovelace", "", "", "", "", "", "+44")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	key, err := replica.Unlock(replica.Mem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := replica.Open(replica.Path(dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := box.Put(protocol.Item{ID: "home", Name: "home", Kind: protocol.ItemIdentity}, blob); err != nil {
+		t.Fatal(err)
+	}
+	h := NewOrigin(dir, "http://127.0.0.1:1", "human")
+	h.Replica = box
+	if _, ok := h.replicaFill("home", false); ok {
+		t.Fatal("identity as password")
+	}
+}

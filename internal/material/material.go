@@ -253,7 +253,11 @@ func ScrubList(env Envelope, extra ...[]byte) [][]byte {
 	if env.PasskeyPEM != "" {
 		out = append(out, []byte(env.PasskeyPEM))
 	}
-	for _, s := range []string{env.Number, env.CVV, env.GivenName, env.FamilyName, env.Address, env.Phone} {
+	for _, s := range []string{
+		env.Number, env.ExpMonth, env.ExpYear, env.CVV,
+		env.GivenName, env.FamilyName, env.Address, env.City,
+		env.Region, env.Postal, env.Country, env.Phone,
+	} {
 		if s != "" {
 			out = append(out, []byte(s))
 		}

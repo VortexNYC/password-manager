@@ -61,10 +61,13 @@ static int pwm_replica_put(const void *in, int n) {
 		kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
 		kSecAccessControlUserPresence,
 		NULL);
-	if (ac != NULL) {
-		CFDictionarySetValue(q, kSecAttrAccessControl, ac);
-		CFRelease(ac);
+	if (ac == NULL) {
+		CFRelease(data);
+		CFRelease(q);
+		return -1;
 	}
+	CFDictionarySetValue(q, kSecAttrAccessControl, ac);
+	CFRelease(ac);
 	OSStatus st = SecItemAdd(q, NULL);
 	CFRelease(data);
 	CFRelease(q);

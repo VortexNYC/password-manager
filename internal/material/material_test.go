@@ -150,6 +150,18 @@ func TestPackCardScrubsPAN(t *testing.T) {
 	if found < 2 {
 		t.Fatal("scrub missed pan or cvv")
 	}
+	for _, want := range []string{"12", "2030"} {
+		ok := false
+		for _, h := range hide {
+			if string(h) == want {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Fatalf("scrub missed %s", want)
+		}
+	}
 }
 
 func FuzzUnpack(f *testing.F) {

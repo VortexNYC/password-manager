@@ -101,4 +101,13 @@ test("identity autocomplete", () => {
     isFillTarget(el({ tagName: "INPUT", autocomplete: "cc-number" })),
     true,
   );
+  assert.equal(
+    isFillTarget(el({ tagName: "INPUT", autocomplete: "postal-code" })),
+    true,
+  );
+});
+
+test("billing cc-number is cc-number", () => {
+  const got = pickFields([el({ autocomplete: "billing cc-number", name: "num" })]);
+  assert.equal(got.number.name, "num");
 });

@@ -49,8 +49,8 @@ type ruleSpec struct {
 func parseRules(rules string) (ruleSpec, error) {
 	n := 20
 	minN, maxN := 12, 128
-	alpha := alphabet
 	var required []string
+	var allowed []string
 	for _, part := range strings.Split(rules, ";") {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -76,15 +76,13 @@ func parseRules(rules string) (ruleSpec, error) {
 			}
 			maxN = v
 		case "required":
-			for _, class := range splitClasses(val) {
-				required = append(required, class)
-				alpha = unionAlphabet(alpha, class)
-			}
+			required = append(required, splitClasses(val)...)
 		case "allowed":
-			for _, class := range splitClasses(val) {
-				alpha = unionAlphabet(alpha, class)
-			}
+			allowed = append(allowed, splitClasses(val)...)
 		}
+	}
+	if minN > maxN {
+		return ruleSpec{}, fmt.Errorf("passgen: minlength > maxlength")
 	}
 	if minN > n {
 		n = minN
@@ -97,6 +95,33 @@ func parseRules(rules string) (ruleSpec, error) {
 	}
 	if len(required) > n {
 		return ruleSpec{}, fmt.Errorf("passgen: too many required classes")
+	}
+	alpha := alphabet
+	if len(allowed) > 0 {
+		alpha = ""
+		for _, class := range allowed {
+			alpha = unionAlphabet(alpha, class)
+		}
+	}
+	for _, class := range required {
+		need := classAlphabet(class)
+		if need == "" {
+			return ruleSpec{}, fmt.Errorf("passgen: unknown class %q", class)
+		}
+		if len(allowed) > 0 {
+			ok := false
+			for i := 0; i < len(need); i++ {
+				if strings.IndexByte(alpha, need[i]) >= 0 {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return ruleSpec{}, fmt.Errorf("passgen: required class not allowed")
+			}
+		} else {
+			alpha = unionAlphabet(alpha, class)
+		}
 	}
 	if alpha == "" {
 		return ruleSpec{}, fmt.Errorf("passgen: empty alphabet")

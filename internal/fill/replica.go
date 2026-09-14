@@ -36,23 +36,32 @@ func (h *Host) PullReplica() error {
 }
 
 func (h *Host) replicaFill(uuid string, mintTotp bool) (app.FillEntry, bool) {
+	if h.Replica == nil {
+		return app.FillEntry{}, false
+	}
+	var item protocol.Item
+	found := false
+	for _, it := range h.Replica.Items() {
+		if it.ID == uuid {
+			item = it
+			found = true
+			break
+		}
+	}
+	if !found || item.Kind != protocol.ItemAPIKey {
+		return app.FillEntry{}, false
+	}
 	raw := h.Replica.Material(uuid)
 	if raw == "" {
 		return app.FillEntry{}, false
 	}
 	env := material.Unpack([]byte(raw))
-	if env.PasskeyPEM != "" || env.Number != "" || env.CVV != "" || env.GivenName != "" || env.Address != "" {
+	if env.PasskeyPEM != "" || env.Number != "" || env.CVV != "" || env.GivenName != "" || env.FamilyName != "" || env.Address != "" || env.Phone != "" {
 		return app.FillEntry{}, false
 	}
-	itemName := uuid
-	for _, it := range h.Replica.Items() {
-		if it.ID == uuid {
-			itemName = it.Name
-			if env.Login == "" {
-				env.Login = it.Login
-			}
-			break
-		}
+	itemName := item.Name
+	if env.Login == "" {
+		env.Login = item.Login
 	}
 	pass := env.Token
 	if pass == "" {

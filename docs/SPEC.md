@@ -223,8 +223,10 @@ The next slices, in this order, and nothing else until each is proven:
 37 Veil browser extension Chrome MV3 written+proven 2026-09-14
                          (CFT + branded vortex.nyc: fill approve/Cancel,
                          generate, passkeyCreate UV). Firefox / Safari
-                         Web Extension not written. Replica next
-                         (docs/fill.md increment 7). Thin client.
+                         Web Extension not written. Replica written+proven
+                         2026-09-14 (`replica.box` + Keychain). Next is
+                         cards/identities (CFT + branded), then Firefox /
+                         Safari Web Extension. Thin client.
                          Design: docs/fill.md. Two modes: choose
                          (click field, pick a match) and execute
                          (trusted focus, unambiguous, write the
@@ -234,7 +236,7 @@ The next slices, in this order, and nothing else until each is proven:
                          ASCredentialProvider is still 32.
 ```
 
-Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Next on 37 is replica (docs/fill.md increment 7), then Firefox / Safari. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Mac helper is slice 32 later (native-app AutoFill, not the Safari extension). Phone is slices 33–34 (add + fill). Windows/Linux helpers are 35–36 and re-check the OS APIs on that slice, not now. Do not wrap the SPA in Native SDK / Tauri / Electron.
+Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Replica is written+proven. Next on 37 is CFT+branded card/identity fill, then Firefox / Safari. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Mac helper is slice 32 later (native-app AutoFill, not the Safari extension). Phone is slices 33–34 (add + fill). Windows/Linux helpers are 35–36 and re-check the OS APIs on that slice, not now. Do not wrap the SPA in Native SDK / Tauri / Electron.
 
 ## What the broker is
 
@@ -722,7 +724,7 @@ Next: CFT + branded card/identity fill (increment 8 written). Confirm scope is e
 - [x] OpenAPI is the contract (`docs/openapi/password-manager.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
-- [x] One store. Origin is the source of truth. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host encrypted replica is designed in `docs/fill.md` System (local re-seal, not origin master; not written). Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
+- [x] One store. Origin is the source of truth. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host replica is sealed `replica.box`; wrapping key is Keychain (`WhenUnlockedThisDeviceOnly` + UserPresence), not `device.key`. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
 - [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. `prompt=login` so Hydra cannot skip on a remembered session. `amr` must include totp. HTTP remint uses PWM_LOGIN_EMAIL + password/TOTP files. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 - [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.

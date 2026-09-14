@@ -119,14 +119,25 @@ func (v *Vault) Put(item protocol.Item, material []byte) error {
 		return fmt.Errorf("replica: put")
 	}
 	row := Row{Item: item, Material: string(material)}
-	for i, r := range v.rows {
+	prev := append([]Row(nil), v.rows...)
+	next := append([]Row(nil), v.rows...)
+	replaced := false
+	for i, r := range next {
 		if r.Item.ID == item.ID {
-			v.rows[i] = row
-			return v.flush()
+			next[i] = row
+			replaced = true
+			break
 		}
 	}
-	v.rows = append(v.rows, row)
-	return v.flush()
+	if !replaced {
+		next = append(next, row)
+	}
+	v.rows = next
+	if err := v.flush(); err != nil {
+		v.rows = prev
+		return err
+	}
+	return nil
 }
 
 func (v *Vault) flush() error {

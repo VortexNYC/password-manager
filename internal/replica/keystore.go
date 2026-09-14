@@ -26,8 +26,11 @@ func Mem() KeyStore { return &mem{} }
 func (m *mem) Get() ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.key) != crypto.KeySize {
+	if len(m.key) == 0 {
 		return nil, ErrNotFound
+	}
+	if len(m.key) != crypto.KeySize {
+		return nil, errors.New("replica: invalid stored key")
 	}
 	return append([]byte(nil), m.key...), nil
 }
@@ -47,8 +50,14 @@ func Unlock(ks KeyStore) ([]byte, error) {
 		return nil, errors.New("replica: no keystore")
 	}
 	key, err := ks.Get()
-	if err == nil && len(key) == crypto.KeySize {
+	if err == nil {
+		if len(key) != crypto.KeySize {
+			return nil, errors.New("replica: invalid stored key")
+		}
 		return key, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
 	}
 	key, err = crypto.NewKey()
 	if err != nil {
