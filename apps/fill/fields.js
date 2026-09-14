@@ -1,9 +1,22 @@
 // Field pick + write. WHATWG autocomplete first. No site catalog.
 (function (root) {
   function auto(el) {
-    return String(el.autocomplete || (el.getAttribute && el.getAttribute("autocomplete")) || "")
-      .toLowerCase()
-      .trim();
+    if (!el) {
+      return "";
+    }
+    const tokens = [el.autocomplete];
+    if (typeof el.getAttribute === "function") {
+      tokens.push(el.getAttribute("autocomplete"), el.getAttribute("data-autocomplete"));
+    }
+    for (let i = 0; i < tokens.length; i++) {
+      const s = String(tokens[i] || "")
+        .toLowerCase()
+        .trim();
+      if (s && s !== "on" && s !== "off") {
+        return s;
+      }
+    }
+    return "";
   }
   function typ(el) {
     return String(el.type || "text").toLowerCase();
@@ -103,6 +116,7 @@
   }
 
   root.veilFields = {
+    auto: auto,
     pickFields: pickFields,
     writeField: writeField,
     writeLogin: writeLogin,

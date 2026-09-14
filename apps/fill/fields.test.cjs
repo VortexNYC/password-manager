@@ -3,7 +3,17 @@ const assert = require("node:assert/strict");
 const { pickFields } = require("./fields.js");
 
 function el(partial) {
-  return Object.assign({ autocomplete: "", type: "text", name: "", id: "", hidden: false, disabled: false }, partial);
+  const node = Object.assign({ autocomplete: "", type: "text", name: "", id: "", hidden: false, disabled: false }, partial);
+  node.getAttribute = function (name) {
+    if (name === "autocomplete") {
+      return this.autocomplete || "";
+    }
+    if (name === "data-autocomplete") {
+      return this["data-autocomplete"] || "";
+    }
+    return "";
+  };
+  return node;
 }
 
 test("username and current-password from autocomplete", () => {
@@ -14,6 +24,14 @@ test("username and current-password from autocomplete", () => {
   assert.equal(got.username.name, "u");
   assert.equal(got.password.name, "p");
   assert.equal(got.totp, null);
+});
+
+test("data-autocomplete new-password is generate", () => {
+  const np = el({ autocomplete: "", "data-autocomplete": "new-password", type: "password", name: "np" });
+  const got = pickFields([np]);
+  assert.equal(got.password, null);
+  assert.equal(got.newPassword.length, 1);
+  assert.equal(got.newPassword[0].name, "np");
 });
 
 test("new-password is generate, not current-password fill", () => {

@@ -1,10 +1,4 @@
 (function () {
-  function auto(el) {
-    return String(el.autocomplete || (el.getAttribute && el.getAttribute("autocomplete")) || "")
-      .toLowerCase()
-      .trim();
-  }
-
   function probe(target) {
     const fields = veilFields.pickFields(Array.prototype.slice.call(document.querySelectorAll("input, textarea")));
     const el = target || document.activeElement;
@@ -12,7 +6,7 @@
     const rules =
       (el && el.getAttribute && (el.getAttribute("passwordrules") || el.getAttribute("passwordRules"))) || "";
     return {
-      generate: !!(el && auto(el) === "new-password"),
+      generate: !!(el && veilFields.auto(el) === "new-password"),
       canGenerate: !!(fields.newPassword && fields.newPassword.length),
       login: login,
       passwordRules: rules,

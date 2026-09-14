@@ -139,6 +139,128 @@ func TestChromeExtensionFill(t *testing.T) {
 	t.Fatalf("fields user_len=%d pass_len=%d", len(user), len(pass))
 }
 
+func TestChromeExtensionFillCancel(t *testing.T) {
+	if os.Getenv("PWM_PROVE_CHROME") != "1" {
+		t.Skip("PWM_PROVE_CHROME=1")
+	}
+	const login = "ada@example.com"
+	chrome := chromeForTesting(t)
+	if chrome == "" {
+		t.Skip("Chrome for Testing not installed (branded Chrome ignores --load-extension)")
+	}
+
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	origin := originAPI(t, a)
+
+	page := httptest.NewServer(http.FileServer(http.Dir(filepath.Join(repoRoot(t), "apps/fill"))))
+	t.Cleanup(page.Close)
+	pageURL := strings.TrimRight(page.URL, "/") + "/fixture.html"
+
+	code, raw := originJSON(t, origin, http.MethodPost, "/v1/items", "human", publicapi.CreateItemRequest{
+		Name: "stripe", URI: page.URL, Secret: secret, Login: login,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+
+	task := launchCFT(t, chrome, origin)
+	if err := chromedp.Run(task, chromedp.Navigate(pageURL)); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.WaitVisible("#user")); err != nil {
+		t.Fatalf("visible: %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	debugLog := filepath.Join(home, ".password-manager", "fill-debug.log")
+	before, _ := os.ReadFile(debugLog)
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go dismissTouchID(stop)
+
+	if err := chromedp.Run(task, chromedp.Click("#user")); err != nil {
+		t.Fatalf("click: %v", err)
+	}
+
+	var user, pass string
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := chromedp.Run(task,
+			chromedp.Value("#user", &user),
+			chromedp.Value("#pass", &pass),
+		); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if pass != "" || user == login {
+			t.Fatalf("cancel filled user_len=%d pass_len=%d", len(user), len(pass))
+		}
+		delta := debugDelta(before, debugLog)
+		if strings.Contains(delta, "confirm ok") || strings.Contains(delta, "confirm reuse") {
+			t.Fatalf("cancel still confirmed %q", strings.TrimSpace(delta))
+		}
+		if strings.Contains(delta, "confirm denied") {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("no confirm denied; user_len=%d pass_len=%d", len(user), len(pass))
+}
+
+func debugDelta(before []byte, path string) string {
+	after, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	if len(after) >= len(before) {
+		return string(after[len(before):])
+	}
+	return string(after)
+}
+
+func dismissTouchID(stop <-chan struct{}) {
+	// AXPress Cancel on the CFT-owned LocalAuthentication sheet. Do not
+	// synthesize a mouse. Do not match branded "Google Chrome".
+	script := `
+tell application "System Events"
+	repeat with proc in (every process)
+		set n to name of proc as text
+		if n contains "Testing" or n contains "Chromium" or n contains "coreauth" then
+			try
+				set frontmost of proc to true
+			end try
+			try
+				click button "Cancel" of sheet 1 of window 1 of proc
+			end try
+			try
+				click button "Cancel" of window 1 of proc
+			end try
+			try
+				key code 53
+			end try
+		end if
+	end repeat
+end tell
+`
+	deadline := time.Now().Add(18 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		_ = exec.Command("osascript", "-e", script).Run()
+		time.Sleep(150 * time.Millisecond)
+	}
+}
+
 func TestChromeExtensionPasskey(t *testing.T) {
 	if os.Getenv("PWM_PROVE_CHROME") != "1" {
 		t.Skip("PWM_PROVE_CHROME=1")
@@ -349,7 +471,7 @@ func TestChromeExtensionPasskeyWebAuthnIO(t *testing.T) {
 	task := launchCFT(t, chrome, origin)
 
 	user := fmt.Sprintf("veil%d", time.Now().UnixNano())
-	page := "https://webauthn.io/"
+	page := "https://webauthn.io/?regUserVerification=required&authUserVerification=required"
 	if err := chromedp.Run(task, chromedp.Navigate(page)); err != nil {
 		t.Fatalf("navigate: %v", err)
 	}
@@ -423,6 +545,7 @@ func launchCFT(t *testing.T, chrome string, origin *httptest.Server) context.Con
 		Origin:    origin.URL,
 		Home:      vault,
 		TokenFile: tok,
+		Debug:     true,
 	}); err != nil {
 		t.Fatal(err)
 	}
