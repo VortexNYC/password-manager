@@ -1,5 +1,5 @@
 // Package confirm is Touch ID at fill time. The native host prompts
-// before a secret goes to the extension. Tests leave Host.Confirm nil.
+// before a secret goes to the extension. Host.Confirm nil fails closed.
 package confirm
 
 import "os"

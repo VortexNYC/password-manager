@@ -1,16 +1,12 @@
 package fill
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/grant"
-	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/passgen"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 )
@@ -289,15 +285,11 @@ func (h *Host) jsonGenerate(rawURL, login, rules string) []byte {
 	if err := h.confirm("Veil wants to save a new password"); err != nil {
 		return jsonGenerateErr("canceled")
 	}
-	n, err := passwordLen(rules)
+	secret, err := passgen.FromRules(rules)
 	if err != nil {
 		return jsonGenerateErr("failed")
 	}
-	secret, err := passgen.New(n)
-	if err != nil {
-		return jsonGenerateErr("failed")
-	}
-	name := generateItemName(host, matches)
+	name := host
 	item, err := h.createGeneratedLogin(name, uri, login, string(secret))
 	if err != nil {
 		if h.loginNeeded() {
@@ -355,112 +347,6 @@ func generateURI(rawURL string) (uri, host string, ok bool) {
 		scheme = "https"
 	}
 	return scheme + "://" + host, host, true
-}
-
-func generateItemName(host string, existing []jsonMatchEntry) string {
-	taken := make(map[string]struct{}, len(existing)+8)
-	for _, e := range existing {
-		taken[e.UUID] = struct{}{}
-		taken[e.Name] = struct{}{}
-	}
-	base := sanitizeItemName(host)
-	if _, hit := taken[base]; !hit && id.Valid(base) {
-		return base
-	}
-	for i := 0; i < 16; i++ {
-		var buf [3]byte
-		if _, err := rand.Read(buf[:]); err != nil {
-			break
-		}
-		n := base + "-" + hex.EncodeToString(buf[:])
-		if len(n) > 63 {
-			n = n[:63]
-			n = strings.TrimRight(n, "-")
-		}
-		if id.Valid(n) {
-			if _, hit := taken[n]; !hit {
-				return n
-			}
-		}
-	}
-	return "login"
-}
-
-func sanitizeItemName(host string) string {
-	var b strings.Builder
-	lastDash := false
-	for _, r := range strings.ToLower(host) {
-		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
-		if ok {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if !lastDash && b.Len() > 0 {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	s := strings.Trim(b.String(), "-")
-	if s == "" {
-		return "login"
-	}
-	if s[0] >= '0' && s[0] <= '9' {
-		s = "h" + s
-	}
-	if !id.Valid(s) {
-		if len(s) > 63 {
-			s = strings.TrimRight(s[:63], "-")
-		}
-		if len(s) < 2 {
-			s = "login"
-		}
-		if !id.Valid(s) {
-			return "login"
-		}
-	}
-	return s
-}
-
-func passwordLen(rules string) (int, error) {
-	n := 20
-	minN, maxN := 12, 128
-	for _, part := range strings.Split(rules, ";") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		key, val, found := strings.Cut(part, ":")
-		if !found {
-			continue
-		}
-		key = strings.ToLower(strings.TrimSpace(key))
-		val = strings.TrimSpace(val)
-		switch key {
-		case "minlength":
-			v, err := strconv.Atoi(val)
-			if err != nil {
-				return 0, err
-			}
-			minN = v
-		case "maxlength":
-			v, err := strconv.Atoi(val)
-			if err != nil {
-				return 0, err
-			}
-			maxN = v
-		}
-	}
-	if minN > n {
-		n = minN
-	}
-	if maxN < n {
-		n = maxN
-	}
-	if n < 12 || n > 128 {
-		return 0, errGenerateCreate
-	}
-	return n, nil
 }
 
 func jsonGenerateErr(err string) []byte {

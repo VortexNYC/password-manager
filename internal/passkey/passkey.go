@@ -11,7 +11,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -115,7 +114,10 @@ type attObj struct {
 	AuthData []byte         `cbor:"authData"`
 }
 
-func Register(origin string, publicKey json.RawMessage, existing []Record) (Credential, Record, int) {
+func Register(origin string, publicKey json.RawMessage, existing []Record, verified bool) (Credential, Record, int) {
+	if !verified {
+		return Credential{}, Record{}, ErrCanceled
+	}
 	pk, code := parse(publicKey)
 	if code != 0 {
 		return Credential{}, Record{}, code
@@ -196,7 +198,10 @@ func Register(origin string, publicKey json.RawMessage, existing []Record) (Cred
 	return cred, rec, 0
 }
 
-func Assert(origin string, publicKey json.RawMessage, recs []Record) (Credential, int) {
+func Assert(origin string, publicKey json.RawMessage, recs []Record, verified bool) (Credential, int) {
+	if !verified {
+		return Credential{}, ErrCanceled
+	}
 	pk, code := parse(publicKey)
 	if code != 0 {
 		return Credential{}, code
@@ -439,9 +444,4 @@ func DecodeB64(s string) ([]byte, error) {
 		return b, nil
 	}
 	return base64.URLEncoding.DecodeString(s)
-}
-
-func ItemName(rpID, userHandle string) string {
-	sum := sha256.Sum256([]byte(rpID + "\x00" + userHandle))
-	return "pk-" + hex.EncodeToString(sum[:8])
 }

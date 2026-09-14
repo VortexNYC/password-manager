@@ -24,7 +24,7 @@ type HostConfig struct {
 	TOTPFile     string `json:"kratos_totp_file,omitempty"`
 	Debug        bool   `json:"debug,omitempty"`
 	// TouchID is Mac confirm. Chrome launches the host with no env we control.
-	// nil = default on. false writes PWM_FILL_TOUCHID=0 (tests / prove).
+	// nil = default on. false leaves Confirm unattached; confirm() fails closed.
 	TouchID *bool `json:"touch_id,omitempty"`
 }
 

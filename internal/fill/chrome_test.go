@@ -54,7 +54,6 @@ func TestChromeExtensionFill(t *testing.T) {
 	userHome := t.TempDir()
 	vault := t.TempDir()
 	bin := buildPWM(t)
-	off := false
 	tok := filepath.Join(vault, "human.jwt")
 	if err := os.WriteFile(tok, []byte("human\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -66,7 +65,6 @@ func TestChromeExtensionFill(t *testing.T) {
 		Origin:    origin.URL,
 		Home:      vault,
 		TokenFile: tok,
-		TouchID:   &off,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +97,7 @@ func TestChromeExtensionFill(t *testing.T) {
 		"--remote-allow-origins=*",
 		"about:blank",
 	)
-	cmd.Env = append(envBin(), "PWM_FILL_TOUCHID=0")
+	cmd.Env = envProve()
 	// Do not set HOME to a tempdir. CFT then hangs on Page.navigate.
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -164,7 +162,6 @@ func TestChromeExtensionPasskey(t *testing.T) {
 	userHome := t.TempDir()
 	vault := t.TempDir()
 	bin := buildPWM(t)
-	off := false
 	tok := filepath.Join(vault, "human.jwt")
 	if err := os.WriteFile(tok, []byte("human\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -176,7 +173,6 @@ func TestChromeExtensionPasskey(t *testing.T) {
 		Origin:    origin.URL,
 		Home:      vault,
 		TokenFile: tok,
-		TouchID:   &off,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +205,7 @@ func TestChromeExtensionPasskey(t *testing.T) {
 		"--remote-allow-origins=*",
 		"about:blank",
 	)
-	cmd.Env = append(envBin(), "PWM_FILL_TOUCHID=0")
+	cmd.Env = envProve()
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -353,7 +349,7 @@ func TestChromeExtensionPasskeyWebAuthnIO(t *testing.T) {
 	task := launchCFT(t, chrome, origin)
 
 	user := fmt.Sprintf("veil%d", time.Now().UnixNano())
-	page := "https://webauthn.io/?regUserVerification=discouraged&authUserVerification=discouraged"
+	page := "https://webauthn.io/"
 	if err := chromedp.Run(task, chromedp.Navigate(page)); err != nil {
 		t.Fatalf("navigate: %v", err)
 	}
@@ -416,7 +412,6 @@ func launchCFT(t *testing.T, chrome string, origin *httptest.Server) context.Con
 	userHome := t.TempDir()
 	vault := t.TempDir()
 	bin := buildPWM(t)
-	off := false
 	tok := filepath.Join(vault, "human.jwt")
 	if err := os.WriteFile(tok, []byte("human\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -428,7 +423,6 @@ func launchCFT(t *testing.T, chrome string, origin *httptest.Server) context.Con
 		Origin:    origin.URL,
 		Home:      vault,
 		TokenFile: tok,
-		TouchID:   &off,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +454,7 @@ func launchCFT(t *testing.T, chrome string, origin *httptest.Server) context.Con
 		"--remote-allow-origins=*",
 		"about:blank",
 	)
-	cmd.Env = append(envBin(), "PWM_FILL_TOUCHID=0")
+	cmd.Env = envProve()
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

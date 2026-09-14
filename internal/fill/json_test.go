@@ -231,7 +231,7 @@ func TestJSONFillUnambiguousUUIDOmitted(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("create %d %s", code, raw)
 	}
-	h := NewOrigin(t.TempDir(), srv.URL, "human")
+	h := allowConfirm(NewOrigin(t.TempDir(), srv.URL, "human"))
 	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://github.com/login"})
 	var out struct {
 		Entries []jsonFillEntry `json:"entries"`
@@ -457,7 +457,7 @@ func TestJSONGenerateSignupSavesThenReturnsPassword(t *testing.T) {
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 			var in publicapi.CreateItemRequest
-			if json.Unmarshal(body, &in) != nil || in.Secret == "" || in.URI != "https://signup.example.com" || in.Login != "ada@example.com" {
+			if json.Unmarshal(body, &in) != nil || in.Secret == "" || in.URI != "https://signup.example.com" || in.Login != "ada@example.com" || in.Name != "signup.example.com" {
 				t.Errorf("create %s", body)
 			}
 			if scrub.Contains(body, []byte("BEGIN")) {
@@ -515,6 +515,12 @@ func TestJSONGenerateSignupSavesThenReturnsPassword(t *testing.T) {
 	if out.Error != "" || out.UUID == "" || out.Password == "" || out.Login != "ada@example.com" {
 		t.Fatalf("generate %s", got)
 	}
+	if out.Name != "signup.example.com" {
+		t.Fatalf("chooser name %q", out.Name)
+	}
+	if out.UUID == out.Name || !id.Valid(out.UUID) {
+		t.Fatalf("id %q name %q", out.UUID, out.Name)
+	}
 	if len(out.Password) != 24 {
 		t.Fatalf("rules length %d %q", len(out.Password), out.Password)
 	}
@@ -529,7 +535,7 @@ func TestJSONGenerateSignupSavesThenReturnsPassword(t *testing.T) {
 	if err := json.Unmarshal(listed, &match); err != nil || len(match.Entries) != 1 {
 		t.Fatalf("match after generate %s", listed)
 	}
-	if match.Entries[0].UUID != out.UUID || match.Entries[0].Kind != "login" {
+	if match.Entries[0].UUID != out.UUID || match.Entries[0].Kind != "login" || match.Entries[0].Name != "signup.example.com" {
 		t.Fatalf("match %+v", match.Entries[0])
 	}
 	if scrub.Contains(listed, []byte(out.Password)) {
@@ -562,28 +568,5 @@ func TestJSONGenerateNeedLoginDoesNotMintOnDeadJWT(t *testing.T) {
 	}
 	if err := json.Unmarshal(got, &fail); err != nil || fail.Error != "need_login" || fail.Password != "" {
 		t.Fatalf("dead origin %s", got)
-	}
-}
-
-func TestSanitizeItemName(t *testing.T) {
-	if got := sanitizeItemName("signup.example.com"); got != "signup-example-com" {
-		t.Fatalf("%s", got)
-	}
-	if !id.Valid(sanitizeItemName("github.com")) {
-		t.Fatal("github.com")
-	}
-}
-
-func TestPasswordLen(t *testing.T) {
-	n, err := passwordLen("")
-	if err != nil || n != 20 {
-		t.Fatalf("default %d %v", n, err)
-	}
-	n, err = passwordLen("minlength: 32")
-	if err != nil || n != 32 {
-		t.Fatalf("min %d %v", n, err)
-	}
-	if _, err := passwordLen("maxlength: 8"); err == nil {
-		t.Fatal("short max")
 	}
 }

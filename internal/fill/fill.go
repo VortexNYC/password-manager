@@ -662,8 +662,8 @@ func (h *Host) bearer() (string, error) {
 
 func (h *Host) confirm(reason string) error {
 	if h.Confirm == nil {
-		fillDebug("confirm skipped")
-		return nil
+		fillDebug("confirm missing")
+		return fmt.Errorf("fill: confirm not attached")
 	}
 	now := time.Now()
 	h.mu.Lock()

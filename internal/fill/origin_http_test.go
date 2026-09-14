@@ -103,7 +103,7 @@ func TestNativeHostFillsRealOriginHTTP(t *testing.T) {
 		t.Fatalf("choose from list without fill: %+v body=%s", hit, raw)
 	}
 
-	h := NewOrigin(t.TempDir(), srv.URL, "human")
+	h := allowConfirm(NewOrigin(t.TempDir(), srv.URL, "human"))
 	c := associated(t, h)
 	req, err := json.Marshal(struct {
 		Action string     `json:"action"`

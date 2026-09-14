@@ -142,7 +142,7 @@ func vault(t *testing.T) *app.App {
 
 func TestGetLoginsFillsMatchingURI(t *testing.T) {
 	a := vault(t)
-	h := New(a)
+	h := allowConfirm(New(a))
 	c := newClient(t)
 	c.handshake(t, h)
 	assoc, err := json.Marshal(map[string]string{"action": "associate", "key": c.idKey, "idKey": c.idKey})
@@ -334,7 +334,7 @@ func TestGetTOTPMintsCodeNotSeed(t *testing.T) {
 	if _, err := a.PutItem(app.ItemOpts{Name: "stripe", URI: "https://dashboard.stripe.com", Token: []byte(secret), TOTPSeed: []byte(seed)}); err != nil {
 		t.Fatal(err)
 	}
-	h := New(a)
+	h := allowConfirm(New(a))
 	c := newClient(t)
 	c.handshake(t, h)
 	inner, _ := json.Marshal(map[string]string{"action": "associate", "key": c.idKey, "idKey": c.idKey})
@@ -362,7 +362,7 @@ func TestGetLoginsSignalsTOTPWithoutSeed(t *testing.T) {
 	if _, err := a.PutItem(app.ItemOpts{Name: "stripe", URI: "https://dashboard.stripe.com", Token: []byte(secret), TOTPSeed: []byte(seed)}); err != nil {
 		t.Fatal(err)
 	}
-	h := New(a)
+	h := allowConfirm(New(a))
 	c := associated(t, h)
 	req, _ := json.Marshal(struct {
 		Action string     `json:"action"`
@@ -399,7 +399,7 @@ func TestOriginLoginsProbesTOTPWithoutPuttingCode(t *testing.T) {
 		}
 	}))
 	t.Cleanup(origin.Close)
-	h := NewOrigin(t.TempDir(), origin.URL, "human")
+	h := allowConfirm(NewOrigin(t.TempDir(), origin.URL, "human"))
 	c := associated(t, h)
 	req, _ := json.Marshal(struct {
 		Action string     `json:"action"`
@@ -469,7 +469,7 @@ func TestGetLoginsFromOrigin(t *testing.T) {
 		_, _ = io.WriteString(w, `{"entries":[{"login":"stripe","name":"stripe","password":"sk_live_FILL_SECRET","uuid":"stripe"}]}`)
 	}))
 	t.Cleanup(origin.Close)
-	h := NewOrigin(t.TempDir(), origin.URL, "human")
+	h := allowConfirm(NewOrigin(t.TempDir(), origin.URL, "human"))
 	c := newClient(t)
 	c.handshake(t, h)
 	inner, _ := json.Marshal(map[string]string{"action": "associate", "key": c.idKey, "idKey": c.idKey})
@@ -502,7 +502,7 @@ func TestGetLoginsRemintsAfter401(t *testing.T) {
 	}))
 	t.Cleanup(origin.Close)
 	tok := "stale"
-	h := NewOrigin(t.TempDir(), origin.URL, "")
+	h := allowConfirm(NewOrigin(t.TempDir(), origin.URL, ""))
 	h.TokenFn = func() (string, error) { return tok, nil }
 	h.Refresh = func() (string, error) {
 		tok = "fresh"
@@ -685,7 +685,7 @@ func TestPasskeysRegisterThenGet(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
-	h := New(a)
+	h := allowConfirm(New(a))
 	c := associated(t, h)
 	keys := []assocKey{{ID: assocID, Key: c.idKey}}
 	create, err := json.Marshal(map[string]any{
@@ -823,7 +823,7 @@ func TestPasskeysFromOrigin(t *testing.T) {
 		_, _ = io.WriteString(w, `{"response":{"id":"abc","type":"public-key","authenticatorAttachment":"platform","response":{"signature":"c2ln"}}}`)
 	}))
 	t.Cleanup(origin.Close)
-	h := NewOrigin(t.TempDir(), origin.URL, "human")
+	h := allowConfirm(NewOrigin(t.TempDir(), origin.URL, "human"))
 	c := associated(t, h)
 	req, err := json.Marshal(map[string]any{
 		"action":    "passkeys-get",

@@ -42,7 +42,7 @@ func TestRegisterThenAssertAgainstRP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cred, rec, code := Register(origin, pkJSON, nil)
+	cred, rec, code := Register(origin, pkJSON, nil, true)
 	if code != 0 {
 		t.Fatalf("register %d", code)
 	}
@@ -70,7 +70,7 @@ func TestRegisterThenAssertAgainstRP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, code := Assert(origin, getJSON, []Record{rec})
+	got, code := Assert(origin, getJSON, []Record{rec}, true)
 	if code != 0 {
 		t.Fatalf("assert %d", code)
 	}

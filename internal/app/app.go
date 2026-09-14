@@ -208,8 +208,17 @@ func (a *App) AddItem(name, uri string, secret []byte) (protocol.Item, error) {
 }
 
 func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
-	if !id.Valid(opts.Name) {
-		return protocol.Item{}, fmt.Errorf("app: invalid item name %q", opts.Name)
+	name := strings.TrimSpace(opts.Name)
+	if name == "" {
+		return protocol.Item{}, fmt.Errorf("app: empty item name")
+	}
+	itemID := name
+	if !id.Valid(name) {
+		generated, err := id.NewItem()
+		if err != nil {
+			return protocol.Item{}, err
+		}
+		itemID = generated
 	}
 	if len(opts.Token) == 0 && len(opts.TOTPSeed) == 0 && len(opts.Refresh) == 0 && len(opts.File) == 0 && len(opts.Passkey) == 0 {
 		return protocol.Item{}, fmt.Errorf("app: empty secret")
@@ -232,9 +241,9 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 		uris = append([]string{opts.URI}, uris...)
 	}
 	item := protocol.Item{
-		ID:      opts.Name,
+		ID:      itemID,
 		OrgID:   a.OrgID,
-		Name:    opts.Name,
+		Name:    name,
 		Kind:    kind,
 		Owner:   protocol.Owner{Kind: protocol.OwnerOrg, ID: a.OrgID},
 		URIs:    uris,
@@ -610,7 +619,7 @@ func (a *App) FillPasskeyRegister(p protocol.Principal, origin string, publicKey
 	if err != nil {
 		return nil, err
 	}
-	cred, rec, code := passkey.Register(origin, publicKey, existing)
+	cred, rec, code := passkey.Register(origin, publicKey, existing, true)
 	if code != 0 {
 		return passkey.ErrorResponse(code), nil
 	}
@@ -624,7 +633,7 @@ func (a *App) FillPasskeyRegister(p protocol.Principal, origin string, publicKey
 	}
 	uris = unionURIs(uris, extraURIs)
 	if _, err := a.PutItem(ItemOpts{
-		Name:    passkey.ItemName(rec.RpID, rec.UserHandle),
+		Name:    rec.RpID,
 		Kind:    protocol.ItemPasskey,
 		URIs:    uris,
 		Login:   rec.UserName,
@@ -647,7 +656,7 @@ func (a *App) FillPasskeyGet(p protocol.Principal, origin string, publicKey json
 	if err != nil {
 		return nil, err
 	}
-	cred, code := passkey.Assert(origin, publicKey, recs)
+	cred, code := passkey.Assert(origin, publicKey, recs, true)
 	if code != 0 {
 		return passkey.ErrorResponse(code), nil
 	}

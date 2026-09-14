@@ -42,7 +42,7 @@ func requestPK(t *testing.T, challenge, rpID, credID string) json.RawMessage {
 func TestRegisterThenAssert(t *testing.T) {
 	origin := "https://github.com"
 	create := creationPK(t, "dGVzdGNoYWxsZW5nZQ", "github.com", "dXNlcg", []int{algES256})
-	cred, rec, code := Register(origin, create, nil)
+	cred, rec, code := Register(origin, create, nil, true)
 	if code != 0 {
 		t.Fatalf("register %d", code)
 	}
@@ -57,7 +57,7 @@ func TestRegisterThenAssert(t *testing.T) {
 		t.Fatal("credential JSON leaked the private key")
 	}
 	get := requestPK(t, "Z2V0Y2hhbGxlbmdlMTIz", "github.com", rec.CredID)
-	got, code := Assert(origin, get, []Record{rec})
+	got, code := Assert(origin, get, []Record{rec}, true)
 	if code != 0 {
 		t.Fatalf("assert %d", code)
 	}
@@ -87,25 +87,25 @@ func TestRegisterThenAssert(t *testing.T) {
 
 func TestRegisterRejectsHTTPAndBadAlg(t *testing.T) {
 	pk := creationPK(t, "dGVzdGNoYWxsZW5nZQ", "example.com", "dXNlcg", []int{algES256})
-	if _, _, code := Register("http://example.com", pk, nil); code != ErrInvalidURL {
+	if _, _, code := Register("http://example.com", pk, nil, true); code != ErrInvalidURL {
 		t.Fatalf("http origin %d", code)
 	}
 	rs256 := creationPK(t, "dGVzdGNoYWxsZW5nZQ", "example.com", "dXNlcg", []int{-257})
-	if _, _, code := Register("https://example.com", rs256, nil); code != ErrNoSupportedAlgs {
+	if _, _, code := Register("https://example.com", rs256, nil, true); code != ErrNoSupportedAlgs {
 		t.Fatalf("rs256 %d", code)
 	}
 }
 
 func TestAssertNoMatch(t *testing.T) {
 	get := requestPK(t, "Z2V0Y2hhbGxlbmdlMTIz", "github.com", "missing")
-	if _, code := Assert("https://github.com", get, nil); code != ErrNoLogins {
+	if _, code := Assert("https://github.com", get, nil, true); code != ErrNoLogins {
 		t.Fatalf("empty %d", code)
 	}
 }
 
 func TestLocalhostHTTPAllowed(t *testing.T) {
 	pk := creationPK(t, "dGVzdGNoYWxsZW5nZQ", "localhost", "dXNlcg", nil)
-	if _, rec, code := Register("http://localhost:3000", pk, nil); code != 0 || rec.RpID != "localhost" {
+	if _, rec, code := Register("http://localhost:3000", pk, nil, true); code != 0 || rec.RpID != "localhost" {
 		t.Fatalf("localhost %d %+v", code, rec)
 	}
 }

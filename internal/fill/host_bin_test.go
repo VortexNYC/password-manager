@@ -37,7 +37,7 @@ func buildPWM(t *testing.T) string {
 	return bin
 }
 
-func envBin() []string {
+func envClean() []string {
 	var out []string
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "PWM_ORIGIN=") ||
@@ -50,7 +50,26 @@ func envBin() []string {
 		}
 		out = append(out, e)
 	}
-	return append(out, "PWM_FILL_TOUCHID=0")
+	return out
+}
+
+// envBin is compiled-host isolation for make test. It leaves Confirm
+// unattached so those tests fail closed without a Touch ID prompt.
+// Headed CFT must use envProve. Forcing PWM_FILL_TOUCHID=0 on Chrome is a fake.
+func envBin() []string {
+	return append(envClean(), "PWM_FILL_TOUCHID=0")
+}
+
+func envProve() []string {
+	return envClean()
+}
+
+func TestEnvProveDoesNotDisableTouchID(t *testing.T) {
+	for _, e := range envProve() {
+		if strings.HasPrefix(e, "PWM_FILL_TOUCHID=") {
+			t.Fatalf("prove env still sets %s", e)
+		}
+	}
 }
 
 func pwm(t *testing.T, bin, home string, args ...string) []byte {
@@ -175,14 +194,8 @@ func TestCompiledBinaryAddListMatchFill(t *testing.T) {
 	if err := json.Unmarshal(c.sendProc(t, stdin, stdout, req), &filled); err != nil {
 		t.Fatal(err)
 	}
-	if filled.Success != "true" || len(filled.Entries) != 1 {
-		t.Fatalf("fill %+v", filled)
-	}
-	if filled.Entries[0].Login != login || filled.Entries[0].Name != "stripe" {
-		t.Fatalf("fill login %+v", filled.Entries[0])
-	}
-	if filled.Entries[0].Password != secret {
-		t.Fatal("fill did not return the password to the host wire")
+	if filled.Success != "false" || len(filled.Entries) != 0 {
+		t.Fatalf("host with no Confirm must not fill %+v", filled)
 	}
 	wrong, err := json.Marshal(struct {
 		Action string     `json:"action"`
@@ -287,8 +300,8 @@ func TestCompiledBinaryAgainstOriginHTTP(t *testing.T) {
 	if err := json.Unmarshal(c.sendProc(t, stdin, stdout, req), &filled); err != nil {
 		t.Fatal(err)
 	}
-	if filled.Success != "true" || len(filled.Entries) != 1 || filled.Entries[0].Login != login || filled.Entries[0].Password != secret {
-		t.Fatalf("origin host fill %+v", filled)
+	if filled.Success == "true" && len(filled.Entries) > 0 && filled.Entries[0].Password != "" {
+		t.Fatalf("host with no Confirm filled %+v", filled)
 	}
 }
 
@@ -358,8 +371,8 @@ func TestCompiledBinaryJSONPingMatchFill(t *testing.T) {
 	if err := json.Unmarshal(filledRaw, &filled); err != nil {
 		t.Fatal(err)
 	}
-	if len(filled.Entries) != 1 || filled.Entries[0].Password != secret || filled.Entries[0].Login != login {
-		t.Fatalf("fill %+v", filled)
+	if len(filled.Entries) != 0 {
+		t.Fatalf("host with no Confirm filled %+v", filled)
 	}
 }
 
