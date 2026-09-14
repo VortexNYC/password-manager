@@ -225,9 +225,9 @@ The next slices, in this order, and nothing else until each is proven:
                          generate, passkeyCreate UV). Firefox / Safari
                          Web Extension not written. Replica written+proven
                          2026-09-14 (`replica.box` + Keychain). Cards +
-                         identities CFT-proven 2026-09-14. Next is branded
-                         checkout fields, then Firefox / Safari Web
-                         Extension. Thin client.
+                         identities CFT-proven 2026-09-14. Branded
+                         Stripe-test card fill 2026-09-14. Next is
+                         Firefox / Safari Web Extension. Thin client.
                          Design: docs/fill.md. Two modes: choose
                          (click field, pick a match) and execute
                          (trusted focus, unambiguous, write the
@@ -655,7 +655,7 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
-Next: branded card/identity checkout (increment 8 CFT-proven, origin `pwm` `f679407e` 2026-09-14). Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP. Firefox after branded. Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start 32.
+Next: Firefox (increment 8 CFT + origin + branded Stripe-test card 2026-09-14). Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP. Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start 32.
 
 ## Testing
 
