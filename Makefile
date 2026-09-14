@@ -1,4 +1,4 @@
-.PHONY: test vet fmt tidy ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live prove-fill
+.PHONY: test vet fmt tidy sdk-fresh ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live prove-fill
 
 test:
 	env -u PWM_HYDRA_ISSUER -u PWM_HYDRA_ADMIN -u PWM_HOME -u PWM_OIDC_TOKEN -u PWM_ORIGIN -u PWM_OIDC_TOKEN_FILE -u PWM_HYDRA_SECRET_FILE -u PWM_AGENT PWM_FILL_TOUCHID=0 go test ./...
@@ -15,11 +15,21 @@ tidy:
 build:
 	go build -o bin/password-manager ./cmd/password-manager
 
-ci:
+sdk-fresh:
 	pnpm run sdk:generate
+	@if [ -n "$$(git status --porcelain -- sdks internal/publicapi/spec.json)" ]; then \
+		echo "sdk:generate dirtied committed SDKs. Commit the generator output or revert the OpenAPI change."; \
+		git status -- sdks internal/publicapi/spec.json; \
+		git diff -- sdks internal/publicapi/spec.json; \
+		exit 1; \
+	fi
+
+ci:
+	$(MAKE) sdk-fresh
 	$(MAKE) vet test
 	pnpm exec vp lint
 	pnpm run typecheck
+	pnpm --filter veil-vault test
 	pnpm run docs:build
 
 prove-cli-golden-flow:
