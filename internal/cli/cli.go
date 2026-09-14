@@ -32,6 +32,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/passgen"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/proxy"
+	"github.com/vortexnyc/password-manager/internal/replica"
 	"github.com/vortexnyc/password-manager/internal/socket"
 	"github.com/vortexnyc/password-manager/internal/sshagent"
 	"github.com/vortexnyc/password-manager/internal/totpenroll"
@@ -1299,6 +1300,7 @@ func fillCmd(home *string) *cobra.Command {
 					return remintHumanHTTP(cmd.Context(), out)
 				}
 				attachFillConfirm(h)
+				attachFillReplica(h, dir)
 				return h.Serve(os.Stdin, os.Stdout)
 			}
 			a, err := openApp(*home)
@@ -1560,4 +1562,21 @@ func attachFillConfirm(h *fill.Host) {
 	if confirm.Enabled() {
 		h.Confirm = confirm.TouchID
 	}
+}
+
+func attachFillReplica(h *fill.Host, dir string) {
+	ks := replica.Platform()
+	if ks == nil {
+		return
+	}
+	key, err := replica.Unlock(ks)
+	if err != nil {
+		return
+	}
+	v, err := replica.Open(replica.Path(dir), key)
+	if err != nil {
+		return
+	}
+	h.Replica = v
+	_ = h.PullReplica()
 }

@@ -30,6 +30,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/vortexnyc/password-manager/internal/replica"
 )
 
 const (
@@ -58,6 +59,8 @@ type Host struct {
 	Refresh func() (string, error)
 	// Confirm is Touch ID (or a test fake) before a secret leaves the host.
 	Confirm func(reason string) error
+	// Replica is the sealed local cache. Key is Keychain, not a file.
+	Replica *replica.Vault
 
 	mu           sync.Mutex
 	sessions     map[string]*session
@@ -620,6 +623,9 @@ func (h *Host) setNeedLogin(v bool) {
 }
 
 func (h *Host) loginNeeded() bool {
+	if h.replicaWarm() {
+		return false
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.needLogin

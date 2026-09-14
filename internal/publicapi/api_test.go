@@ -152,6 +152,10 @@ func TestAgentCannotCreateItemOrFill(t *testing.T) {
 	if code != http.StatusForbidden {
 		t.Fatalf("fill %d %s", code, raw)
 	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/sync", "agent", FillSyncRequest{})
+	if code != http.StatusForbidden {
+		t.Fatalf("sync %d %s", code, raw)
+	}
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://api.github.com/user"})
 	if code != http.StatusOK {
 		t.Fatalf("human fill %d %s", code, raw)
@@ -185,6 +189,36 @@ func TestAgentCannotCreateItemOrFill(t *testing.T) {
 func TestFillPathNotInOpenAPI(t *testing.T) {
 	if bytes.Contains(Spec, []byte("/v1/fill")) {
 		t.Fatal("fill is GetSecret; not on the generated contract")
+	}
+}
+
+func TestFillSyncHumanOnly(t *testing.T) {
+	a := testApp(t)
+	if _, err := a.AddItem("github", "https://github.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("list leaked secret")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/sync", "agent", FillSyncRequest{})
+	if code != http.StatusForbidden {
+		t.Fatalf("agent sync %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/sync", "human", FillSyncRequest{})
+	if code != http.StatusOK {
+		t.Fatalf("sync %d %s", code, raw)
+	}
+	if !scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("sync missing material")
+	}
+	var out FillSyncResponse
+	if json.Unmarshal(raw, &out) != nil || len(out.Items) != 1 || out.Items[0].Item.Name != "github" {
+		t.Fatalf("sync body %s", raw)
 	}
 }
 

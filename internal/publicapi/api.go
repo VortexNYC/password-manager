@@ -126,6 +126,20 @@ type FillPasskeysResponse struct {
 	Response json.RawMessage `json:"response"`
 }
 
+type FillSyncRequest struct {
+	Since string `json:"since,omitempty"`
+}
+
+type FillSyncItem struct {
+	Item     protocol.Item `json:"item"`
+	Material string        `json:"material"`
+}
+
+type FillSyncResponse struct {
+	Items  []FillSyncItem `json:"items"`
+	Cursor string         `json:"cursor"`
+}
+
 type Server struct {
 	App      *app.App
 	Identity func(ctx context.Context, token string) (protocol.Principal, error)
@@ -152,6 +166,7 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/fill/totp", s.fillTOTP)
 	mux.HandleFunc("POST /v1/fill/passkeys/register", s.fillPasskeyRegister)
 	mux.HandleFunc("POST /v1/fill/passkeys/get", s.fillPasskeyGet)
+	mux.HandleFunc("POST /v1/fill/sync", s.fillSync)
 }
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
@@ -451,6 +466,30 @@ func (s *Server) fillTOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, FillTOTPResponse{TOTP: code})
+}
+
+func (s *Server) fillSync(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return
+	}
+	var in FillSyncRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil && err != io.EOF {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+	}
+	rows, cursor, err := s.App.FillSync(p, in.Since)
+	if err != nil {
+		http.Error(w, "fill failed", http.StatusBadRequest)
+		return
+	}
+	items := make([]FillSyncItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, FillSyncItem{Item: row.Item, Material: string(row.Material)})
+	}
+	writeJSON(w, FillSyncResponse{Items: items, Cursor: cursor})
 }
 
 func (s *Server) fillPasskeyRegister(w http.ResponseWriter, r *http.Request) {

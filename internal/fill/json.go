@@ -48,6 +48,9 @@ func (h *Host) handleJSON(raw []byte) []byte {
 	}
 	switch in.Action {
 	case "ping":
+		if h.Replica != nil {
+			_ = h.PullReplica()
+		}
 		h.ensureIndex()
 		out := struct {
 			Version string `json:"version"`
@@ -158,6 +161,11 @@ func (h *Host) jsonFill(rawURL, uuid string) []jsonFillEntry {
 }
 
 func (h *Host) unlockJSONFill(uuid string, mintTotp bool) (app.FillEntry, bool) {
+	if h.replicaWarm() {
+		if got, ok := h.replicaFill(uuid, mintTotp); ok {
+			return got, true
+		}
+	}
 	if h.Origin != "" {
 		payload, err := json.Marshal(struct {
 			UUID     string `json:"uuid"`
@@ -209,6 +217,8 @@ func (h *Host) invalidateIndex() {
 func (h *Host) reloadIndex() {
 	var items []protocol.Item
 	switch {
+	case h.replicaWarm():
+		items = h.Replica.Items()
 	case h.Origin != "":
 		raw, err := h.originGET("/v1/items")
 		if err != nil {

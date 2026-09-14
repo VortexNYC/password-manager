@@ -88,3 +88,13 @@ func TestGenerateSourceDoesNotSlugHostIntoInfisicalID(t *testing.T) {
 		t.Fatal("generate must save the host as the item name")
 	}
 }
+
+func TestReplicaSourceDoesNotUseDeviceKeyOrPlainSqlite(t *testing.T) {
+	src, err := os.ReadFile("replica.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(src, []byte("device.key")) || bytes.Contains(src, []byte("OpenOrInit")) || bytes.Contains(src, []byte("OpenReplica")) {
+		t.Fatal("replica is a sealed box; device.key sqlite is how agents steal the vault")
+	}
+}

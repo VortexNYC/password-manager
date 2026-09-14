@@ -554,6 +554,42 @@ func (a *App) FillLogin(p protocol.Principal, uuid string, mintTotp bool) (FillE
 	return e, nil
 }
 
+// FillSyncRow is one replica pull record. Material is the envelope JSON.
+// Not protocol.Item. Not MCP. Not OpenAPI.
+type FillSyncRow struct {
+	Item     protocol.Item
+	Material []byte
+}
+
+// FillSync is the replica pull. Human only. since is reserved; this cut is a full pull.
+func (a *App) FillSync(p protocol.Principal, since string) ([]FillSyncRow, string, error) {
+	_ = since
+	if p.Kind != protocol.PrincipalHuman {
+		return nil, "", fmt.Errorf("app: fill is human")
+	}
+	items, err := a.ItemsForPrincipal(p)
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]FillSyncRow, 0, len(items))
+	for _, item := range items {
+		if item.Archived {
+			continue
+		}
+		switch item.Kind {
+		case protocol.ItemAPIKey, protocol.ItemPasskey:
+		default:
+			continue
+		}
+		sec, err := a.Store.Secret(item.ID)
+		if err != nil {
+			continue
+		}
+		out = append(out, FillSyncRow{Item: item, Material: []byte(sec)})
+	}
+	return out, time.Now().UTC().Format(time.RFC3339), nil
+}
+
 func (a *App) fillEntry(item protocol.Item) (FillEntry, bool) {
 	e, _, ok := a.unlockFill(item)
 	return e, ok

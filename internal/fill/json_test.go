@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/publicapi"
+	"github.com/vortexnyc/password-manager/internal/replica"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
 
@@ -215,6 +217,70 @@ func TestJSONFillConfirmDeniedDoesNotCallOrigin(t *testing.T) {
 	}
 	if fills.Load() != 0 {
 		t.Fatalf("origin fill after cancel %d", fills.Load())
+	}
+}
+
+func TestJSONReplicaFillDoesNotCallOriginAndHidesDisk(t *testing.T) {
+	const login = "ada@example.com"
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	srv := originAPI(t, a)
+	code, raw := originJSON(t, srv, http.MethodPost, "/v1/items", "human", publicapi.CreateItemRequest{
+		Name: "github", URI: "https://github.com", Secret: secret, Login: login,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	var fills atomic.Int32
+	inner := srv.Config.Handler
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/fill/logins" {
+			fills.Add(1)
+		}
+		inner.ServeHTTP(w, r)
+	})
+	dir := t.TempDir()
+	key, err := replica.Unlock(replica.Mem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := replica.Open(replica.Path(dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := allowConfirm(NewOrigin(dir, srv.URL, "human"))
+	h.Replica = box
+	if err := h.PullReplica(); err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := os.ReadFile(replica.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(onDisk, []byte(secret)) || bytes.Contains(onDisk, []byte("github.com")) || bytes.Contains(onDisk, []byte(login)) {
+		t.Fatal("replica.box is not fully encrypted")
+	}
+	srv.Close()
+	h.Origin = "http://127.0.0.1:1"
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://github.com/login", "uuid": "github"})
+	var out struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil || len(out.Entries) != 1 || out.Entries[0].Password != secret || out.Entries[0].Login != login {
+		t.Fatalf("airplane fill %s", got)
+	}
+	if fills.Load() != 0 {
+		t.Fatalf("fill used origin %d", fills.Load())
+	}
+	deny := NewOrigin(dir, "http://127.0.0.1:1", "human")
+	deny.Replica = box
+	deny.Confirm = func(string) error { return errors.New("denied") }
+	denied := jsonHandle(t, deny, map[string]string{"action": "fill", "url": "https://github.com/login", "uuid": "github"})
+	if scrub.Contains(denied, []byte(secret)) {
+		t.Fatal("cancel returned password")
 	}
 }
 

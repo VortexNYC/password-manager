@@ -651,7 +651,7 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
-Next: replica (docs/fill.md increment 7) for airplane fill. Chrome JSON fill, generate, and passkeys are CFT + branded proven. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Firefox / Safari still later on this slice. Do not start 32.
+Next: replica (docs/fill.md increment 7) for airplane fill. The local box is fully sealed; the wrapping key is Keychain, not `device.key`. Chrome JSON fill, generate, and passkeys are CFT + branded proven. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Firefox / Safari still later on this slice. Do not start 32.
 
 ## Testing
 

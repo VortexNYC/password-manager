@@ -166,7 +166,7 @@ One initiative. Modules a later agent can cut without rewriting the others.
 | `confirm` | Touch ID before a secret leaves. 30s reuse. Global until cards. Then per registrable domain / app id. CVV never reuses. Cancel fail-closed. | — |
 | `origin-fill` | Human Bearer only. Until replica: extend `POST /v1/fill/logins` with `uuid` + `mintTotp` so 37 decrypts **one** item. After replica: that call is unused; fill is local. kpxc URL form stays until we kill that listing. `POST /v1/fill/sync` is the replica pipe. Not OpenAPI. Not MCP. | `kinds` |
 | `index` | RAM metadata on the host. One `GET /v1/items` at start / remint. `match` reads this. Dies with the process. Not a replica. | `origin-fill` |
-| `replica` | Local sqlite next to `fill.json`. Existing `store.SQLite` + `device.key`. Replaces RAM for match. Fill is local. Origin is sync + create. Queue pushes. | `origin-fill`, `confirm`, `index` |
+| `replica` | Sealed box next to `fill.json` (`replica.box`). XChaCha20-Poly1305 of the **whole** catalog + material. Wrapping key is 256-bit random in macOS Keychain (`WhenUnlockedThisDeviceOnly`, fill-host ACL). Not `device.key`. Not plaintext sqlite names/URIs. Replaces RAM for match after unlock. Fill is local. Origin is sync + create. | `origin-fill`, `confirm`, `index` |
 | `session` | Fill session on the **host process**: `(tabId, url at start, uuid?, write)`. Survives MV3 worker death. Never submit. | `host-json`, `confirm` |
 | `extension` | Thin MV3. Background holds the port, re-reads `tab.url`, runs `match` on navigation. Content writes fields. Content never talks to the host or origin. | `host-json`, `session` |
 | `safari` | Containing `.app` + original Swift handler that forwards the same JSON to the same Go process. | `host-json` |
@@ -194,8 +194,8 @@ What is **wrong** for 37, in this tree, today:
 2. kpxc `FillLogins` skips `!Injects()`, so cards/identities/passkeys would never fill through that function. Cards wait for increment 8.
 3. Old items created before `Item.Login` have an empty login until updated. Empty is honest. Do not decrypt the vault to backfill.
 4. Login in the host JSON is not a stored kind — website passwords are `api_key` with a URI. Leave that. Do not add `ItemLogin` until a real bug forces it. The chooser labels them `login`.
-5. Origin master lives on Railway. The laptop fill host today gets **plaintext over TLS**, then forgets it. There is no replica yet.
-6. There is no MV3 yet. Native host JSON is proven against a fake origin, not Chrome.
+5. Live origin has no `POST /v1/fill/sync` until this SHA deploys. After that the laptop holds `replica.box` (sealed catalog) and the Keychain key. Copying the box without Keychain is useless.
+6. kpxc listing is still installed nowhere; leave it dead. Do not `fill install` against production `fill.json`.
 
 ### Processes
 
@@ -204,14 +204,15 @@ page
   ↑ content script (fields only, values this session, then drop)
 extension background (port, tab.url, chooser UI, no secrets at rest)
   ↑ uint32-LE JSON, host name nyc.veil.fill
-Go host  (Touch ID, session, RAM index, remint; replica later)
-  ↑ TLS + human Bearer, only when fill/sync/generate needs origin
+Go host  (Touch ID, session, Keychain replica key, remint)
+  ↑ replica.box (sealed catalog + material; not device.key)
+  ↑ TLS + human Bearer, only when sync/generate needs origin
 origin   (source of truth)
 ```
 
 Cloud agents / MCP / `https://veil.nyc/mcp` are not on this diagram. They already have inject. They never call `/v1/fill/*`.
 
-The replica sqlite is not a product vault. CLI `openApp` still errors when `PWM_ORIGIN` is set. The only readers are the fill host (`fill.OpenReplica`) and, when origin is unreachable on this laptop, `--inject` as SPEC already says. MCP does not open it.
+The replica is not a product vault and not `store.SQLite` with a `device.key` beside it. That is a key-on-disk; an agent who can read the home directory decrypts instantly. CLI `openApp` still errors when `PWM_ORIGIN` is set. MCP does not open the box. The only reader is the fill host, after Keychain unwrap. Stolen `replica.box` is ciphertext with a key that is not a password — there is nothing to brute-force.
 
 ### Decrypt boundary
 
@@ -229,9 +230,9 @@ Online fill before replica: origin, one uuid. After replica: local, then backgro
 
 Origin stays the source of truth. Airplane mode is a requirement.
 
-**What we will not do:** copy origin’s master onto the laptop so replica bytes equal Railway bytes. That makes every Mac a copy of the server key. Device pairing already wraps *this machine’s* master. Leave origin’s master on origin.
+**What we will not do:** copy origin’s master onto the laptop so replica bytes equal Railway bytes. Leave a `device.key` (or any unwrap key) next to the ciphertext. Leave names, URIs, logins, or material in plaintext sqlite columns. That is not how 1Password or Bitwarden store a locked vault, and it is how an agent brute-forces nothing because they already have the key.
 
-**What we will do:** the fill host keeps a `store.SQLite` sealed with the local owner DEK, local master unwrapped by `device.key`. Pull copies **item records + material** over TLS (human Bearer), then `PutItem` locally — same IDs, same envelope, **local** AEAD. Push sends queued mutations to origin the way `POST /v1/items` already works; origin re-seals on its side. Conflict: origin `item_versions`, last write wins, keep the previous blob. Not a CRDT.
+**What we will do:** one `replica.box`, `crypto.Seal` of the entire catalog + envelope JSON. Wrapping key is random 32 bytes in the platform credential store (macOS Keychain, this-device, trusted fill host only). Unlock is in-process memory. Pull copies **item records + material** over TLS (human Bearer), then re-seals the box. Same item IDs. Origin’s master stays on origin. Push queued mutations later. Conflict: origin `item_versions`, last write wins. Not a CRDT.
 
 `POST /v1/fill/sync` is the one new origin path. Human only. Not OpenAPI. Not MCP. `{ since }` cursor in, `{ items: [{item, material}], cursor }` out. Material is the envelope JSON (password, seed, PAN) on this TLS call — the same trust as today’s `fill/logins`. The host seals before the bytes hit disk. Incremental. First pairing of a new device is a full pull, online.
 
@@ -533,7 +534,7 @@ Each step leaves the tree working. Tests before the next file. Do not scaffold J
 4. **Written + CFT-proven with Touch ID. Branded approve and Cancel proven 2026-09-14.** Thin MV3 in `apps/fill`: hold the port, `match` on nav, choose + execute, write fields, `Cmd+Shift+Period` (`chrome.commands` `fill`; remap to `Cmd-\` in chrome://extensions/shortcuts). Host JSON `need_login` on dead JWT. Chrome 154 branded ignores `--load-extension`. CFT headed fill/passkey/generate/webauthn.io with Touch ID on. `TestChromeExtensionFillCancel`: chromedp Click `#user`, System Events Cancel on the Chrome for Testing sheet (not branded "Google Chrome"), `fill-debug` `confirm denied`, password empty. Copy host SHA over `~/.password-manager/native-host` — do not `fill install` (it rewrites production `fill.json`). Branded vortex.nyc Profile 2: chooser `cloudflare-login` → LocalAuthentication → `confirm ok` (not `skipped`/`reuse`) → password written. Same page, Cancel → `confirm denied` 14:52:53 (six denies, no reuse), Password AX `len=0`. Finger is approve; Cancel is deny. 1Password still races the page. Branded soak is human pointer or AXPress/AXSetValue. Do not `agent-cu click --x --y` on daily Profile 2 (Spaces lie). Agents never `POST /v1/fill/logins`. Do not `Runtime.evaluate` `fillTab`. Do not set `HOME` to a tempdir.
 5. **Written + CFT-proven with Touch ID. Branded passkeyCreate UV proven 2026-09-14.** `passkeyCreate` / `passkeyGet` on `nyc.veil.fill`. Confirm before origin. Cancel fail-closed. UV flag only after that confirm — `userVerification=discouraged` is not a skip. Content intercepts `navigator.credentials.create/get` at `document_start` in MAIN world. CFT 2026-09-14: fixture create+get and `webauthn.io/?regUserVerification=required&authUserVerification=required` register→`/profile` via chromedp Click `#register-button`. Branded: Shlomo clicked navy Register; `action=passkeyCreate` 14:48:31 then `confirm ok` 14:48:33 (~2s, not skipped/reuse). AXPress does not invoke `credentials.create`. Do not `Runtime.evaluate` create.
 6. **Written + CFT-proven with Touch ID. Branded generate proven 2026-09-14.** `generate` on `nyc.veil.fill`. Confirm before mint and `POST /v1/items`. Cancel fail-closed. Existing login match is choose only. Chooser name is the host. `auto()` reads `data-autocomplete` (GitLab signup has no `autocomplete` IDL). CFT: `#pass` on `generate-fixture.html`. Branded: gitlab.com/users/sign_up, Suggest a password, `action=generate` then `confirm ok` ~2s. Do not submit GitLab. Throwaway origin item named as the host — delete it if it still exists (not in agent `list_items`). Live origin is still the 2026-09-11 broker until this SHA deploys.
-7. **Replica.** Local re-seal. Fill becomes local. Origin is sync + create. RAM index becomes a cache in front of sqlite, then dies. Prove airplane. Dead JWT + warm replica → fill, remint background. **STOP: fill on a plane.**
+7. **Replica. Written (local tests). Not live-origin until `/v1/fill/sync` deploys.** Sealed `replica.box` + Keychain key. `POST /v1/fill/sync` human only. Fill after pull does not call origin. Confirm still fail-closed. Airplane = copy the box, no key, no catalog. Do not `fill install`. **STOP: fill on a plane, after deploy.**
 8. **Cards + identities.** Confirm `scope`. CVV never reuses. Never submit. Then Firefox.
 9. Safari `.app` + original Swift. Same JSON.
 10. Slice 32 Mac AutoFill.
