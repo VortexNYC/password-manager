@@ -220,8 +220,11 @@ The next slices, in this order, and nothing else until each is proven:
                          Revisit then: Secret Service (store, not fill),
                          Auto-Type / portals, whatever shipped since.
                          Do not assume a Freedesktop Autofill portal.
-37 Veil browser extension not written. next. Chrome / Edge /
-                         Firefox / Safari Web Extension. Thin client.
+37 Veil browser extension Chrome MV3 written+proven 2026-09-14
+                         (CFT + branded vortex.nyc: fill approve/Cancel,
+                         generate, passkeyCreate UV). Firefox / Safari
+                         Web Extension not written. Replica next
+                         (docs/fill.md increment 7). Thin client.
                          Design: docs/fill.md. Two modes: choose
                          (click field, pick a match) and execute
                          (trusted focus, unambiguous, write the
@@ -231,7 +234,7 @@ The next slices, in this order, and nothing else until each is proven:
                          ASCredentialProvider is still 32.
 ```
 
-Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. After KeePassXC-Browser fill is proven, next is slice 37 (thin WebExtension; origin does the work). Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Mac helper is slice 32 later (native-app AutoFill, not the Safari extension). Phone is slices 33–34 (add + fill). Windows/Linux helpers are 35–36 and re-check the OS APIs on that slice, not now. Do not wrap the SPA in Native SDK / Tauri / Electron.
+Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Next on 37 is replica (docs/fill.md increment 7), then Firefox / Safari. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Mac helper is slice 32 later (native-app AutoFill, not the Safari extension). Phone is slices 33–34 (add + fill). Windows/Linux helpers are 35–36 and re-check the OS APIs on that slice, not now. Do not wrap the SPA in Native SDK / Tauri / Electron.
 
 ## What the broker is
 
@@ -648,7 +651,7 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
-Next: Chrome JSON fill is proven (MV3 + headed CFT). `fill install` writes `nyc.veil.fill` only. Generate and passkeys are later. Replica next for airplane fill.
+Next: replica (docs/fill.md increment 7) for airplane fill. Chrome JSON fill, generate, and passkeys are CFT + branded proven. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Firefox / Safari still later on this slice. Do not start 32.
 
 ## Testing
 
