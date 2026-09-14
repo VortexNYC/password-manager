@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -51,19 +52,40 @@ func TestNilConfirmDoesNotReturnPassword(t *testing.T) {
 }
 
 func TestChromeProveSourceDoesNotDisableTouchID(t *testing.T) {
-	src, err := os.ReadFile("chrome_test.go")
+	for _, src := range chromeProveSources(t) {
+		if bytes.Contains(src, []byte("TouchID:")) {
+			t.Fatal("CFT prove wrote fill.json touch_id; Touch ID is the product, not a switch for green")
+		}
+		if bytes.Contains(src, []byte("PWM_FILL_TOUCHID=0")) {
+			t.Fatal("CFT prove disabled Touch ID on the Chrome process")
+		}
+		if bytes.Contains(src, []byte("envBin()")) {
+			t.Fatal("CFT prove used envBin; that forces PWM_FILL_TOUCHID=0. Use envProve")
+		}
+		if bytes.Contains(src, []byte("fillTab(")) || bytes.Contains(src, []byte("Runtime.evaluate")) {
+			t.Fatal("CFT prove filled via evaluate or fillTab; click the chooser")
+		}
+	}
+}
+
+func chromeProveSources(t *testing.T) [][]byte {
+	t.Helper()
+	hits, err := filepath.Glob("chrome*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(src, []byte("TouchID:")) {
-		t.Fatal("CFT prove wrote fill.json touch_id; Touch ID is the product, not a switch for green")
+	if len(hits) == 0 {
+		t.Fatal("no chrome sources")
 	}
-	if bytes.Contains(src, []byte("PWM_FILL_TOUCHID=0")) {
-		t.Fatal("CFT prove disabled Touch ID on the Chrome process")
+	var out [][]byte
+	for _, p := range hits {
+		src, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, src)
 	}
-	if bytes.Contains(src, []byte("envBin()")) {
-		t.Fatal("CFT prove used envBin; that forces PWM_FILL_TOUCHID=0. Use envProve")
-	}
+	return out
 }
 
 func TestChromeProveSourceDoesNotDiscourageUV(t *testing.T) {

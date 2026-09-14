@@ -790,3 +790,64 @@ func TestReplicaFillRejectsIdentityKind(t *testing.T) {
 		t.Fatal("identity as password")
 	}
 }
+
+func TestJSONCardFillFromOriginWithoutReplica(t *testing.T) {
+	const pan = "4111111111111111"
+	const cvv = "123"
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	blob, err := material.PackCard(pan, "12", "2030", cvv, "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(app.ItemOpts{Name: "amex", Kind: protocol.ItemCard, Token: blob}); err != nil {
+		t.Fatal(err)
+	}
+	srv := originAPI(t, a)
+	h := allowConfirm(NewOrigin(t.TempDir(), srv.URL, "human"))
+	if h.Replica != nil {
+		t.Fatal("fixture must leave replica nil")
+	}
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://www.amazon.com/checkout", "uuid": "amex"})
+	var out struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil || len(out.Entries) != 1 {
+		t.Fatalf("origin card fill %s", got)
+	}
+	e := out.Entries[0]
+	if e.Kind != "card" || e.Number != pan || e.CVV != cvv || e.ExpMonth != "12" {
+		t.Fatalf("origin card entry %+v", e)
+	}
+}
+
+func TestJSONIdentityFillFromOriginWithoutReplica(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "London", "", "SW1", "GB", "+44")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(app.ItemOpts{Name: "home", Kind: protocol.ItemIdentity, Token: blob}); err != nil {
+		t.Fatal(err)
+	}
+	srv := originAPI(t, a)
+	h := allowConfirm(NewOrigin(t.TempDir(), srv.URL, "human"))
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://store.example/checkout", "uuid": "home"})
+	var out struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil || len(out.Entries) != 1 {
+		t.Fatalf("origin identity fill %s", got)
+	}
+	e := out.Entries[0]
+	if e.Kind != "identity" || e.GivenName != "Ada" || e.Address != "1 Street" || e.Phone != "+44" || e.Number != "" {
+		t.Fatalf("origin identity entry %+v", e)
+	}
+}

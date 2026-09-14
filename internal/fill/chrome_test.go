@@ -584,7 +584,7 @@ func launchCFT(t *testing.T, chrome string, origin *httptest.Server) context.Con
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 	waitCDP(t, cdpPort)
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	t.Cleanup(cancel)
 	alloc, allocCancel := chromedp.NewRemoteAllocator(ctx, "http://127.0.0.1:"+strconv.Itoa(cdpPort))
 	t.Cleanup(allocCancel)

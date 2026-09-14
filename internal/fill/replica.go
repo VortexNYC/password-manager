@@ -106,5 +106,26 @@ func (h *Host) fillEnvelope(uuid string) (protocol.Item, material.Envelope, bool
 		}
 		return item, material.Unpack([]byte(sec)), true
 	}
+	return h.originEnvelope(uuid)
+}
+
+func (h *Host) originEnvelope(uuid string) (protocol.Item, material.Envelope, bool) {
+	if h.Origin == "" || uuid == "" {
+		return protocol.Item{}, material.Envelope{}, false
+	}
+	raw, err := h.originPOST("/v1/fill/sync", []byte("{}"))
+	if err != nil {
+		return protocol.Item{}, material.Envelope{}, false
+	}
+	var out publicapi.FillSyncResponse
+	if json.Unmarshal(raw, &out) != nil {
+		return protocol.Item{}, material.Envelope{}, false
+	}
+	for _, row := range out.Items {
+		if row.Item.ID != uuid {
+			continue
+		}
+		return row.Item, material.Unpack([]byte(row.Material)), true
+	}
 	return protocol.Item{}, material.Envelope{}, false
 }

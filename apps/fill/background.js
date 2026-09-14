@@ -229,6 +229,27 @@ async function activeTab() {
   return tabs[0] || null;
 }
 
+async function fillTargetTab() {
+  const active = await activeTab();
+  if (active && usable(active.url)) {
+    return active;
+  }
+  const tabs = await chrome.tabs.query({});
+  let http = null;
+  for (let i = 0; i < tabs.length; i++) {
+    if (!usable(tabs[i].url)) {
+      continue;
+    }
+    if (tabs[i].active) {
+      return tabs[i];
+    }
+    if (!http) {
+      http = tabs[i];
+    }
+  }
+  return http;
+}
+
 chrome.runtime.onInstalled.addListener(function () {
   ping().catch(function () {});
 });
@@ -302,7 +323,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return;
   }
   if (msg.type === "popup-list") {
-    activeTab().then(function (tab) {
+    fillTargetTab().then(function (tab) {
       if (!tab || !usable(tab.url)) {
         sendResponse({ entries: [], url: "" });
         return;
