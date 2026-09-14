@@ -31,10 +31,13 @@ type jsonFillEntry struct {
 
 func (h *Host) handleJSON(raw []byte) []byte {
 	var in struct {
-		Action string `json:"action"`
-		URL    string `json:"url"`
-		App    string `json:"app"`
-		UUID   string `json:"uuid"`
+		Action         string          `json:"action"`
+		URL            string          `json:"url"`
+		App            string          `json:"app"`
+		UUID           string          `json:"uuid"`
+		Origin         string          `json:"origin"`
+		PublicKey      json.RawMessage `json:"publicKey"`
+		RelatedOrigins []string        `json:"relatedOrigins"`
 	}
 	if json.Unmarshal(raw, &in) != nil {
 		return jsonFillReply(nil, "")
@@ -61,6 +64,10 @@ func (h *Host) handleJSON(raw []byte) []byte {
 			err = "need_login"
 		}
 		return jsonFillReply(entries, err)
+	case "passkeyCreate":
+		return h.jsonPasskeyCreate(in.Origin, in.PublicKey, in.RelatedOrigins)
+	case "passkeyGet":
+		return h.jsonPasskeyGet(in.Origin, in.PublicKey)
 	default:
 		return jsonFillReply(nil, "")
 	}
@@ -248,6 +255,50 @@ func matchEntry(item protocol.Item) jsonMatchEntry {
 		HasPasskey: hasPasskey,
 		SavedFor:   saved,
 	}
+}
+
+func (h *Host) jsonPasskeyCreate(origin string, publicKey json.RawMessage, extra []string) []byte {
+	origin = strings.TrimSpace(origin)
+	if origin == "" || len(publicKey) == 0 {
+		return jsonPasskeyErr("failed")
+	}
+	if err := h.confirm("Veil wants to save a passkey"); err != nil {
+		return jsonPasskeyErr("canceled")
+	}
+	return jsonPasskeyFromHost(h.passkeysRegister(origin, publicKey, extra))
+}
+
+func (h *Host) jsonPasskeyGet(origin string, publicKey json.RawMessage) []byte {
+	origin = strings.TrimSpace(origin)
+	if origin == "" || len(publicKey) == 0 {
+		return jsonPasskeyErr("failed")
+	}
+	if err := h.confirm("Veil wants to use a passkey"); err != nil {
+		return jsonPasskeyErr("canceled")
+	}
+	return jsonPasskeyFromHost(h.passkeysGet(origin, publicKey))
+}
+
+func jsonPasskeyFromHost(raw []byte) []byte {
+	var r passkeyReply
+	if json.Unmarshal(raw, &r) != nil || r.Success != "true" || len(r.Response) == 0 {
+		return jsonPasskeyErr("failed")
+	}
+	var inner struct {
+		ErrorCode int `json:"errorCode"`
+	}
+	if json.Unmarshal(r.Response, &inner) == nil && inner.ErrorCode != 0 {
+		return jsonPasskeyErr("failed")
+	}
+	return jsonBytes(struct {
+		Response json.RawMessage `json:"response"`
+	}{Response: r.Response})
+}
+
+func jsonPasskeyErr(err string) []byte {
+	return jsonBytes(struct {
+		Error string `json:"error"`
+	}{Error: err})
 }
 
 func jsonBytes(v any) []byte {

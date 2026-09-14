@@ -10,6 +10,14 @@ function usable(url) {
   return typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"));
 }
 
+function pageOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch (_err) {
+    return "";
+  }
+}
+
 function connect() {
   if (port) {
     return;
@@ -30,8 +38,9 @@ function connect() {
   });
 }
 
-function hostSend(msg) {
+function hostSend(msg, timeoutMs) {
   connect();
+  const ms = timeoutMs || 8000;
   return new Promise(function (resolve, reject) {
     if (!port) {
       reject(new Error("no host"));
@@ -60,7 +69,7 @@ function hostSend(msg) {
         waiters.splice(i, 1);
       }
       wait.reject(new Error("host timeout"));
-    }, 8000);
+    }, ms);
     waiters.push(wait);
     try {
       port.postMessage(msg);
@@ -145,7 +154,7 @@ async function fillTab(tabId, url, uuid) {
   if (uuid) {
     body.uuid = uuid;
   }
-  const msg = await hostSend(body);
+  const msg = await hostSend(body, 90000);
   if (needLogin(msg)) {
     openLogin();
     return { ok: false, error: "need_login" };
@@ -231,7 +240,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!tab || !usable(url)) {
       return;
     }
-    executeTab(tab.id, url).then(function () {}, function () {});
+    executeTab(tab.id, url).then(function (got) {
+      if (got && got.error === "choose") {
+        chrome.action.openPopup().catch(function () {});
+      }
+    }, function () {});
     return;
   }
   if (msg.type === "popup-list") {
@@ -250,6 +263,31 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     fillTab(msg.tabId, msg.url, msg.uuid).then(function (got) {
       sendResponse(got);
     });
+    return true;
+  }
+  if (msg.type === "passkeyCreate" || msg.type === "passkeyGet") {
+    const tab = sender.tab;
+    const url = tab && (tab.url || tab.pendingUrl);
+    if (!tab || !usable(url) || msg.origin !== pageOrigin(url)) {
+      sendResponse({ error: "failed" });
+      return true;
+    }
+    const req = {
+      action: msg.type,
+      origin: msg.origin,
+      publicKey: msg.publicKey,
+    };
+    if (msg.type === "passkeyCreate" && msg.relatedOrigins) {
+      req.relatedOrigins = msg.relatedOrigins;
+    }
+    hostSend(req, 90000).then(
+      function (got) {
+        sendResponse(got || { error: "failed" });
+      },
+      function () {
+        sendResponse({ error: "failed" });
+      },
+    );
     return true;
   }
 });

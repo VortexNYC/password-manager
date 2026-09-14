@@ -268,3 +268,168 @@ func TestJSONNeedLoginOnDeadJWT(t *testing.T) {
 		t.Fatalf("fill %s", got)
 	}
 }
+
+func TestJSONPasskeysAgainstFakeOrigin(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	srv := originAPI(t, a)
+	var registers, gets atomic.Int32
+	inner := srv.Config.Handler
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/fill/passkeys/register" {
+			registers.Add(1)
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/fill/passkeys/get" {
+			gets.Add(1)
+		}
+		inner.ServeHTTP(w, r)
+	})
+
+	h := NewOrigin(t.TempDir(), srv.URL, "human")
+	nConfirm := 0
+	h.Confirm = func(string) error { nConfirm++; return nil }
+
+	empty := jsonHandle(t, h, map[string]string{"action": "passkeyCreate"})
+	var fail struct {
+		Error    string          `json:"error"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(empty, &fail); err != nil || fail.Error != "failed" || len(fail.Response) != 0 {
+		t.Fatalf("empty create %s", empty)
+	}
+	if registers.Load() != 0 || nConfirm != 0 {
+		t.Fatalf("empty create hit origin registers=%d confirm=%d", registers.Load(), nConfirm)
+	}
+
+	h.Confirm = func(string) error { return errors.New("no") }
+	denied := jsonHandle(t, h, map[string]any{
+		"action": "passkeyCreate",
+		"origin": "https://github.com",
+		"publicKey": map[string]any{
+			"challenge": "dGVzdGNoYWxsZW5nZQ",
+			"rp":        map[string]string{"id": "github.com", "name": "GitHub"},
+			"user":      map[string]string{"id": "dXNlcg", "name": "ada", "displayName": "Ada"},
+			"pubKeyCredParams": []map[string]any{
+				{"type": "public-key", "alg": -7},
+			},
+		},
+	})
+	if err := json.Unmarshal(denied, &fail); err != nil || fail.Error != "canceled" {
+		t.Fatalf("denied %s", denied)
+	}
+	if registers.Load() != 0 {
+		t.Fatalf("denied called origin")
+	}
+
+	h.Confirm = func(string) error { nConfirm++; return nil }
+	created := jsonHandle(t, h, map[string]any{
+		"action": "passkeyCreate",
+		"origin": "https://github.com",
+		"publicKey": map[string]any{
+			"challenge": "dGVzdGNoYWxsZW5nZQ",
+			"rp":        map[string]string{"id": "github.com", "name": "GitHub"},
+			"user":      map[string]string{"id": "dXNlcg", "name": "ada", "displayName": "Ada"},
+			"pubKeyCredParams": []map[string]any{
+				{"type": "public-key", "alg": -7},
+			},
+		},
+	})
+	if scrub.Contains(created, []byte("BEGIN")) {
+		t.Fatalf("create leaked pem: %s", created)
+	}
+	var out struct {
+		Error    string          `json:"error"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(created, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Error != "" {
+		t.Fatalf("create %s", created)
+	}
+	var cred struct {
+		ID       string `json:"id"`
+		Response struct {
+			AttestationObject string `json:"attestationObject"`
+			Signature         string `json:"signature"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(out.Response, &cred); err != nil {
+		t.Fatal(err)
+	}
+	if cred.ID == "" || cred.Response.AttestationObject == "" {
+		t.Fatalf("create response %s", out.Response)
+	}
+	if registers.Load() != 1 || nConfirm != 1 {
+		t.Fatalf("create origin=%d confirm=%d", registers.Load(), nConfirm)
+	}
+
+	got := jsonHandle(t, h, map[string]any{
+		"action": "passkeyGet",
+		"origin": "https://github.com",
+		"publicKey": map[string]any{
+			"challenge": "Z2V0Y2hhbGxlbmdlMTIz",
+			"rpId":      "github.com",
+			"allowCredentials": []map[string]string{
+				{"id": cred.ID, "type": "public-key"},
+			},
+		},
+	})
+	if scrub.Contains(got, []byte("BEGIN")) {
+		t.Fatalf("get leaked pem: %s", got)
+	}
+	if err := json.Unmarshal(got, &out); err != nil || out.Error != "" {
+		t.Fatalf("get %s", got)
+	}
+	if err := json.Unmarshal(out.Response, &cred); err != nil {
+		t.Fatal(err)
+	}
+	if cred.Response.Signature == "" {
+		t.Fatalf("get response %s", out.Response)
+	}
+	if gets.Load() != 1 {
+		t.Fatalf("get origin=%d", gets.Load())
+	}
+	if nConfirm != 1 {
+		t.Fatalf("30s reuse confirmed %d times", nConfirm)
+	}
+}
+
+func TestJSONPasskeyGetConfirmDeniedDoesNotCallOrigin(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	srv := originAPI(t, a)
+	var gets atomic.Int32
+	inner := srv.Config.Handler
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/fill/passkeys/get" {
+			gets.Add(1)
+		}
+		inner.ServeHTTP(w, r)
+	})
+	h := NewOrigin(t.TempDir(), srv.URL, "human")
+	h.Confirm = func(string) error { return errors.New("no") }
+	got := jsonHandle(t, h, map[string]any{
+		"action": "passkeyGet",
+		"origin": "https://github.com",
+		"publicKey": map[string]any{
+			"challenge": "Z2V0Y2hhbGxlbmdlMTIz",
+			"rpId":      "github.com",
+		},
+	})
+	var fail struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(got, &fail); err != nil || fail.Error != "canceled" {
+		t.Fatalf("denied get %s", got)
+	}
+	if gets.Load() != 0 {
+		t.Fatalf("denied get called origin %d", gets.Load())
+	}
+}

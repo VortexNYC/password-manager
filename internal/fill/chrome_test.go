@@ -139,6 +139,119 @@ func TestChromeExtensionFill(t *testing.T) {
 	t.Fatalf("fields user_len=%d pass_len=%d", len(user), len(pass))
 }
 
+func TestChromeExtensionPasskey(t *testing.T) {
+	if os.Getenv("PWM_PROVE_CHROME") != "1" {
+		t.Skip("PWM_PROVE_CHROME=1")
+	}
+	chrome := chromeForTesting(t)
+	if chrome == "" {
+		t.Skip("Chrome for Testing not installed (branded Chrome ignores --load-extension)")
+	}
+
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	origin := originAPI(t, a)
+
+	page := httptest.NewServer(http.FileServer(http.Dir(filepath.Join(repoRoot(t), "apps/fill"))))
+	t.Cleanup(page.Close)
+	pageURL := strings.TrimRight(page.URL, "/") + "/passkey-fixture.html"
+
+	userHome := t.TempDir()
+	vault := t.TempDir()
+	bin := buildPWM(t)
+	off := false
+	tok := filepath.Join(vault, "human.jwt")
+	if err := os.WriteFile(tok, []byte("human\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallOrigin(InstallEnv{Bin: bin, VaultHome: vault, UserHome: userHome, Origin: origin.URL}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteHostConfig(vault, HostConfig{
+		Origin:    origin.URL,
+		Home:      vault,
+		TokenFile: tok,
+		TouchID:   &off,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hostBin := HostPath(vault)
+	profile := t.TempDir()
+	if err := seedProfileHost(profile, hostBin); err != nil {
+		t.Fatal(err)
+	}
+	installCFTHost(t, hostBin)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdpPort := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	cmd := exec.Command(chrome,
+		"--user-data-dir="+profile,
+		"--load-extension="+filepath.Join(repoRoot(t), "apps/fill"),
+		"--disable-extensions-except="+filepath.Join(repoRoot(t), "apps/fill"),
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-sync",
+		"--disable-features=SafeBrowsingEnhancedProtection,Translate,MediaRouter",
+		"--window-size=800,600",
+		"--remote-debugging-port="+strconv.Itoa(cdpPort),
+		"--remote-debugging-address=127.0.0.1",
+		"--remote-allow-origins=*",
+		"about:blank",
+	)
+	cmd.Env = append(envBin(), "PWM_FILL_TOUCHID=0")
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+
+	waitCDP(t, cdpPort)
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	alloc, allocCancel := chromedp.NewRemoteAllocator(ctx, "http://127.0.0.1:"+strconv.Itoa(cdpPort))
+	defer allocCancel()
+	task, taskCancel := chromedp.NewContext(alloc)
+	defer taskCancel()
+
+	if err := chromedp.Run(task, chromedp.Navigate(pageURL)); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.WaitVisible("#register")); err != nil {
+		t.Fatalf("visible: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.Click("#register")); err != nil {
+		t.Fatalf("click: %v", err)
+	}
+	var status string
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := chromedp.Run(task, chromedp.Text("#status", &status)); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if strings.HasPrefix(status, "ok ") {
+			code, raw := originJSON(t, origin, http.MethodGet, "/v1/items", "human", nil)
+			if code != http.StatusOK || !strings.Contains(string(raw), `"kind":"passkey"`) {
+				t.Fatalf("origin items %d %s", code, raw)
+			}
+			return
+		}
+		if strings.HasPrefix(status, "err ") {
+			t.Fatalf("passkey %s", status)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("status %q", status)
+}
+
 func chromeForTesting(t *testing.T) string {
 	t.Helper()
 	if p := os.Getenv("PWM_CHROME"); p != "" {

@@ -631,8 +631,10 @@ internal/sshagent       x/crypto/ssh/agent. signs. key never leaves
 internal/socket         unix HTTP. Bearer JWT. laptop transport
 internal/workload       go-oidc verify; issuer+subject → agent
 internal/scrub          agent-visible redaction
-docs/                   spec + prior art + fill product
+docs/                   spec + prior art + fill product + the layer
 docs/fill.md            choose vs execute vs generate. browsers + OS. slice 37
+docs/layer.md           policy plane above Better Auth / Cloudflare Access.
+                        not an IdP. not a slice. do not scaffold from it.
 docs/openapi            the contract. CLI, MCP, SDKs, Blume /reference
 sdks/                   generated Go/TS/Python. never handwritten
 apps/docs               Blume. /reference consumes the spec
@@ -650,9 +652,12 @@ Next: Chrome JSON fill is proven (MV3 + headed CFT). `fill install` writes `nyc.
 
 ## Testing
 
-- `go test ./...` is the in-repo suite. It does not prove `https://veil.nyc`.
+- GitHub Actions runs `make ci`. That is the merge bar. A green `go test` with red lint, stale SDKs, or a broken vault typecheck is a lie.
+- `make ci` is: `sdk:generate` plus a dirty-tree check on `sdks/` and `internal/publicapi/spec.json`, `go vet`, `go test ./...` with agent/origin env unset and `PWM_FILL_TOUCHID=0` (so Chrome-launched host tests cannot inherit a laptop JWT), `vp lint`, login+vault typecheck, vault vitest, docs build. Fill `node --test` runs from Go (`TestFieldsJS`). It does not hit `https://veil.nyc`. It does not load Chrome.
+- `go test ./...` is the Go suite. It does not prove `https://veil.nyc`.
 - `make prove-identity` is local Docker Ory. It does not prove `veil.nyc`.
-- `make prove-live` is origin truth: `https://veil.nyc` and MCP. It mints a token, fails if GitHub/Linear/Firecrawl/Cloudflare Use is not allow/200, and fails if the secret appears in JSON. `make ci` does not run it.
+- `make prove-live` is origin truth: `https://veil.nyc` and MCP. It mints a token, fails if GitHub/Linear/Firecrawl/Cloudflare Use is not allow/200, and fails if the secret appears in JSON. `make ci` does not run it. Do not put it on GitHub.
+- Chrome for Testing (`PWM_PROVE_CHROME=1`) is a headed prove on a machine with Chrome. Ubuntu CI does not have that. Do not mock Touch ID or branded Chrome to paint a badge.
 - `GET /health` is process up. `GET /ready` is Hydra discovery. A green health with a dead issuer is a lie; prove-live checks ready.
 - Every Use/Approve path asserts the secret is absent from JSON of the result and of the audit log.
 - Prefer httptest and the memory store over mocks.

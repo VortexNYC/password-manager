@@ -149,6 +149,22 @@ func fillDebug(msg string) {
 }
 
 func (h *Host) Handle(raw []byte) []byte {
+	var peek struct {
+		Action  string `json:"action"`
+		Nonce   string `json:"nonce"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &peek) != nil {
+		fillDebug("bad json")
+		return []byte(`{"success":"false","error":"bad json"}`)
+	}
+	if peek.Nonce == "" && peek.Message == "" {
+		switch peek.Action {
+		case "ping", "match", "fill", "passkeyCreate", "passkeyGet":
+			fillDebug("action=" + peek.Action + " nonce=")
+			return h.handleJSON(raw)
+		}
+	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		fillDebug("bad json")
@@ -158,8 +174,6 @@ func (h *Host) Handle(raw []byte) []byte {
 	switch env.Action {
 	case "change-public-keys":
 		return h.changeKeys(env)
-	case "ping", "match", "fill":
-		return h.handleJSON(raw)
 	default:
 		if env.Nonce == "" && env.Message == "" {
 			return h.handleJSON(raw)

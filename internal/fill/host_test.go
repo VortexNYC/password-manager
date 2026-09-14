@@ -34,6 +34,22 @@ func TestNativeHostArgsBindsHomeToBinaryDir(t *testing.T) {
 	}
 }
 
+func TestNativeHostArgsStripsAgentShellEnv(t *testing.T) {
+	t.Setenv("PWM_FILL_TOUCHID", "0")
+	t.Setenv("PWM_AGENT", "cursor")
+	t.Setenv("PWM_OIDC_TOKEN_FILE", "/tmp/agent.jwt")
+	t.Setenv("PWM_OIDC_TOKEN", "no")
+	dir := t.TempDir()
+	bin := filepath.Join(dir, HostFile)
+	NativeHostArgs([]string{bin, JSONChromeOrigin()})
+	if os.Getenv("PWM_FILL_TOUCHID") != "" {
+		t.Fatal("PWM_FILL_TOUCHID leaked from the launching shell")
+	}
+	if os.Getenv("PWM_AGENT") != "" || os.Getenv("PWM_OIDC_TOKEN_FILE") != "" || os.Getenv("PWM_OIDC_TOKEN") != "" {
+		t.Fatal("agent env leaked into the native host")
+	}
+}
+
 func TestApplyHostConfigSetsBlankEnv(t *testing.T) {
 	dir := t.TempDir()
 	if err := WriteHostConfig(dir, HostConfig{Origin: "https://veil.nyc", Home: dir}); err != nil {

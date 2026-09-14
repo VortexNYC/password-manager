@@ -47,6 +47,11 @@ func NativeHostArgs(args []string) []string {
 			dir = abs
 		}
 		_ = os.Setenv("PWM_HOME", dir)
+		// Chrome inherits the launching shell. fill.json is the only switch.
+		_ = os.Unsetenv("PWM_FILL_TOUCHID")
+		_ = os.Unsetenv("PWM_AGENT")
+		_ = os.Unsetenv("PWM_OIDC_TOKEN")
+		_ = os.Unsetenv("PWM_OIDC_TOKEN_FILE")
 		return []string{args[0], "fill"}
 	}
 	return args
