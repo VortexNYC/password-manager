@@ -1,19 +1,45 @@
 (function () {
+  function auto(el) {
+    return String(el.autocomplete || (el.getAttribute && el.getAttribute("autocomplete")) || "")
+      .toLowerCase()
+      .trim();
+  }
+
+  function probe(target) {
+    const fields = veilFields.pickFields(Array.prototype.slice.call(document.querySelectorAll("input, textarea")));
+    const el = target || document.activeElement;
+    const login = fields.username && fields.username.value ? String(fields.username.value) : "";
+    const rules =
+      (el && el.getAttribute && (el.getAttribute("passwordrules") || el.getAttribute("passwordRules"))) || "";
+    return {
+      generate: !!(el && auto(el) === "new-password"),
+      canGenerate: !!(fields.newPassword && fields.newPassword.length),
+      login: login,
+      passwordRules: rules,
+    };
+  }
+
   chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
-    if (!msg || msg.type !== "write") {
+    if (!msg || !msg.type) {
       return;
     }
-    try {
-      veilFields.writeLogin(document, {
-        login: msg.login || "",
-        password: msg.password || "",
-        totp: msg.totp || "",
-      });
-      sendResponse({ ok: true });
-    } catch (err) {
-      sendResponse({ ok: false });
+    if (msg.type === "write") {
+      try {
+        veilFields.writeLogin(document, {
+          login: msg.login || "",
+          password: msg.password || "",
+          totp: msg.totp || "",
+        });
+        sendResponse({ ok: true });
+      } catch {
+        sendResponse({ ok: false });
+      }
+      return true;
     }
-    return true;
+    if (msg.type === "probe") {
+      sendResponse(probe());
+      return true;
+    }
   });
 
   document.addEventListener(
@@ -22,7 +48,13 @@
       if (!ev.isTrusted || !veilFields.isFillTarget(ev.target)) {
         return;
       }
-      chrome.runtime.sendMessage({ type: "trusted-focus" });
+      const ctx = probe(ev.target);
+      chrome.runtime.sendMessage({
+        type: "trusted-focus",
+        generate: ctx.generate,
+        login: ctx.login,
+        passwordRules: ctx.passwordRules,
+      });
     },
     true,
   );

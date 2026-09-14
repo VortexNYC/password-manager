@@ -381,12 +381,13 @@ fill   { url | app, uuid? }  -> { entries: [{ kind, login, password, totp, uuid,
                              execute never silently uses an affiliated match.
                              empty login is honest.
 
-generate { url | app, login? } -> { uuid, name, login, password }
+generate { url | app, login?, passwordRules? } -> { uuid, name, login, password }
                              new-password field only.
-                             mints on the host (`passgen` + `passwordRules` /
-                             PMR password-rules). creates the item on origin.
-                             then returns the password. Touch ID before it
-                             leaves. not MCP. not CLI `gen` (that is not a vault item).
+                             Touch ID first. cancel is no mint and no POST.
+                             then mints on the host (`passgen` + `passwordRules`
+                             minlength/maxlength). creates the item on origin.
+                             then returns the password. not MCP. not CLI `gen`.
+                             existing login match → `choose` (change-password).
 
 passkeyCreate { origin, publicKey, relatedOrigins } -> { response }
 passkeyGet    { origin, publicKey }                 -> { response }
@@ -428,10 +429,11 @@ This is what people love about 1Password on signup. Click the password field on 
 
 ### How
 
-1. Host mints with `passgen`. If the page sent `passwordRules`, honor them. Else Apple PMR `password-rules.json` for that domain. Else the current alphabet (no ambiguous `0/O/1/l`).
-2. Create the item on origin (human Bearer, same owner `POST /v1/items` we already have). URL is this page’s registrable domain. Login is the username/email in the form, empty if honest.
-3. Touch ID, then write the password into the field. Same 30s session as fill.
-4. If they never submit the form, the item still exists. Same as 1Password. We do not wait for submit (that is `webRequest`; we are not taking that permission for this).
+1. Touch ID. Cancel is no item and no password on the wire.
+2. Host mints with `passgen`. If the page sent `passwordRules`, honor `minlength` / `maxlength`. Else the current alphabet (no ambiguous `0/O/1/l`). Apple PMR `password-rules.json` is later — do not vendor a drifting copy in this increment.
+3. Create the item on origin (human Bearer, same owner `POST /v1/items` we already have). URL is this page’s registrable domain. Login is the username/email in the form, empty if honest. Name is a valid item id derived from the host.
+4. Write the password into every `new-password` field (confirm fields get the same value). Same 30s session as fill.
+5. If they never submit the form, the item still exists. Same as 1Password. We do not wait for submit (that is `webRequest`; we are not taking that permission for this).
 
 Do not save in: untrusted iframes, payment iframes (PMR list), overwriting an existing uuid without an explicit update gesture.
 
@@ -530,7 +532,7 @@ Each step leaves the tree working. Tests before the next file. Do not scaffold J
 3. **Written.** `nyc.veil.fill` JSON: `ping` `match` `fill`. Same binary, second manifest. RAM index: one `GET /v1/items` at start/remint. `match` is local. `fill` is Touch ID + origin-by-uuid (host binds URL; origin still does not). Global 30s reuse so fill+TOTP is one gesture. Proof: fake origin — ping loads index once, match never decrypts, two items same host omit uuid → empty, uuid form decrypts one, confirm reuse is one prompt, cancel never POSTs fill. Compiled binary uint32-LE ping/match/fill against the same fake origin. **No JS. No generate. No passkeys on this name.**
 4. **Written + proven in Chrome.** Thin MV3 in `apps/fill`: hold the port, `match` on nav, choose + execute, write fields, `Cmd-\` remap. Host JSON `need_login` on dead JWT. Chrome 154 branded ignores `--load-extension` — CFT prove is headed click `#user`. Branded Chrome 2026-09-11: unpacked `apps/fill`, pinned, chooser `cloudflare-login` on `dash.cloudflare.com/login` wrote the password via `nyc.veil.fill`. Dogfood is PWM MCP `list_items` (no secrets) + `password-manager` CLI native-messaging `ping`/`match`. Agents never `POST /v1/fill/logins`. Native host binds `PWM_HOME` to the binary’s directory. `fill install` writes `nyc.veil.fill` only and removes `org.keepassxc.keepassxc_browser`. Do not set `HOME` to a tempdir. Do not `Runtime.evaluate` `fillTab` on the service worker. Do not `fill install` against production `fill.json`.
 5. **Written + CFT-proven.** `passkeyCreate` / `passkeyGet` on `nyc.veil.fill`. Confirm before origin. Cancel fail-closed. Content intercepts `navigator.credentials.create/get` at `document_start` in MAIN world; isolated world forwards; background holds the port. Untrusted iframes do not get it. Not kpxc `passkeys.js`. Original vs WebAuthn spec. Proof: fake origin — create returns attestation, get returns signature, no PEM, deny never POSTs. CFT 2026-09-13: headed click `#register` on `passkey-fixture.html` → `ok <id>`, origin `GET /v1/items` has `kind:passkey`. Do not `Runtime.evaluate` create. Branded webauthn.io is the same intercept against a third-party RP — remaining, not a gate on 6.
-6. **Generate + save + fill** on `new-password`. Member may create a login they own. Change-password is choose only.
+6. **Written.** `generate` on `nyc.veil.fill`. Confirm before mint and `POST /v1/items`. Cancel fail-closed. Existing login match is choose only — execute never rotates. Page `passwordRules` minlength/maxlength; PMR file is later. Extension: trusted focus on `new-password` with empty match writes both confirm fields; chooser “Suggest a password” is the explicit change-password gesture. Proof: fake origin — empty URL never POSTs, deny never POSTs, signup returns password and match sees the item without the secret, second generate is `choose`. CFT headed signup is remaining, not a gate on replica.
 7. **Replica.** Local re-seal. Fill becomes local. Origin is sync + create. RAM index becomes a cache in front of sqlite, then dies. Prove airplane. Dead JWT + warm replica → fill, remint background. **STOP: fill on a plane.**
 8. **Cards + identities.** Confirm `scope`. CVV never reuses. Never submit. Then Firefox.
 9. Safari `.app` + original Swift. Same JSON.

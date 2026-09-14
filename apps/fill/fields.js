@@ -43,13 +43,16 @@
         return typ(el) === "password" && auto(el) !== "new-password";
       }) ||
       null;
+    const newPassword = live.filter(function (el) {
+      return auto(el) === "new-password";
+    });
     const totp =
       byAuto(["one-time-code"]) ||
       live.find(function (el) {
         return /otp|totp|one-time|2fa/i.test(ident(el) + " " + auto(el));
       }) ||
       null;
-    return { username: username || null, password: current || null, totp: totp || null };
+    return { username: username || null, password: current || null, newPassword: newPassword, totp: totp || null };
   }
 
   function nativeSet(el, value) {
@@ -74,7 +77,13 @@
   function writeLogin(doc, entry) {
     const fields = pickFields(Array.prototype.slice.call(doc.querySelectorAll("input, textarea")));
     writeField(fields.username, entry.login);
-    writeField(fields.password, entry.password);
+    if (fields.newPassword && fields.newPassword.length) {
+      fields.newPassword.forEach(function (el) {
+        writeField(el, entry.password);
+      });
+    } else {
+      writeField(fields.password, entry.password);
+    }
     writeField(fields.totp, entry.totp);
   }
 
@@ -83,7 +92,7 @@
       return false;
     }
     if (auto(el) === "new-password") {
-      return false;
+      return true;
     }
     const t = typ(el);
     if (t === "password" || t === "email") {

@@ -646,7 +646,7 @@ Do not scaffold slice 37 until KeePassXC-Browser fill is proven on this Mac agai
 
 Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpxc or Bitwarden (GPL-3). We do not inherit nacl.
 
-Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is the next layer of 37 after fill is proven — same 1Password/Apple signup gesture. `passgen` stays CLI; the host is what makes the value a vault item.
+Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
 Next: Chrome JSON fill is proven (MV3 + headed CFT). `fill install` writes `nyc.veil.fill` only. Generate and passkeys are later. Replica next for airplane fill.
 

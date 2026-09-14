@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/publicapi"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
@@ -170,8 +171,12 @@ func TestJSONProtocolAgainstFakeOrigin(t *testing.T) {
 	}
 
 	gen := jsonHandle(t, h, map[string]string{"action": "generate", "url": "https://dashboard.stripe.com"})
-	if !bytes.Contains(gen, []byte(`"entries"`)) || scrub.Contains(gen, []byte(secret)) {
-		t.Fatalf("generate %s", gen)
+	var genOut struct {
+		Error    string `json:"error"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal(gen, &genOut); err != nil || genOut.Error != "choose" || genOut.Password != "" {
+		t.Fatalf("generate existing %s", gen)
 	}
 }
 
@@ -431,5 +436,154 @@ func TestJSONPasskeyGetConfirmDeniedDoesNotCallOrigin(t *testing.T) {
 	}
 	if gets.Load() != 0 {
 		t.Fatalf("denied get called origin %d", gets.Load())
+	}
+}
+
+func TestJSONGenerateSignupSavesThenReturnsPassword(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	srv := originAPI(t, a)
+	var creates atomic.Int32
+	inner := srv.Config.Handler
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/items" {
+			creates.Add(1)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			var in publicapi.CreateItemRequest
+			if json.Unmarshal(body, &in) != nil || in.Secret == "" || in.URI != "https://signup.example.com" || in.Login != "ada@example.com" {
+				t.Errorf("create %s", body)
+			}
+			if scrub.Contains(body, []byte("BEGIN")) {
+				t.Errorf("create leaked pem")
+			}
+		}
+		inner.ServeHTTP(w, r)
+	})
+
+	h := NewOrigin(t.TempDir(), srv.URL, "human")
+	nConfirm := 0
+	h.Confirm = func(string) error { nConfirm++; return nil }
+
+	empty := jsonHandle(t, h, map[string]string{"action": "generate"})
+	var fail struct {
+		Error    string `json:"error"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal(empty, &fail); err != nil || fail.Error != "failed" || fail.Password != "" {
+		t.Fatalf("empty %s", empty)
+	}
+	if creates.Load() != 0 || nConfirm != 0 {
+		t.Fatalf("empty hit origin creates=%d confirm=%d", creates.Load(), nConfirm)
+	}
+
+	h.Confirm = func(string) error { return errors.New("no") }
+	denied := jsonHandle(t, h, map[string]string{"action": "generate", "url": "https://signup.example.com/join"})
+	if err := json.Unmarshal(denied, &fail); err != nil || fail.Error != "canceled" || fail.Password != "" {
+		t.Fatalf("denied %s", denied)
+	}
+	if creates.Load() != 0 {
+		t.Fatal("denied called origin")
+	}
+
+	h.Confirm = func(string) error { nConfirm++; return nil }
+	got := jsonHandle(t, h, map[string]any{
+		"action":        "generate",
+		"url":           "https://signup.example.com/join?src=ad",
+		"login":         "ada@example.com",
+		"passwordRules": "minlength: 24; maxlength: 40;",
+	})
+	if scrub.Contains(got, []byte("BEGIN")) {
+		t.Fatalf("generate leaked pem: %s", got)
+	}
+	var out struct {
+		Error    string `json:"error"`
+		UUID     string `json:"uuid"`
+		Name     string `json:"name"`
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Error != "" || out.UUID == "" || out.Password == "" || out.Login != "ada@example.com" {
+		t.Fatalf("generate %s", got)
+	}
+	if len(out.Password) != 24 {
+		t.Fatalf("rules length %d %q", len(out.Password), out.Password)
+	}
+	if creates.Load() != 1 || nConfirm != 1 {
+		t.Fatalf("create origin=%d confirm=%d", creates.Load(), nConfirm)
+	}
+
+	listed := jsonHandle(t, h, map[string]string{"action": "match", "url": "https://signup.example.com/login"})
+	var match struct {
+		Entries []jsonMatchEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(listed, &match); err != nil || len(match.Entries) != 1 {
+		t.Fatalf("match after generate %s", listed)
+	}
+	if match.Entries[0].UUID != out.UUID || match.Entries[0].Kind != "login" {
+		t.Fatalf("match %+v", match.Entries[0])
+	}
+	if scrub.Contains(listed, []byte(out.Password)) {
+		t.Fatalf("match leaked password %s", listed)
+	}
+
+	again := jsonHandle(t, h, map[string]string{"action": "generate", "url": "https://signup.example.com"})
+	if err := json.Unmarshal(again, &fail); err != nil || fail.Error != "choose" || fail.Password != "" {
+		t.Fatalf("second generate %s", again)
+	}
+	if creates.Load() != 1 {
+		t.Fatalf("change-password created again %d", creates.Load())
+	}
+}
+
+func TestJSONGenerateNeedLoginDoesNotMintOnDeadJWT(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+	h := NewOrigin(t.TempDir(), srv.URL, "stale")
+	h.Confirm = func(string) error {
+		t.Fatal("confirm before login")
+		return nil
+	}
+	got := jsonHandle(t, h, map[string]string{"action": "generate", "url": "https://signup.example.com"})
+	var fail struct {
+		Error    string `json:"error"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal(got, &fail); err != nil || fail.Error != "need_login" || fail.Password != "" {
+		t.Fatalf("dead origin %s", got)
+	}
+}
+
+func TestSanitizeItemName(t *testing.T) {
+	if got := sanitizeItemName("signup.example.com"); got != "signup-example-com" {
+		t.Fatalf("%s", got)
+	}
+	if !id.Valid(sanitizeItemName("github.com")) {
+		t.Fatal("github.com")
+	}
+}
+
+func TestPasswordLen(t *testing.T) {
+	n, err := passwordLen("")
+	if err != nil || n != 20 {
+		t.Fatalf("default %d %v", n, err)
+	}
+	n, err = passwordLen("minlength: 32")
+	if err != nil || n != 32 {
+		t.Fatalf("min %d %v", n, err)
+	}
+	if _, err := passwordLen("maxlength: 8"); err == nil {
+		t.Fatal("short max")
 	}
 }

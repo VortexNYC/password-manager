@@ -1,5 +1,5 @@
 // Package fill is the native host. Product name nyc.veil.fill (plain JSON
-// ping/match/fill). org.keepassxc.keepassxc_browser nacl remains in this
+// ping/match/fill/generate). org.keepassxc.keepassxc_browser nacl remains in this
 // binary and is not installed. We do not copy KeePassXC-Browser (GPL-3)
 // and we do not use KeePassXC as the vault.
 //
@@ -160,7 +160,7 @@ func (h *Host) Handle(raw []byte) []byte {
 	}
 	if peek.Nonce == "" && peek.Message == "" {
 		switch peek.Action {
-		case "ping", "match", "fill", "passkeyCreate", "passkeyGet":
+		case "ping", "match", "fill", "generate", "passkeyCreate", "passkeyGet":
 			fillDebug("action=" + peek.Action + " nonce=")
 			return h.handleJSON(raw)
 		}

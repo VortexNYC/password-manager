@@ -13,7 +13,7 @@ function usable(url) {
 function pageOrigin(url) {
   try {
     return new URL(url).origin;
-  } catch (_err) {
+  } catch {
     return "";
   }
 }
@@ -117,7 +117,7 @@ async function badge(tabId, n) {
   const text = n > 0 ? String(n) : "";
   try {
     await chrome.action.setBadgeText({ tabId: tabId, text: text });
-  } catch (_err) {
+  } catch {
     /* tab gone */
   }
 }
@@ -132,7 +132,7 @@ async function writeTab(tabId, entry) {
   try {
     try {
       await chrome.tabs.sendMessage(tabId, payload);
-    } catch (_err) {
+    } catch {
       await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ["fields.js"] });
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -167,17 +167,58 @@ async function fillTab(tabId, url, uuid) {
   return { ok: true };
 }
 
-async function executeTab(tabId, url) {
+async function generateTab(tabId, url, login, passwordRules) {
+  const body = { action: "generate", url: url };
+  if (login) {
+    body.login = login;
+  }
+  if (passwordRules) {
+    body.passwordRules = passwordRules;
+  }
+  const msg = await hostSend(body, 90000);
+  if (needLogin(msg)) {
+    openLogin();
+    return { ok: false, error: "need_login" };
+  }
+  if (msg && msg.error === "choose") {
+    return { ok: false, error: "choose" };
+  }
+  if (!msg || !msg.password) {
+    return { ok: false, error: (msg && msg.error) || "empty" };
+  }
+  await writeTab(tabId, { login: msg.login || login || "", password: msg.password, totp: "" });
+  await matchTab(tabId, url);
+  return { ok: true };
+}
+
+async function executeTab(tabId, url, opts) {
   let hit = matches.get(tabId);
   if (!hit || hit.url !== url) {
     await matchTab(tabId, url);
     hit = matches.get(tabId);
   }
   const entries = (hit && hit.entries) || [];
+  if (opts && opts.generate) {
+    const logins = entries.filter(function (e) {
+      return e.kind === "login";
+    });
+    if (logins.length) {
+      return { ok: false, error: "choose", entries: entries };
+    }
+    return generateTab(tabId, url, opts.login, opts.passwordRules);
+  }
   if (entries.length !== 1 || entries[0].kind !== "login" || entries[0].affiliated) {
     return { ok: false, error: "choose", entries: entries };
   }
   return fillTab(tabId, url, entries[0].uuid);
+}
+
+async function probeTab(tabId) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: "probe" });
+  } catch {
+    return { generate: false, canGenerate: false, login: "", passwordRules: "" };
+  }
 }
 
 async function activeTab() {
@@ -222,7 +263,13 @@ chrome.commands.onCommand.addListener(function (command) {
     if (!tab || !usable(tab.url)) {
       return;
     }
-    executeTab(tab.id, tab.url).then(function (got) {
+    probeTab(tab.id).then(function (ctx) {
+      return executeTab(tab.id, tab.url, {
+        generate: !!(ctx && ctx.generate),
+        login: ctx && ctx.login,
+        passwordRules: ctx && ctx.passwordRules,
+      });
+    }).then(function (got) {
       if (got && got.error === "choose") {
         chrome.action.openPopup().catch(function () {});
       }
@@ -240,7 +287,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!tab || !usable(url)) {
       return;
     }
-    executeTab(tab.id, url).then(function (got) {
+    executeTab(tab.id, url, {
+      generate: !!msg.generate,
+      login: msg.login,
+      passwordRules: msg.passwordRules,
+    }).then(function (got) {
       if (got && got.error === "choose") {
         chrome.action.openPopup().catch(function () {});
       }
@@ -254,13 +305,28 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         return;
       }
       matchTab(tab.id, tab.url).then(function (entries) {
-        sendResponse({ entries: entries, url: tab.url, tabId: tab.id });
+        probeTab(tab.id).then(function (ctx) {
+          sendResponse({
+            entries: entries,
+            url: tab.url,
+            tabId: tab.id,
+            canGenerate: !!(ctx && ctx.canGenerate),
+            login: (ctx && ctx.login) || "",
+            passwordRules: (ctx && ctx.passwordRules) || "",
+          });
+        });
       });
     });
     return true;
   }
   if (msg.type === "popup-fill") {
     fillTab(msg.tabId, msg.url, msg.uuid).then(function (got) {
+      sendResponse(got);
+    });
+    return true;
+  }
+  if (msg.type === "popup-generate") {
+    generateTab(msg.tabId, msg.url, msg.login, msg.passwordRules).then(function (got) {
       sendResponse(got);
     });
     return true;

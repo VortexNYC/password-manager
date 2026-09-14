@@ -16,12 +16,20 @@ test("username and current-password from autocomplete", () => {
   assert.equal(got.totp, null);
 });
 
-test("new-password is not fill", () => {
-  const got = pickFields([
-    el({ autocomplete: "username" }),
-    el({ autocomplete: "new-password", type: "password", name: "np" }),
-  ]);
+test("new-password is generate, not current-password fill", () => {
+  const np = el({ autocomplete: "new-password", type: "password", name: "np" });
+  const got = pickFields([el({ autocomplete: "username" }), np]);
   assert.equal(got.password, null);
+  assert.equal(got.newPassword.length, 1);
+  assert.equal(got.newPassword[0].name, "np");
+});
+
+test("two new-password fields are one generated value", () => {
+  const got = pickFields([
+    el({ autocomplete: "new-password", type: "password", name: "p1" }),
+    el({ autocomplete: "new-password", type: "password", name: "p2" }),
+  ]);
+  assert.equal(got.newPassword.length, 2);
 });
 
 test("email type and password type without autocomplete", () => {
@@ -40,4 +48,5 @@ test("empty is honest", () => {
   assert.equal(got.username, null);
   assert.equal(got.password, null);
   assert.equal(got.totp, null);
+  assert.deepEqual(got.newPassword, []);
 });

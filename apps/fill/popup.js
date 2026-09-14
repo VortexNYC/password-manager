@@ -4,17 +4,44 @@ function show(html) {
   root.innerHTML = html;
 }
 
+function suggestButton(got) {
+  const b = document.createElement("button");
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = "Suggest a password";
+  b.appendChild(name);
+  b.addEventListener("click", function () {
+    chrome.runtime.sendMessage(
+      {
+        type: "popup-generate",
+        tabId: got.tabId,
+        url: got.url,
+        login: got.login || "",
+        passwordRules: got.passwordRules || "",
+      },
+      function (res) {
+        if (res && res.ok) {
+          window.close();
+          return;
+        }
+        show('<div class="err">Generate canceled or failed.</div>');
+      },
+    );
+  });
+  return b;
+}
+
 chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
   if (chrome.runtime.lastError) {
     show('<div class="err">Host is not running. password-manager fill install</div>');
     return;
   }
   const entries = (got && got.entries) || [];
-  if (!entries.length) {
+  root.textContent = "";
+  if (!entries.length && !(got && got.canGenerate)) {
     show('<div class="empty">Nothing saved for this site.</div>');
     return;
   }
-  root.textContent = "";
   entries.forEach(function (e) {
     const b = document.createElement("button");
     const name = document.createElement("div");
@@ -41,4 +68,7 @@ chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
     });
     root.appendChild(b);
   });
+  if (got && got.canGenerate) {
+    root.appendChild(suggestButton(got));
+  }
 });
