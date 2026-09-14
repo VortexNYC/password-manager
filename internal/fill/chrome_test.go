@@ -2,6 +2,7 @@ package fill
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/publicapi"
+	"github.com/vortexnyc/password-manager/internal/scrub"
 )
 
 func TestChromeExtensionFill(t *testing.T) {
@@ -238,11 +240,27 @@ func TestChromeExtensionPasskey(t *testing.T) {
 			t.Fatalf("read: %v", err)
 		}
 		if strings.HasPrefix(status, "ok ") {
-			code, raw := originJSON(t, origin, http.MethodGet, "/v1/items", "human", nil)
-			if code != http.StatusOK || !strings.Contains(string(raw), `"kind":"passkey"`) {
-				t.Fatalf("origin items %d %s", code, raw)
+			if err := chromedp.Run(task, chromedp.Click("#login")); err != nil {
+				t.Fatalf("login click: %v", err)
 			}
-			return
+			getDeadline := time.Now().Add(20 * time.Second)
+			for time.Now().Before(getDeadline) {
+				if err := chromedp.Run(task, chromedp.Text("#status", &status)); err != nil {
+					t.Fatalf("get read: %v", err)
+				}
+				if strings.HasPrefix(status, "got ") {
+					code, raw := originJSON(t, origin, http.MethodGet, "/v1/items", "human", nil)
+					if code != http.StatusOK || !strings.Contains(string(raw), `"kind":"passkey"`) {
+						t.Fatalf("origin items %d %s", code, raw)
+					}
+					return
+				}
+				if strings.HasPrefix(status, "err ") {
+					t.Fatalf("passkey get %s", status)
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			t.Fatalf("get status %q", status)
 		}
 		if strings.HasPrefix(status, "err ") {
 			t.Fatalf("passkey %s", status)
@@ -250,6 +268,212 @@ func TestChromeExtensionPasskey(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 	t.Fatalf("status %q", status)
+}
+
+func TestChromeExtensionGenerate(t *testing.T) {
+	if os.Getenv("PWM_PROVE_CHROME") != "1" {
+		t.Skip("PWM_PROVE_CHROME=1")
+	}
+	chrome := chromeForTesting(t)
+	if chrome == "" {
+		t.Skip("Chrome for Testing not installed (branded Chrome ignores --load-extension)")
+	}
+
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	origin := originAPI(t, a)
+
+	page := httptest.NewServer(http.FileServer(http.Dir(filepath.Join(repoRoot(t), "apps/fill"))))
+	t.Cleanup(page.Close)
+	pageURL := strings.TrimRight(page.URL, "/") + "/generate-fixture.html"
+
+	task := launchCFT(t, chrome, origin)
+	if err := chromedp.Run(task, chromedp.Navigate(pageURL)); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.WaitVisible("#pass")); err != nil {
+		t.Fatalf("visible: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.SendKeys("#user", "ada@example.com")); err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.Click("#pass")); err != nil {
+		t.Fatalf("click: %v", err)
+	}
+	var pass, pass2, user string
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := chromedp.Run(task,
+			chromedp.Value("#user", &user),
+			chromedp.Value("#pass", &pass),
+			chromedp.Value("#pass2", &pass2),
+		); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if len(pass) >= 20 && pass == pass2 {
+			code, raw := originJSON(t, origin, http.MethodGet, "/v1/items", "human", nil)
+			if code != http.StatusOK {
+				t.Fatalf("items %d %s", code, raw)
+			}
+			if scrub.Contains(raw, []byte(pass)) {
+				t.Fatalf("list leaked password")
+			}
+			var listed publicapi.ItemsResponse
+			if err := json.Unmarshal(raw, &listed); err != nil {
+				t.Fatal(err)
+			}
+			if len(listed.Items) != 1 || listed.Items[0].Login != "ada@example.com" {
+				t.Fatalf("items %+v", listed.Items)
+			}
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("fields user=%q pass_len=%d pass2_len=%d", user, len(pass), len(pass2))
+}
+
+func TestChromeExtensionPasskeyWebAuthnIO(t *testing.T) {
+	if os.Getenv("PWM_PROVE_CHROME") != "1" {
+		t.Skip("PWM_PROVE_CHROME=1")
+	}
+	chrome := chromeForTesting(t)
+	if chrome == "" {
+		t.Skip("Chrome for Testing not installed (branded Chrome ignores --load-extension)")
+	}
+
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	origin := originAPI(t, a)
+	task := launchCFT(t, chrome, origin)
+
+	user := fmt.Sprintf("veil%d", time.Now().UnixNano())
+	page := "https://webauthn.io/?regUserVerification=discouraged&authUserVerification=discouraged"
+	if err := chromedp.Run(task, chromedp.Navigate(page)); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.WaitVisible("#input-email")); err != nil {
+		t.Fatalf("visible: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.SendKeys("#input-email", user)); err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if err := chromedp.Run(task, chromedp.Click("#register-button")); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	deadline := time.Now().Add(45 * time.Second)
+	registered := false
+	for time.Now().Before(deadline) {
+		var alert string
+		if err := chromedp.Run(task, chromedp.Evaluate(`document.querySelector('[aria-live="polite"]') ? document.querySelector('[aria-live="polite"]').innerText : ""`, &alert)); err != nil {
+			t.Fatalf("alert: %v", err)
+		}
+		if strings.Contains(alert, "Success! Now try to authenticate") {
+			registered = true
+			break
+		}
+		if strings.Contains(alert, "Registration failed") || strings.Contains(alert, "Please enter a username") {
+			t.Fatalf("register failed: %s", alert)
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	if !registered {
+		t.Fatal("webauthn.io register did not succeed")
+	}
+	if err := chromedp.Run(task, chromedp.Click("#login-button")); err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	deadline = time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		var href string
+		if err := chromedp.Run(task, chromedp.Location(&href)); err != nil {
+			t.Fatalf("loc: %v", err)
+		}
+		if strings.Contains(href, "/profile") {
+			code, raw := originJSON(t, origin, http.MethodGet, "/v1/items", "human", nil)
+			if code != http.StatusOK || !strings.Contains(string(raw), `"kind":"passkey"`) {
+				t.Fatalf("origin items %d %s", code, raw)
+			}
+			return
+		}
+		var alert string
+		_ = chromedp.Run(task, chromedp.Evaluate(`document.querySelector('[aria-live="polite"]') ? document.querySelector('[aria-live="polite"]').innerText : ""`, &alert))
+		if strings.Contains(alert, "Authentication failed") {
+			t.Fatalf("authenticate failed: %s", alert)
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	t.Fatal("webauthn.io authenticate did not reach /profile")
+}
+
+func launchCFT(t *testing.T, chrome string, origin *httptest.Server) context.Context {
+	t.Helper()
+	userHome := t.TempDir()
+	vault := t.TempDir()
+	bin := buildPWM(t)
+	off := false
+	tok := filepath.Join(vault, "human.jwt")
+	if err := os.WriteFile(tok, []byte("human\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallOrigin(InstallEnv{Bin: bin, VaultHome: vault, UserHome: userHome, Origin: origin.URL}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteHostConfig(vault, HostConfig{
+		Origin:    origin.URL,
+		Home:      vault,
+		TokenFile: tok,
+		TouchID:   &off,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hostBin := HostPath(vault)
+	profile := t.TempDir()
+	if err := seedProfileHost(profile, hostBin); err != nil {
+		t.Fatal(err)
+	}
+	installCFTHost(t, hostBin)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdpPort := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	cmd := exec.Command(chrome,
+		"--user-data-dir="+profile,
+		"--load-extension="+filepath.Join(repoRoot(t), "apps/fill"),
+		"--disable-extensions-except="+filepath.Join(repoRoot(t), "apps/fill"),
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-sync",
+		"--disable-features=SafeBrowsingEnhancedProtection,Translate,MediaRouter",
+		"--window-size=800,600",
+		"--remote-debugging-port="+strconv.Itoa(cdpPort),
+		"--remote-debugging-address=127.0.0.1",
+		"--remote-allow-origins=*",
+		"about:blank",
+	)
+	cmd.Env = append(envBin(), "PWM_FILL_TOUCHID=0")
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	waitCDP(t, cdpPort)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	t.Cleanup(cancel)
+	alloc, allocCancel := chromedp.NewRemoteAllocator(ctx, "http://127.0.0.1:"+strconv.Itoa(cdpPort))
+	t.Cleanup(allocCancel)
+	task, taskCancel := chromedp.NewContext(alloc)
+	t.Cleanup(taskCancel)
+	return task
 }
 
 func chromeForTesting(t *testing.T) string {
