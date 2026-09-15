@@ -414,6 +414,105 @@ func TestCLIItemLoginIsMetadataNotSecret(t *testing.T) {
 	}
 }
 
+func TestCLIItemImportCSVNoSecretInOutput(t *testing.T) {
+	t.Setenv("PWM_ORIGIN", "")
+	const pass = "s3cret"
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	csv := filepath.Join(home, "dump.csv")
+	if err := os.WriteFile(csv, []byte("name,url,username,password\nGitHub,https://github.com,ada,"+pass+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, home, "", "item", "import", csv)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if scrub.Contains([]byte(out), []byte(pass)) {
+		t.Fatalf("import printed password: %s", out)
+	}
+	if !strings.Contains(out, "GitHub") {
+		t.Fatalf("import omitted name: %s", out)
+	}
+	listOut, err := run(t, home, "", "item", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains([]byte(listOut), []byte(pass)) {
+		t.Fatalf("list printed password: %s", listOut)
+	}
+}
+
+func TestCLIItemAddCardNoPANInOutput(t *testing.T) {
+	t.Setenv("PWM_ORIGIN", "")
+	const pan = "4111111111111111"
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	num := filepath.Join(home, "pan")
+	cvv := filepath.Join(home, "cvv")
+	if err := os.WriteFile(num, []byte(pan+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cvv, []byte("123\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, home, "", "item", "add", "amex", "--number-file", num, "--cvv-file", cvv, "--exp-month", "12", "--exp-year", "2030", "--holder", "Ada")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if scrub.Contains([]byte(out), []byte(pan)) || scrub.Contains([]byte(out), []byte("123")) {
+		t.Fatalf("add printed card: %s", out)
+	}
+	listOut, err := run(t, home, "", "item", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains([]byte(listOut), []byte(pan)) {
+		t.Fatalf("list printed pan: %s", listOut)
+	}
+}
+
+func TestCLIOriginItemImportNoSecretInOutput(t *testing.T) {
+	const pass = "s3cret"
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer jwt-not-a-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/import" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		if !scrub.Contains(raw, []byte(pass)) {
+			t.Fatal("origin import missing password")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"names":["GitHub"],"count":1}`)
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	csv := filepath.Join(t.TempDir(), "dump.csv")
+	if err := os.WriteFile(csv, []byte("name,url,username,password\nGitHub,https://github.com,ada,"+pass+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, t.TempDir(), "", "item", "import", csv)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if scrub.Contains([]byte(out), []byte(pass)) {
+		t.Fatalf("cli printed password: %s", out)
+	}
+}
+
 func TestCLIRunSetsProxyEnvWithoutVaultSecret(t *testing.T) {
 	home := t.TempDir()
 	if _, err := run(t, home, "", "init"); err != nil {

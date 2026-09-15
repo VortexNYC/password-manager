@@ -19,6 +19,8 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
+from vortex_pwm.models.card_fields import CardFields
+from vortex_pwm.models.identity_fields import IdentityFields
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -35,7 +37,9 @@ class CreateItemRequest(BaseModel):
     secret: Optional[StrictStr] = Field(default=None, description="Vault material. Request only. Never returned.")
     totp_seed: Optional[StrictStr] = Field(default=None, description="TOTP seed. Request only. Never returned.")
     login: Optional[StrictStr] = Field(default=None, description="Fill username. Metadata on the item. Also sealed in the envelope. Not a secret.")
-    __properties: ClassVar[List[str]] = ["name", "uri", "uris", "tags", "kind", "secret", "totp_seed", "login"]
+    card: Optional[CardFields] = None
+    identity: Optional[IdentityFields] = None
+    __properties: ClassVar[List[str]] = ["name", "uri", "uris", "tags", "kind", "secret", "totp_seed", "login", "card", "identity"]
 
     @field_validator('kind')
     def kind_validate_enum(cls, value):
@@ -43,8 +47,8 @@ class CreateItemRequest(BaseModel):
         if value is None:
             return value
 
-        if value not in set(['api_key', 'oauth', 'ssh', 'file']):
-            raise ValueError("must be one of enum values ('api_key', 'oauth', 'ssh', 'file')")
+        if value not in set(['api_key', 'oauth', 'ssh', 'file', 'passkey', 'card', 'identity']):
+            raise ValueError("must be one of enum values ('api_key', 'oauth', 'ssh', 'file', 'passkey', 'card', 'identity')")
         return value
 
     model_config = ConfigDict(
@@ -86,6 +90,12 @@ class CreateItemRequest(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of card
+        if self.card:
+            _dict['card'] = self.card.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of identity
+        if self.identity:
+            _dict['identity'] = self.identity.to_dict()
         return _dict
 
     @classmethod
@@ -105,7 +115,9 @@ class CreateItemRequest(BaseModel):
             "kind": obj.get("kind"),
             "secret": obj.get("secret"),
             "totp_seed": obj.get("totp_seed"),
-            "login": obj.get("login")
+            "login": obj.get("login"),
+            "card": CardFields.from_dict(obj["card"]) if obj.get("card") is not None else None,
+            "identity": IdentityFields.from_dict(obj["identity"]) if obj.get("identity") is not None else None
         })
         return _obj
 

@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/oneimport"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 )
 
@@ -44,14 +46,41 @@ type EventsResponse struct {
 }
 
 type CreateItemRequest struct {
-	Name     string   `json:"name"`
-	URI      string   `json:"uri,omitempty"`
-	URIs     []string `json:"uris,omitempty"`
-	Tags     []string `json:"tags,omitempty"`
-	Kind     string   `json:"kind,omitempty"`
-	Secret   string   `json:"secret,omitempty"`
-	TOTPSeed string   `json:"totp_seed,omitempty"`
-	Login    string   `json:"login,omitempty"`
+	Name     string          `json:"name"`
+	URI      string          `json:"uri,omitempty"`
+	URIs     []string        `json:"uris,omitempty"`
+	Tags     []string        `json:"tags,omitempty"`
+	Kind     string          `json:"kind,omitempty"`
+	Secret   string          `json:"secret,omitempty"`
+	TOTPSeed string          `json:"totp_seed,omitempty"`
+	Login    string          `json:"login,omitempty"`
+	Card     *CardFields     `json:"card,omitempty"`
+	Identity *IdentityFields `json:"identity,omitempty"`
+}
+
+type CardFields struct {
+	Number   string `json:"number,omitempty"`
+	ExpMonth string `json:"exp_month,omitempty"`
+	ExpYear  string `json:"exp_year,omitempty"`
+	CVV      string `json:"cvv,omitempty"`
+	Holder   string `json:"holder,omitempty"`
+}
+
+type IdentityFields struct {
+	GivenName  string `json:"given_name,omitempty"`
+	FamilyName string `json:"family_name,omitempty"`
+	Address    string `json:"address,omitempty"`
+	City       string `json:"city,omitempty"`
+	Region     string `json:"region,omitempty"`
+	Postal     string `json:"postal,omitempty"`
+	Country    string `json:"country,omitempty"`
+	Phone      string `json:"phone,omitempty"`
+	Email      string `json:"email,omitempty"`
+}
+
+type ImportResponse struct {
+	Names []string `json:"names"`
+	Count int      `json:"count"`
 }
 
 type UpdateItemRequest struct {
@@ -153,6 +182,7 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /openapi.json", spec)
 	mux.HandleFunc("GET /v1/items", s.listItems)
 	mux.HandleFunc("POST /v1/items", s.createItem)
+	mux.HandleFunc("POST /v1/import", s.importItems)
 	mux.HandleFunc("PATCH /v1/items/{name}", s.updateItem)
 	mux.HandleFunc("POST /v1/items/{name}/archive", s.archiveItem)
 	mux.HandleFunc("DELETE /v1/items/{name}", s.deleteItem)
@@ -194,13 +224,35 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	kind := protocol.ItemKind(in.Kind)
+	token := []byte(in.Secret)
+	switch kind {
+	case protocol.ItemCard:
+		if in.Card != nil {
+			blob, err := material.PackCard(in.Card.Number, in.Card.ExpMonth, in.Card.ExpYear, in.Card.CVV, in.Card.Holder)
+			if err != nil {
+				http.Error(w, "create failed", http.StatusBadRequest)
+				return
+			}
+			token = blob
+		}
+	case protocol.ItemIdentity:
+		if in.Identity != nil {
+			blob, err := material.PackIdentity(in.Identity.GivenName, in.Identity.FamilyName, in.Identity.Address, in.Identity.City, in.Identity.Region, in.Identity.Postal, in.Identity.Country, in.Identity.Phone, in.Identity.Email)
+			if err != nil {
+				http.Error(w, "create failed", http.StatusBadRequest)
+				return
+			}
+			token = blob
+		}
+	}
 	item, err := s.App.PutItem(app.ItemOpts{
 		Name:     in.Name,
 		URI:      in.URI,
 		URIs:     in.URIs,
 		Tags:     in.Tags,
-		Kind:     protocol.ItemKind(in.Kind),
-		Token:    []byte(in.Secret),
+		Kind:     kind,
+		Token:    token,
 		Login:    in.Login,
 		TOTPSeed: []byte(in.TOTPSeed),
 	})
@@ -209,6 +261,33 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, item)
+}
+
+func (s *Server) importItems(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 32<<20))
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("filename"))
+	if name == "" {
+		name = "import.csv"
+	}
+	rows, err := oneimport.Parse(name, raw)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	got, err := s.App.ImportItems(p, rows)
+	if err != nil {
+		http.Error(w, "import failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, ImportResponse{Names: got.Names, Count: got.Count})
 }
 
 func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {

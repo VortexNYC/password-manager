@@ -83,6 +83,28 @@ func doJSON(t *testing.T, srv *httptest.Server, method, path, token string, body
 	return res.StatusCode, raw
 }
 
+func doRaw(t *testing.T, srv *httptest.Server, method, path, token string, body []byte, contentType string) (int, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(method, srv.URL+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.StatusCode, raw
+}
+
 func TestOwnerCreateItemSecretAbsentFromResponse(t *testing.T) {
 	a := testApp(t)
 	if _, err := a.AddAgent("claude"); err != nil {
@@ -156,6 +178,10 @@ func TestAgentCannotCreateItemOrFill(t *testing.T) {
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/sync", "agent", FillSyncRequest{})
 	if code != http.StatusForbidden {
 		t.Fatalf("sync %d %s", code, raw)
+	}
+	code, raw = doRaw(t, srv, http.MethodPost, "/v1/import?filename=x.csv", "agent", []byte("name,url,username,password\nx,https://x,a,p\n"), "text/csv")
+	if code != http.StatusForbidden {
+		t.Fatalf("import %d %s", code, raw)
 	}
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://api.github.com/user"})
 	if code != http.StatusOK {
@@ -650,5 +676,74 @@ func TestCORSUnknownOrigin(t *testing.T) {
 	defer res.Body.Close()
 	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("origin %q", got)
+	}
+}
+
+func TestCreateCardFieldsNeverReturned(t *testing.T) {
+	const pan = "4111111111111111"
+	a := testApp(t)
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name: "amex",
+		Kind: "card",
+		Card: &CardFields{Number: pan, ExpMonth: "12", ExpYear: "2030", CVV: "123", Holder: "Ada"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(pan)) || scrub.Contains(raw, []byte("123")) {
+		t.Fatal("create echoed card")
+	}
+	var item protocol.Item
+	if json.Unmarshal(raw, &item) != nil || item.Kind != protocol.ItemCard {
+		t.Fatalf("%s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(pan)) {
+		t.Fatal("list leaked pan")
+	}
+}
+
+func TestCreateIdentityFieldsNeverReturned(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name:     "home",
+		Kind:     "identity",
+		Identity: &IdentityFields{GivenName: "Ada", FamilyName: "Lovelace", Address: "1 Street", Phone: "+44"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte("1 Street")) || scrub.Contains(raw, []byte("+44")) {
+		t.Fatal("create echoed identity")
+	}
+}
+
+func TestImportCSVNoSecretInResponse(t *testing.T) {
+	const pass = "s3cret"
+	a := testApp(t)
+	srv := apiServer(t, a)
+	body := []byte("name,url,username,password\nGitHub,https://github.com,ada," + pass + "\n")
+	code, raw := doRaw(t, srv, http.MethodPost, "/v1/import?filename=chrome.csv", "human", body, "text/csv")
+	if code != http.StatusOK {
+		t.Fatalf("import %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(pass)) {
+		t.Fatal("import echoed password")
+	}
+	var got ImportResponse
+	if json.Unmarshal(raw, &got) != nil || got.Count != 1 || got.Names[0] != "GitHub" {
+		t.Fatalf("%s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(pass)) {
+		t.Fatal("list leaked password")
 	}
 }

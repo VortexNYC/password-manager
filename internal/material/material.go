@@ -52,6 +52,7 @@ type Envelope struct {
 	Postal     string `json:"postal,omitempty"`
 	Country    string `json:"country,omitempty"`
 	Phone      string `json:"phone,omitempty"`
+	Email      string `json:"email,omitempty"`
 }
 
 func PackFile(name, mime string, body []byte) ([]byte, error) {
@@ -119,7 +120,7 @@ func PackCard(number, expMonth, expYear, cvv, name string) ([]byte, error) {
 	})
 }
 
-func PackIdentity(given, family, address, city, region, postal, country, phone string) ([]byte, error) {
+func PackIdentity(given, family, address, city, region, postal, country, phone, email string) ([]byte, error) {
 	env := Envelope{
 		V:          Version,
 		GivenName:  strings.TrimSpace(given),
@@ -130,8 +131,9 @@ func PackIdentity(given, family, address, city, region, postal, country, phone s
 		Postal:     strings.TrimSpace(postal),
 		Country:    strings.TrimSpace(country),
 		Phone:      strings.TrimSpace(phone),
+		Email:      strings.TrimSpace(email),
 	}
-	if env.GivenName == "" && env.FamilyName == "" && env.Address == "" && env.Phone == "" {
+	if env.GivenName == "" && env.FamilyName == "" && env.Address == "" && env.Phone == "" && env.Email == "" {
 		return nil, fmt.Errorf("material: empty identity")
 	}
 	return pack(env)
@@ -256,7 +258,7 @@ func ScrubList(env Envelope, extra ...[]byte) [][]byte {
 	for _, s := range []string{
 		env.Number, env.ExpMonth, env.ExpYear, env.CVV,
 		env.GivenName, env.FamilyName, env.Address, env.City,
-		env.Region, env.Postal, env.Country, env.Phone,
+		env.Region, env.Postal, env.Country, env.Phone, env.Email,
 	} {
 		if s != "" {
 			out = append(out, []byte(s))

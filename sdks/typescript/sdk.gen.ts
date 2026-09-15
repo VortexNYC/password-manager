@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ArchiveItemData, ArchiveItemErrors, ArchiveItemResponses, CreateAgentData, CreateAgentErrors, CreateAgentResponses, CreateGrantData, CreateGrantErrors, CreateGrantResponses, CreateItemData, CreateItemErrors, CreateItemResponses, DeleteItemData, DeleteItemErrors, DeleteItemResponses, GetHealthData, GetHealthResponses, GetOpenApiData, GetOpenApiResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGrantsData, ListGrantsErrors, ListGrantsResponses, ListItemsData, ListItemsErrors, ListItemsResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UseItemData, UseItemErrors, UseItemResponses } from './types.gen';
+import type { ArchiveItemData, ArchiveItemErrors, ArchiveItemResponses, CreateAgentData, CreateAgentErrors, CreateAgentResponses, CreateGrantData, CreateGrantErrors, CreateGrantResponses, CreateItemData, CreateItemErrors, CreateItemResponses, DeleteItemData, DeleteItemErrors, DeleteItemResponses, GetHealthData, GetHealthResponses, GetOpenApiData, GetOpenApiResponses, ImportItemsData, ImportItemsErrors, ImportItemsResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGrantsData, ListGrantsErrors, ListGrantsResponses, ListItemsData, ListItemsErrors, ListItemsResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UseItemData, UseItemErrors, UseItemResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -46,6 +46,20 @@ export const createItem = <ThrowOnError extends boolean = false>(options: Option
     ...options,
     headers: {
         'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * One-shot 1Password .1pux or CSV onto origin. Secret in the file, never in the response. Not MCP.
+ */
+export const importItems = <ThrowOnError extends boolean = false>(options: Options<ImportItemsData, ThrowOnError>): RequestResult<ImportItemsResponses, ImportItemsErrors, ThrowOnError> => (options.client ?? client).post<ImportItemsResponses, ImportItemsErrors, ThrowOnError>({
+    bodySerializer: null,
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/v1/import',
+    ...options,
+    headers: {
+        'Content-Type': 'application/octet-stream',
         ...options.headers
     }
 });

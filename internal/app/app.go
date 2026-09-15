@@ -20,6 +20,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/inject"
 	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/oneimport"
 	"github.com/vortexnyc/password-manager/internal/passkey"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/store"
@@ -277,6 +278,59 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 		return protocol.Item{}, err
 	}
 	return item, nil
+}
+
+type ImportResult struct {
+	Names []string `json:"names"`
+	Count int      `json:"count"`
+}
+
+func (a *App) ImportItems(p protocol.Principal, rows []oneimport.Row) (ImportResult, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return ImportResult{}, fmt.Errorf("app: import is human")
+	}
+	have, err := a.Store.ListItems()
+	if err != nil {
+		return ImportResult{}, err
+	}
+	taken := make(map[string]struct{}, len(have)+len(rows))
+	for _, it := range have {
+		taken[it.Name] = struct{}{}
+	}
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		item, err := a.PutItem(ItemOpts{
+			Name:     uniqueImportName(row.Name, taken),
+			URIs:     row.URIs,
+			Kind:     row.Kind,
+			Token:    row.Token,
+			Login:    row.Login,
+			TOTPSeed: row.TOTPSeed,
+		})
+		if err != nil {
+			return ImportResult{}, err
+		}
+		names = append(names, item.Name)
+	}
+	return ImportResult{Names: names, Count: len(names)}, nil
+}
+
+func uniqueImportName(want string, taken map[string]struct{}) string {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		want = "item"
+	}
+	if _, ok := taken[want]; !ok {
+		taken[want] = struct{}{}
+		return want
+	}
+	for i := 2; ; i++ {
+		n := fmt.Sprintf("%s (%d)", want, i)
+		if _, ok := taken[n]; !ok {
+			taken[n] = struct{}{}
+			return n
+		}
+	}
 }
 
 func unionURIs(have, add []string) []string {

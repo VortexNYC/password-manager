@@ -227,8 +227,9 @@ The next slices, in this order, and nothing else until each is proven:
                          2026-09-14 (`replica.box` + Keychain). Cards +
                          identities CFT-proven 2026-09-14. Branded
                          Stripe-test card fill wrote field lengths
-                         2026-09-15. Next is Firefox. Safari after
-                         Firefox. Thin client.
+                         2026-09-15. Next is origin import + owner
+                         create (card/identity/login). Firefox /
+                         Safari after that. Thin client.
                          Design: docs/fill.md. Two modes: choose
                          (click field, pick a match) and execute
                          (trusted focus, unambiguous, write the
@@ -238,7 +239,7 @@ The next slices, in this order, and nothing else until each is proven:
                          ASCredentialProvider is still 32.
 ```
 
-Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Replica is written+proven. Cards/identities CFT-proven 2026-09-14. Branded Stripe-test card fill wrote field lengths 2026-09-15. Next on 37 is Firefox, then Safari. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. After that: import / typed-save / TOTP-from-page (`docs/fill.md` increment 11), Mac helper (slice 32), phone add+fill (33–34), Windows/Linux helpers (35–36, re-check OS APIs then). Do not wrap the SPA in Native SDK / Tauri / Electron.
+Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Replica is written+proven. Cards/identities CFT-proven 2026-09-14. Branded Stripe-test card fill wrote field lengths 2026-09-15. Next is origin import + owner create (login/card/identity). Firefox / Safari wait. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. After origin create: typed-save / TOTP-from-page on Chrome, then Mac helper (slice 32), phone add+fill (33–34), Windows/Linux helpers (35–36, re-check OS APIs then). Do not wrap the SPA in Native SDK / Tauri / Electron.
 
 ## What the broker is
 
@@ -656,7 +657,7 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
-Next: Firefox (increment 8 CFT + origin + branded Stripe-test card wrote field lengths 2026-09-15). Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP. Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start 32.
+Next: origin import + owner create for login/card/identity (`docs/fill.md` increment 9). Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP, never list JSON. Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start Firefox, Safari, or 32.
 
 ## Testing
 

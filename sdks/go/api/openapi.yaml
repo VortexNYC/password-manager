@@ -86,6 +86,46 @@ paths:
         Not MCP.
       tags:
       - Owner
+  /v1/import:
+    post:
+      operationId: importItems
+      parameters:
+      - description: export.1pux or chrome.csv. Sniffed from bytes when empty.
+        explode: true
+        in: query
+        name: filename
+        required: false
+        schema:
+          type: string
+        style: form
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              format: binary
+              type: string
+          text/csv:
+            schema:
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResponse"
+          description: Created item names. No secrets.
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: agent cannot import
+      summary: "One-shot 1Password .1pux or CSV onto origin. Secret in the file, never\
+        \ in the response. Not MCP."
+      tags:
+      - Owner
   /v1/items/{name}:
     delete:
       operationId: deleteItem
@@ -322,6 +362,9 @@ components:
           - oauth
           - ssh
           - file
+          - passkey
+          - card
+          - identity
           type: string
         owner:
           $ref: "#/components/schemas/Owner"
@@ -549,6 +592,22 @@ components:
         secret: secret
         totp_seed: totp_seed
         login: login
+        card:
+          number: number
+          exp_month: exp_month
+          exp_year: exp_year
+          cvv: cvv
+          holder: holder
+        identity:
+          given_name: given_name
+          family_name: family_name
+          address: address
+          city: city
+          region: region
+          postal: postal
+          country: country
+          phone: phone
+          email: email
       properties:
         name:
           type: string
@@ -570,6 +629,9 @@ components:
           - oauth
           - ssh
           - file
+          - passkey
+          - card
+          - identity
           type: string
         secret:
           description: Vault material. Request only. Never returned.
@@ -581,6 +643,10 @@ components:
           description: Fill username. Metadata on the item. Also sealed in the envelope.
             Not a secret.
           type: string
+        card:
+          $ref: "#/components/schemas/CardFields"
+        identity:
+          $ref: "#/components/schemas/IdentityFields"
       required:
       - name
     UpdateItemRequest:
@@ -749,6 +815,76 @@ components:
           type: string
       required:
       - name
+    CardFields:
+      additionalProperties: false
+      description: Request only. Never returned. Never MCP.
+      example:
+        number: number
+        exp_month: exp_month
+        exp_year: exp_year
+        cvv: cvv
+        holder: holder
+      properties:
+        number:
+          type: string
+        exp_month:
+          type: string
+        exp_year:
+          type: string
+        cvv:
+          type: string
+        holder:
+          type: string
+    IdentityFields:
+      additionalProperties: false
+      description: Request only. Never returned. Never MCP.
+      example:
+        given_name: given_name
+        family_name: family_name
+        address: address
+        city: city
+        region: region
+        postal: postal
+        country: country
+        phone: phone
+        email: email
+      properties:
+        given_name:
+          type: string
+        family_name:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        region:
+          type: string
+        postal:
+          type: string
+        country:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+    ImportResponse:
+      additionalProperties: false
+      example:
+        names:
+        - names
+        - names
+        count: 0
+      properties:
+        names:
+          items:
+            type: string
+          type: array
+          default: null
+        count:
+          type: integer
+      required:
+      - count
+      - names
   securitySchemes:
     bearerAuth:
       bearerFormat: JWT
