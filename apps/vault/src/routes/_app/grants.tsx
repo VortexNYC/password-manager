@@ -1,87 +1,94 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
-import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  Input,
-  Label,
-  OperationalEmptyState,
-  OperationalHeader,
-  OperationalRow,
-  OperationalTableFrame,
-} from "@vortexnyc/ui"
-import { addGrant, grants } from "../../origin"
-import type { Grant } from "@vortex-api/pwm-sdk"
+import { Button } from "@cloudflare/kumo/components/button";
+import { Dialog } from "@cloudflare/kumo/components/dialog";
+import { Empty } from "@cloudflare/kumo/components/empty";
+import { Input } from "@cloudflare/kumo/components/input";
+import { Label } from "@cloudflare/kumo/components/label";
+import { LayerCard } from "@cloudflare/kumo/components/layer-card";
+import { Select } from "@cloudflare/kumo/components/select";
+import { Table } from "@cloudflare/kumo/components/table";
+import { Text } from "@cloudflare/kumo/components/text";
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { PageChrome } from "../../page-chrome";
+import { addGrant, grants } from "../../origin";
+import type { Grant } from "@vortex-api/pwm-sdk";
 
 export const Route = createFileRoute("/_app/grants")({
   component: Grants,
-})
+});
+
+type Level = "level1" | "level2";
+
+function isLevel(value: string): value is Level {
+  return value === "level1" || value === "level2";
+}
 
 function Grants() {
-  const [rows, setRows] = useState<Grant[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<Grant[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [level, setLevel] = useState<Level>("level2");
 
   async function reload() {
-    const res = await grants()
+    const res = await grants();
     if (res.error || !res.data) {
-      setError("list failed")
-      setRows([])
-      return
+      setError("list failed");
+      setRows([]);
+      return;
     }
-    setError(null)
-    setRows(res.data.grants)
+    setError(null);
+    setRows(res.data.grants);
   }
 
   useEffect(() => {
-    void reload()
-  }, [])
+    void reload();
+  }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <OperationalHeader
-        title="Grants"
-        subtitle="Same grant object. Agent or Kratos human id. Not a family vault."
-        actions={
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm">Grant</Button>
-            </DialogTrigger>
-            <DialogContent>
+    <PageChrome
+      title="Grants"
+      subtitle="Same grant object. Agent or Kratos human id. Not a family vault."
+      actions={
+        <>
+          <Button type="button" variant="primary" onClick={() => setOpen(true)}>
+            Grant
+          </Button>
+          <Dialog.Root
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) {
+                setLevel("level2");
+              }
+            }}
+          >
+            <Dialog size="sm" className="p-6">
               <form
-                className="flex flex-col gap-3"
+                className="flex flex-col gap-4"
                 onSubmit={(e) => {
-                  e.preventDefault()
-                  const fd = new FormData(e.currentTarget)
-                  const item = String(fd.get("item") ?? "")
-                  const agent = String(fd.get("agent") ?? "")
-                  const human = String(fd.get("human") ?? "")
-                  const level = String(fd.get("level") ?? "level2")
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  const item = String(fd.get("item") ?? "");
+                  const agent = String(fd.get("agent") ?? "");
+                  const human = String(fd.get("human") ?? "");
                   void addGrant({
                     item,
-                    level: level === "level1" ? "level1" : "level2",
+                    level,
                     agent: agent || undefined,
                     human: human || undefined,
                   }).then((res) => {
                     if (res.error) {
-                      setError("create failed")
-                      return
+                      setError("create failed");
+                      return;
                     }
-                    setOpen(false)
-                    void reload()
-                  })
+                    setOpen(false);
+                    setLevel("level2");
+                    void reload();
+                  });
                 }}
               >
-                <DialogHeader>
-                  <DialogTitle>Grant Use</DialogTitle>
-                  <DialogDescription>XOR agent name or human identity id.</DialogDescription>
-                </DialogHeader>
+                <Dialog.Title>Grant Use</Dialog.Title>
+                <Dialog.Description>XOR agent name or human identity id.</Dialog.Description>
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="item">Item</Label>
                   <Input id="item" name="item" required />
@@ -94,36 +101,63 @@ function Grants() {
                   <Label htmlFor="human">Human id</Label>
                   <Input id="human" name="human" />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="level">Level</Label>
-                  <Input id="level" name="level" defaultValue="level2" />
-                </div>
-                <DialogFooter>
-                  <Button type="submit" size="sm">
+                <Select
+                  value={level}
+                  label="Level"
+                  hideLabel={false}
+                  onValueChange={(value) => {
+                    if (typeof value === "string" && isLevel(value)) {
+                      setLevel(value);
+                    }
+                  }}
+                >
+                  <Select.Option value="level1">level1</Select.Option>
+                  <Select.Option value="level2">level2</Select.Option>
+                </Select>
+                <div className="flex justify-end">
+                  <Button type="submit" variant="primary">
                     Save
                   </Button>
-                </DialogFooter>
+                </div>
               </form>
-            </DialogContent>
-          </Dialog>
-        }
-      />
-      {error ? <p className="text-destructive px-4 py-2 text-xs">{error}</p> : null}
-      <OperationalTableFrame>
-        {rows === null ? (
-          <p className="text-muted-foreground px-4 py-3 text-sm">Loading…</p>
-        ) : rows.length === 0 ? (
-          <OperationalEmptyState title="No grants" description="Grant an agent or a human Use on an item." />
-        ) : (
-          rows.map((g) => (
-            <OperationalRow
-              key={g.id}
-              title={g.item_id}
-              subtitle={`${g.agent_id} · ${g.level}`}
-            />
-          ))
-        )}
-      </OperationalTableFrame>
-    </div>
-  )
+            </Dialog>
+          </Dialog.Root>
+        </>
+      }
+    >
+      {error ? (
+        <Text as="p" variant="error">
+          {error}
+        </Text>
+      ) : null}
+      <LayerCard>
+        <LayerCard.Primary>
+          {rows === null ? (
+            <Text variant="secondary">Loading…</Text>
+          ) : rows.length === 0 ? (
+            <Empty title="No grants" description="Grant an agent or a human Use on an item." />
+          ) : (
+            <Table>
+              <Table.Header>
+                <Table.Row>
+                  <Table.Head>Item</Table.Head>
+                  <Table.Head>Agent</Table.Head>
+                  <Table.Head>Level</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {rows.map((g) => (
+                  <Table.Row key={g.id}>
+                    <Table.Cell>{g.item_id}</Table.Cell>
+                    <Table.Cell>{g.agent_id}</Table.Cell>
+                    <Table.Cell>{g.level}</Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
+          )}
+        </LayerCard.Primary>
+      </LayerCard>
+    </PageChrome>
+  );
 }

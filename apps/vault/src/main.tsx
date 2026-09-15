@@ -5,7 +5,7 @@ import { routeTree } from "./routeTree.gen"
 import "./styles.css"
 
 if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-  document.documentElement.classList.add("dark")
+  document.documentElement.dataset.mode = "dark"
 }
 
 const router = createRouter({ routeTree })

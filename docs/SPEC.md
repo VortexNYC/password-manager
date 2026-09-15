@@ -187,7 +187,7 @@ The next slices, in this order, and nothing else until each is proven:
                          `grant add --human`. fill/list is owned or
                          granted. not a family vault. not collections.
 30 SPA vault              written. Cloudflare Worker `veil-vault` at
-                         app.veil.nyc. shadcn from Core (OperationalShell).
+                         app.veil.nyc. Kumo (`@cloudflare/kumo`).
                          PKCE in the browser. prompt=login. Install the
                          ID token only if amr contains totp. Items, grants,
                          agents, audit against origin OpenAPI. Invites stay
@@ -380,7 +380,7 @@ device
                                            that wrap also opens the fill replica.
 
 computer
-  vault UI           the SPA           chosen. Cloudflare. shadcn from Core.
+  vault UI           the SPA           chosen. Cloudflare. Kumo.
                                            every human option lives here.
                                            not Native SDK. not Tauri. not Electron.
                                            not the phone.
@@ -740,7 +740,7 @@ Next: family-member create (`docs/fill.md` increment 10). `POST /v1/items` is ow
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
 - [x] Origin Kratos courier is Resend HTTP (`api.resend.com`) from `noreply@veil.nyc`. Compose stays mailpit. `--watch-courier` on origin. Railway blocks outbound SMTP. Recovery email is a product sender.
 - [x] Human grants are the same grant object. `grant add --human` XOR `--agent`. CreateGrantRequest.human is a Kratos identity id, not email. Org owner fill/list is the vault; a member fills only granted items. Not a family vault. Not collections. Not Keto tuples.
-- [x] SPA vault is Cloudflare (`apps/vault`, `app.veil.nyc`). Core OperationalShell. Browser PKCE, `prompt=login`, ID token kept only if `amr` contains totp. Origin CORS for that origin. Hydra first-party keeps the laptop callback and adds the SPA. Items, grants, agents, audit via generated SDK. Invite recovery code stays `--code-file`. Settings is Ory Elements. Not Tauri. Not a Reveal.
+- [x] SPA vault is Cloudflare (`apps/vault`, `app.veil.nyc`). Kumo. Browser PKCE, `prompt=login`, ID token kept only if `amr` contains totp. Origin CORS for that origin. Hydra first-party keeps the laptop callback and adds the SPA. Items, grants, agents, audit via generated SDK. Invite recovery code stays `--code-file`. Settings is Ory Elements. Not Tauri. Not a Reveal.
 
 ## Use what exists. Do not rewrite it.
 
@@ -759,7 +759,7 @@ Next: family-member create (`docs/fill.md` increment 10). `POST /v1/items` is ow
 | Mac helper | menu-bar accessory + ASCredentialProvider (slice 32). Native apps only. Same choose job as `docs/fill.md`. | A vault window. Using it to fill Chrome. Using it as the Safari Web Extension (37). |
 | Windows / Linux helper | tray + Chrome extension. Revisit OS APIs on slices 35–36 | Inventing an Autofill API. Shipping Auto-Type before 26. |
 | Identity screens | Ory Elements in identity/login | Restyling Elements. Putting them in the broker. |
-| Vault UI widgets | shadcn from Core. Uniwind if a phone WebView/RN shell exists later | NativeWind. One component file in Swift. Native SDK as the UI. |
+| Vault UI widgets | Kumo (`@cloudflare/kumo`). Uniwind if a phone WebView/RN shell exists later | `@vortexnyc/ui`. NativeWind. One component file in Swift. Native SDK as the UI. |
 | Device pairing | `golang.org/x/crypto/nacl/box` | Age, a second vault, pairing a model, iOS |
 | MITM | `elazarl/goproxy` | A CONNECT parser |
 | AEAD | `x/crypto` | A cipher |
