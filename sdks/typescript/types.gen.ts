@@ -151,6 +151,10 @@ export type Agent = {
     id: string;
     org_id: string;
     owner?: Owner;
+    /**
+     * Set when the agent is revoked. Record stays for audit.
+     */
+    revoked_at?: string;
 };
 
 export type AgentsResponse = {
@@ -559,6 +563,39 @@ export type CreateAgentResponses = {
 };
 
 export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponses];
+
+export type RevokeAgentData = {
+    body?: never;
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/v1/agents/{name}/revoke';
+};
+
+export type RevokeAgentErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * not owner
+     */
+    403: unknown;
+};
+
+export type RevokeAgentResponses = {
+    /**
+     * Revoked agent. No token or secret.
+     */
+    200: Agent;
+};
+
+export type RevokeAgentResponse = RevokeAgentResponses[keyof RevokeAgentResponses];
 
 export type ListSessionsData = {
     body?: never;
