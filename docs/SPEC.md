@@ -141,7 +141,7 @@ The next slices, in this order, and nothing else until each is proven:
                          mints a Use lease onto an existing agent. Token
                          once. Default 15m, max 1h. Not MCP. Not list.
                          POST /v1/items is human: owner stamps org,
-                         member stamps themselves. POST /v1/grants
+                         member stamps themselves. GET/POST /v1/grants
                          is owner. Secret in create request, never in response.
                          Fill path /v1/fill/* is human native-host only,
                          not OpenAPI, not MCP. Chrome URI fill is 26.
@@ -234,7 +234,8 @@ The next slices, in this order, and nothing else until each is proven:
                          written+live 2026-09-15. Duplicate titles
                          keep distinct ids. 1pux SSH+notes import.
                          Family-member create written (OwnerUser
-                         stamp; list/fill is owned or granted).
+                         stamp; list/fill is owned or granted;
+                         grant list is owner).
                          Next is typed-save / TOTP-from-page on
                          Chrome. Firefox / Safari after that.
                          Design: docs/fill.md. Two modes: choose
@@ -717,7 +718,7 @@ Next: typed-save / TOTP-from-page on Chrome (`docs/fill.md` increment 13). Famil
 - [x] Env into a child is Infisical `vault run`. `password-manager run` sets granted secrets in the child env and keeps `HTTPS_PROXY`. Broker stdout, MCP, and audit have no secret. Level 1 is skipped, never a prompt. SSH is not injected.
 - [x] Owner-key wrap: one DEK per owner, sealed with master via x/crypto. Grants and agent JSON have no key. Legacy secrets sealed with master rewrap on open.
 - [x] Device pairing: nacl box wrap of master to a second device public key. `device.key` + `wraps/`. No plaintext `master.key`. Blob and CLI JSON have no master. Copy vault.db; not sync; not a model; not iOS.
-- [x] Org: agent owner is the human id. Who may create a grant is that owner. Planted `self` stays the laptop stand-in.
+- [x] Org: agent owner is the human id. Who may administer grants (create and list) is that owner. Members see granted items via list/fill, not `GET /v1/grants`. Planted `self` stays the laptop stand-in.
 - [x] One org id: `protocol.LocalOrgID` is the vault OrgID, Kratos `organization_id`, and the Keto object. A second company is not this product yet.
 - [x] Invites are Kratos: glue `CreateIdentity` + `CreateRecoveryCodeForIdentity`. CLI `human invite --code-file`. Owner-gated after bootstrap (`--oidc-token-file` / `PWM_HUMAN_TOKEN`). Email and recovery code never enter sqlite. ApproveOIDC requires Keto membership. organization_id is stamped. Keto owner/member is written by glue.
 - [x] Remote MCP is Streamable HTTP. Bearer is Hydra JWT / bound OIDC. `mcp config` prints url+header template, never the token. RFC 9728 metadata points at Hydra. Cloud agents fetch that URL. JSON has no secret. No bearer is 401. Cursor (no env interpolation) uses `mcp stdio` / `mcp laptop` against origin HTTP. Token file, never mcp.json. Laptop remints a stale JWT with `client_credentials` (`PWM_HYDRA_SECRET_FILE`). Agent clients stay `client_credentials` only. Not `@ory/mcp-oauth-provider`. Not auth-code as the human.
@@ -741,7 +742,7 @@ Next: typed-save / TOTP-from-page on Chrome (`docs/fill.md` increment 13). Famil
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
 - [x] Origin Kratos courier is Resend HTTP (`api.resend.com`) from `noreply@veil.nyc`. Compose stays mailpit. `--watch-courier` on origin. Railway blocks outbound SMTP. Recovery email is a product sender.
 - [x] Human grants are the same grant object. `grant add --human` XOR `--agent`. CreateGrantRequest.human is a Kratos identity id, not email. Fill/list is owned or granted. Owner lists org items; a member lists items they own plus grants. Not a family vault. Not collections. Not Keto tuples.
-- [x] Family member `POST /v1/items` stamps OwnerUser. Owner stamps org. Import and grant-create stay owner. Agent 403. Generate is not a lie.
+- [x] Family member `POST /v1/items` stamps OwnerUser. Owner stamps org. Import, grant-create, and grant-list stay owner. Agent 403. Generate is not a lie.
 - [x] SPA vault is Cloudflare (`apps/vault`, `app.veil.nyc`). Kumo. Browser PKCE, `prompt=login`, ID token kept only if `amr` contains totp. Origin CORS for that origin. Hydra first-party keeps the laptop callback and adds the SPA. Items, grants, agents, audit via generated SDK. Invite recovery code stays `--code-file`. Settings is Ory Elements. Not Tauri. Not a Reveal.
 
 ## Use what exists. Do not rewrite it.

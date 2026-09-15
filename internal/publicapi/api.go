@@ -282,13 +282,8 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) importItems(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.requireHuman(w, r)
+	p, ok := s.requireOwner(w, r)
 	if !ok {
-		return
-	}
-	ok, err := s.App.OwnsVault(p)
-	if err != nil || !ok {
-		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 32<<20))
@@ -357,7 +352,7 @@ func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listGrants(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireHuman(w, r); !ok {
+	if _, ok := s.requireOwner(w, r); !ok {
 		return
 	}
 	grants, err := s.App.Store.ListGrants()
@@ -373,13 +368,7 @@ func (s *Server) listGrants(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.requireHuman(w, r)
-	if !ok {
-		return
-	}
-	ok, err := s.App.CanCreateGrant(p)
-	if err != nil || !ok {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if _, ok := s.requireOwner(w, r); !ok {
 		return
 	}
 	var in CreateGrantRequest
@@ -422,7 +411,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireHuman(w, r); !ok {
+	if _, ok := s.requireOwner(w, r); !ok {
 		return
 	}
 	agents, err := s.App.Store.ListAgents()
@@ -437,7 +426,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireHuman(w, r); !ok {
+	if _, ok := s.requireOwner(w, r); !ok {
 		return
 	}
 	var in CreateAgentRequest
@@ -544,6 +533,13 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requirePrincipal(w, r)
 	if !ok {
 		return
+	}
+	if p.Kind == protocol.PrincipalHuman {
+		owns, err := s.App.OwnsVault(p)
+		if err != nil || !owns {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 	}
 	all, err := s.App.Store.Audit()
 	if err != nil {
@@ -715,6 +711,19 @@ func (s *Server) requireHuman(w http.ResponseWriter, r *http.Request) (protocol.
 		return protocol.Principal{}, false
 	}
 	if p.Kind != protocol.PrincipalHuman {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return protocol.Principal{}, false
+	}
+	return p, true
+}
+
+func (s *Server) requireOwner(w http.ResponseWriter, r *http.Request) (protocol.Principal, bool) {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return protocol.Principal{}, false
+	}
+	ok, err := s.App.OwnsVault(p)
+	if err != nil || !ok {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return protocol.Principal{}, false
 	}

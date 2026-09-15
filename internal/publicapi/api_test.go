@@ -646,6 +646,10 @@ func TestHumanGrantAPI(t *testing.T) {
 	if code != http.StatusForbidden {
 		t.Fatalf("member created grant %d %s", code, raw)
 	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/grants", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member listed grants %d %s", code, raw)
+	}
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
 		Human: "not-an-email@example.com",
 		Item:  "github",
@@ -694,6 +698,16 @@ func TestHumanGrantAPI(t *testing.T) {
 	if !bytes.Contains(raw, []byte("github")) {
 		t.Fatalf("member list %s", raw)
 	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/grants", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("owner list grants %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte(member)) || !bytes.Contains(raw, []byte("github")) {
+		t.Fatalf("owner grants %s", raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("grant list leaked secret")
+	}
 }
 
 func TestOwnerAgentsNoSecret(t *testing.T) {
@@ -719,6 +733,22 @@ func TestOwnerAgentsNoSecret(t *testing.T) {
 	code, raw = doJSON(t, srv, http.MethodGet, "/v1/agents", "agent", nil)
 	if code != http.StatusForbidden {
 		t.Fatalf("agent list %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/agents", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member list agents %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/agents", "member", CreateAgentRequest{Name: "nope"})
+	if code != http.StatusForbidden {
+		t.Fatalf("member create agent %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/events", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member listed events %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/events", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("owner events %d %s", code, raw)
 	}
 }
 

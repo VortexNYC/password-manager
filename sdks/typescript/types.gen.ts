@@ -457,7 +457,7 @@ export type ListGrantsErrors = {
      */
     401: unknown;
     /**
-     * agent cannot list grants
+     * not owner
      */
     403: unknown;
 };
@@ -488,7 +488,7 @@ export type CreateGrantErrors = {
      */
     401: unknown;
     /**
-     * agent cannot create grants
+     * not owner
      */
     403: unknown;
 };
@@ -515,7 +515,7 @@ export type ListAgentsErrors = {
      */
     401: unknown;
     /**
-     * agent cannot list agents
+     * not owner
      */
     403: unknown;
 };
@@ -546,7 +546,7 @@ export type CreateAgentErrors = {
      */
     401: unknown;
     /**
-     * agent cannot create agents
+     * not owner
      */
     403: unknown;
 };
