@@ -276,6 +276,15 @@ Content script holds values only during write, then drops them. Background never
 
 `Host.confirm` reuses 30s globally. KeePassXC-Browser still calls fill, then totp, then passkeys as separate messages — they share that window. `scope` waits for cards. CVV never reuses.
 
+Confirm chrome is **Veil Access Requested**, not Apple's stock LocalAuthentication card and not 1Password. Same Go host. Not a desktop app. Not slice 32.
+
+- Title: Veil Access Requested
+- Requester icon (Chrome, Ghostty, …) — check — Veil mark
+- **Allow {App} to {fill a sign-in | fill a card | get CLI access | …}**
+- Account row is `PWM_LOGIN_EMAIL` (one org; chevron is visual)
+- Cancel fail-closed. **Authorize with Touch ID** then device-owner auth.
+- Fill uses this sheet. Interactive human CLI (`item`, `import`, grants) uses **Allow {App} to get CLI access**. Remembered per bundle id in Keychain (`nyc.veil.cli`, WhenUnlockedThisDeviceOnly, no UserPresence). Agents, pipes, and `PWM_FILL_TOUCHID=0` skip. Fill remint does not go through that CLI gate.
+
 `confirm.Prompt(reason)` until cards. Then `Prompt(reason, scope, reuse)`:
 
 - `scope` = registrable domain or app id

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vortexnyc/password-manager/identity/glue"
+	"github.com/vortexnyc/password-manager/internal/confirm"
 	"github.com/vortexnyc/password-manager/internal/human"
 )
 
@@ -54,9 +55,23 @@ func originHumanTokenLive(ctx context.Context) (string, error) {
 	return tok, nil
 }
 
+func originHumanCLI(ctx context.Context) (string, error) {
+	tok, err := originHumanTokenLive(ctx)
+	if err != nil {
+		return "", err
+	}
+	if err := confirm.CLIAccess(); err != nil {
+		return "", err
+	}
+	return tok, nil
+}
+
 func originOwnerToken(ctx context.Context) (string, error) {
 	tok, err := originHumanTokenLive(ctx)
 	if err == nil {
+		if err := confirm.CLIAccess(); err != nil {
+			return "", err
+		}
 		return tok, nil
 	}
 	return originTokenLive(ctx, "")
