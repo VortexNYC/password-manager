@@ -1,0 +1,55 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Veil passkey fixture</title>
+<button id="register" type="button">Register</button>
+<button id="login" type="button">Login</button>
+<pre id="status">idle</pre>
+<script>
+  var credId = null;
+  document.getElementById("register").addEventListener("click", function () {
+    var status = document.getElementById("status");
+    status.textContent = "pending";
+    var challenge = new Uint8Array(32);
+    crypto.getRandomValues(challenge);
+    navigator.credentials
+      .create({
+        publicKey: {
+          challenge: challenge,
+          rp: { id: location.hostname, name: "Veil fixture" },
+          user: { id: new Uint8Array([1, 2, 3, 4]), name: "ada", displayName: "Ada" },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+        },
+      })
+      .then(function (cred) {
+        credId = cred && cred.rawId ? cred.rawId : null;
+        status.textContent = cred && cred.id ? "ok " + cred.id : "err empty";
+      })
+      .catch(function (err) {
+        status.textContent = "err " + (err && err.name ? err.name : "fail");
+      });
+  });
+  document.getElementById("login").addEventListener("click", function () {
+    var status = document.getElementById("status");
+    if (!credId) {
+      status.textContent = "err no-cred";
+      return;
+    }
+    status.textContent = "getting";
+    var challenge = new Uint8Array(32);
+    crypto.getRandomValues(challenge);
+    navigator.credentials
+      .get({
+        publicKey: {
+          challenge: challenge,
+          rpId: location.hostname,
+          allowCredentials: [{ type: "public-key", id: credId }],
+        },
+      })
+      .then(function (cred) {
+        status.textContent = cred && cred.id ? "got " + cred.id : "err empty-get";
+      })
+      .catch(function (err) {
+        status.textContent = "err " + (err && err.name ? err.name : "fail");
+      });
+  });
+</script>

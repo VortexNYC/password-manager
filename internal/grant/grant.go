@@ -1,6 +1,6 @@
 // Package grant evaluates whether a principal may Use an item.
 //
-// Stolen shape: Infisical's agent-vs-role split, OneCLI's per-agent rules.
+// Shape follows Infisical's agent-vs-role split and OneCLI's per-agent rules.
 // Ours: the grant is the object (level, actions, expiry), not a vault role.
 package grant
 
@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/vortexnyc/password-manager/internal/protocol"
 )
@@ -30,6 +32,9 @@ func Evaluate(in Input) protocol.UseResult {
 	if in.Principal.Kind != protocol.PrincipalAgent {
 		return deny("human_cannot_use")
 	}
+	if in.Item.Archived {
+		return deny("item_archived")
+	}
 	if in.Grant == nil {
 		return deny("no_grant")
 	}
@@ -46,7 +51,7 @@ func Evaluate(in Input) protocol.UseResult {
 	if g.ExpiresAt != nil && !in.Now.Before(*g.ExpiresAt) {
 		return deny("grant_expired")
 	}
-	if !slices.Contains(g.Actions, in.Action) {
+	if !actionAllowed(g.Actions, in.Action) {
 		return deny("action_not_allowed")
 	}
 	if in.Action == protocol.ActionFetch {
@@ -71,6 +76,14 @@ func Evaluate(in Input) protocol.UseResult {
 	default:
 		return deny("unknown_level")
 	}
+}
+
+func actionAllowed(actions []protocol.ActionKind, want protocol.ActionKind) bool {
+	if slices.Contains(actions, want) {
+		return true
+	}
+	// Env into a child is Use of a granted item. Fetch on the grant is that Use.
+	return want == protocol.ActionEnv && slices.Contains(actions, protocol.ActionFetch)
 }
 
 func deny(reason string) protocol.UseResult {
@@ -138,4 +151,21 @@ func CanonicalHost(u *url.URL) string {
 
 func HostAllowed(item protocol.Item, rawURL string) bool {
 	return hostAllowed(item, rawURL) == ""
+}
+
+// Registrable is eTLD+1 for confirm scope. GitHub fill must not waive Amazon CVV.
+func Registrable(rawURL string) string {
+	u, err := ParseDest(rawURL)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return ""
+	}
+	etld, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil || etld == "" {
+		return host
+	}
+	return strings.ToLower(etld)
 }

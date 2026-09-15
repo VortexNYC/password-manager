@@ -27,7 +27,9 @@ import (
 	"github.com/elazarl/goproxy/ext/auth"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/broker"
 	"github.com/vortexnyc/password-manager/internal/grant"
+	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
 )
@@ -42,6 +44,8 @@ type Server struct {
 	ListenAddr  string
 	OutboundTLS *tls.Config
 	Now         func() time.Time
+	OriginItems []protocol.Item
+	OriginUse   OriginUse
 	httpProxy   *goproxy.ProxyHttpServer
 	srv         *http.Server
 	ln          net.Listener
@@ -166,6 +170,13 @@ func (s *Server) checkAuth(req *http.Request) bool {
 }
 
 func (s *Server) agentMayHost(raw string) bool {
+	if s.OriginUse != nil {
+		_, dec := s.originItem(raw)
+		return dec.Decision == protocol.DecisionAllow
+	}
+	if s.App == nil {
+		return false
+	}
 	items, err := s.App.ItemsForAgent(s.Agent.ID)
 	if err != nil {
 		return false
@@ -179,6 +190,9 @@ func (s *Server) agentMayHost(raw string) bool {
 }
 
 func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+	if s.OriginUse != nil {
+		return s.injectOrigin(req, ctx)
+	}
 	raw := destURL(req)
 	item, _, dec, err := s.lookup(raw)
 	if err != nil {
@@ -187,7 +201,7 @@ func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request
 			Reason:   "lookup_failed",
 		})
 	}
-	_ = s.App.Store.AppendAudit(protocol.AuditEvent{
+	event := protocol.AuditEvent{
 		Time:       s.now(),
 		OrgID:      s.Agent.OrgID,
 		AgentID:    s.Agent.ID,
@@ -196,7 +210,9 @@ func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request
 		Decision:   dec.Decision,
 		Reason:     dec.Reason,
 		ApprovalID: dec.ApprovalID,
-	})
+	}
+	_ = s.App.Store.AppendAudit(event)
+	broker.LogEvent(event, item.Name, destURL(req), 0)
 	if dec.Decision != protocol.DecisionAllow {
 		status := http.StatusForbidden
 		return nil, jsonResp(req, status, protocol.UseResult{Decision: dec.Decision, Reason: dec.Reason})
@@ -208,10 +224,27 @@ func (s *Server) inject(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request
 			Reason:   "lookup_failed",
 		})
 	}
-	req.Header.Set("Authorization", "Bearer "+string(secret))
+	env := material.Unpack(secret)
+	access, err := material.AccessToken(req.Context(), env, http.DefaultClient)
+	if err != nil {
+		return nil, jsonResp(req, http.StatusInternalServerError, protocol.UseResult{
+			Decision: protocol.DecisionDeny,
+			Reason:   "oauth_failed",
+		})
+	}
+	if access != "" && req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", material.AuthorizationValue(access))
+	}
+	code, err := material.Apply(req.Header, env, s.now())
+	if err != nil {
+		return nil, jsonResp(req, http.StatusInternalServerError, protocol.UseResult{
+			Decision: protocol.DecisionDeny,
+			Reason:   "totp_failed",
+		})
+	}
 	data, _ := ctx.UserData.(ctxData)
 	data.authed = true
-	data.secrets = s.agentSecrets()
+	data.secrets = append(s.agentSecrets(), material.ScrubList(env, secret, []byte(code), []byte(access))...)
 	ctx.UserData = data
 	return req, nil
 }
@@ -285,7 +318,8 @@ func (s *Server) agentSecrets() [][]byte {
 		if err != nil {
 			continue
 		}
-		out = append(out, []byte(sec))
+		env := material.Unpack(sec)
+		out = append(out, material.ScrubList(env, sec)...)
 	}
 	return out
 }

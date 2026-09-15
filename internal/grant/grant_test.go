@@ -1,6 +1,7 @@
 package grant
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -99,9 +100,18 @@ func TestWrongAgentDenied(t *testing.T) {
 
 func TestHostNotOnItemDenied(t *testing.T) {
 	in := fixture(protocol.Level2)
-	in.TargetURL = "https://evil.example/steal"
+	in.TargetURL = "https://evil.example/exfil"
 	got := Evaluate(in)
 	if got.Reason != "host_not_allowed" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestArchivedItemDenied(t *testing.T) {
+	in := fixture(protocol.Level2)
+	in.Item.Archived = true
+	got := Evaluate(in)
+	if got.Reason != "item_archived" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -121,6 +131,26 @@ func TestActionNotOnGrantDenied(t *testing.T) {
 	in.Grant.Actions = nil
 	got := Evaluate(in)
 	if got.Reason != "action_not_allowed" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestEnvAllowedWhenFetchIsOnGrant(t *testing.T) {
+	in := fixture(protocol.Level2)
+	in.Action = protocol.ActionEnv
+	in.TargetURL = ""
+	got := Evaluate(in)
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestEnvNeedsApprovalAtLevel1(t *testing.T) {
+	in := fixture(protocol.Level1)
+	in.Action = protocol.ActionEnv
+	in.TargetURL = ""
+	got := Evaluate(in)
+	if got.Decision != protocol.DecisionNeedApproval {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -152,4 +182,50 @@ func TestCanonicalHostCONNECT(t *testing.T) {
 	if CanonicalHost(u) != "api.stripe.com" {
 		t.Fatalf("%q", CanonicalHost(u))
 	}
+}
+
+func TestRegistrableIsETLDPlusOne(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"https://dash.cloudflare.com/login", "cloudflare.com"},
+		{"https://github.com/login", "github.com"},
+		{"https://www.amazon.com/checkout", "amazon.com"},
+		{"https://www.amazon.co.uk/dp/1", "amazon.co.uk"},
+		{"github.com", "github.com"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := Registrable(tc.in); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+	if Registrable("https://www.amazon.com/checkout") == Registrable("https://github.com") {
+		t.Fatal("amazon and github share a scope")
+	}
+}
+
+func FuzzRegistrable(f *testing.F) {
+	f.Add("https://dash.cloudflare.com/login")
+	f.Add("https://www.amazon.co.uk/dp/1")
+	f.Add("github.com")
+	f.Add("")
+	f.Fuzz(func(t *testing.T, raw string) {
+		got := Registrable(raw)
+		if got != strings.ToLower(got) {
+			t.Fatalf("not lower %q", got)
+		}
+		if strings.ContainsAny(got, "/?#") {
+			t.Fatalf("path in scope %q from %q", got, raw)
+		}
+	})
+}
+
+func FuzzHostAllowed(f *testing.F) {
+	f.Add("https://api.stripe.com", "https://api.stripe.com/v1/customers")
+	f.Add("https://github.com", "https://amazon.com")
+	f.Fuzz(func(t *testing.T, uri, target string) {
+		_ = HostAllowed(protocol.Item{URIs: []string{uri}}, target)
+	})
 }

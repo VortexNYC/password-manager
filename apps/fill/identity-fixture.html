@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Veil identity fixture</title>
+<form id="address">
+  <label>Given <input id="given" name="given-name" autocomplete="given-name" /></label>
+  <label>Family <input id="family" name="family-name" autocomplete="family-name" /></label>
+  <label>Street <input id="address-line" name="address-line1" autocomplete="street-address" /></label>
+  <label>Phone <input id="phone" name="tel" autocomplete="tel" /></label>
+  <button id="continue" type="button">Continue</button>
+</form>
+<script>
+  document.getElementById("continue").addEventListener("click", function () {
+    document.documentElement.dataset.continued = "1";
+  });
+  document.getElementById("address").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    document.documentElement.dataset.submitted = "1";
+  });
+</script>

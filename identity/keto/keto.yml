@@ -1,0 +1,18 @@
+# Official image config. Glue talks to Keto. The broker does not.
+# Grants are not tuples here.
+
+log:
+  level: info
+  leak_sensitive_values: false
+
+namespaces:
+  - id: 0
+    name: Organization
+
+serve:
+  read:
+    host: 0.0.0.0
+    port: 4466
+  write:
+    host: 0.0.0.0
+    port: 4467

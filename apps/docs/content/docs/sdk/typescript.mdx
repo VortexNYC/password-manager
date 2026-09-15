@@ -1,0 +1,38 @@
+---
+title: TypeScript SDK
+description: Generated from the OpenAPI contract. Use injects. Never GetSecret.
+---
+
+# TypeScript SDK
+
+```bash
+pnpm add @vortex-api/pwm-sdk
+```
+
+```ts
+import { createClient, listItems, useItem } from "@vortex-api/pwm-sdk";
+
+const client = createClient({
+  baseUrl: "https://veil.nyc",
+  headers: { Authorization: `Bearer ${process.env.PWM_OIDC_TOKEN}` },
+});
+
+const { data } = await listItems({ client });
+await useItem({
+  client,
+  body: {
+    item: "stripe",
+    url: "https://api.stripe.com/v1/customers",
+    method: "POST",
+  },
+});
+```
+
+`listItems` is metadata. `useItem` injects. The vault secret is not in the response.
+
+## Local source
+
+- Generated package: `sdks/typescript` — name `@vortex-api/pwm-sdk`
+- Generator: `@hey-api/openapi-ts`
+
+Regenerate with `pnpm run sdk:generate`.

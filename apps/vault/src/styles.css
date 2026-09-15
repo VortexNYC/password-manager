@@ -1,0 +1,20 @@
+@import "tailwindcss";
+@import "@vortexnyc/ui/styles.css";
+@source "../node_modules/@vortexnyc/ui/dist/**/*.js";
+@source "../node_modules/@vortexnyc/ui/src/**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground m-0 font-sans antialiased;
+  }
+}

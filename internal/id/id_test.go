@@ -22,3 +22,32 @@ func TestGrant(t *testing.T) {
 		t.Fatal(Grant("claude", "stripe"))
 	}
 }
+
+func TestNewItemIsValidAndNotAName(t *testing.T) {
+	a, err := NewItem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewItem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !Valid(a) || !Valid(b) {
+		t.Fatalf("%q %q", a, b)
+	}
+	if a == b {
+		t.Fatal("ids collided")
+	}
+	if a == "github.com" {
+		t.Fatal("id is a host")
+	}
+}
+
+func TestPrincipalAcceptsAgentNameOrKratosUUID(t *testing.T) {
+	if !Principal("claude") || !Principal("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb") {
+		t.Fatal("agent name and kratos id are both grantees")
+	}
+	if Principal("not an id") || Principal("Stripe") {
+		t.Fatal("garbage")
+	}
+}

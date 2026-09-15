@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Veil checkout fixture</title>
+<form id="checkout">
+  <label>Number <input id="number" name="cardnumber" autocomplete="cc-number" inputmode="numeric" /></label>
+  <label>Month <input id="exp-month" name="ccmonth" autocomplete="cc-exp-month" /></label>
+  <label>Year <input id="exp-year" name="ccyear" autocomplete="cc-exp-year" /></label>
+  <label>CVV <input id="cvv" name="cvc" autocomplete="cc-csc" /></label>
+  <label>Name <input id="cc-name" name="ccname" autocomplete="cc-name" /></label>
+  <button id="pay" type="button">Pay</button>
+</form>
+<script>
+  document.getElementById("pay").addEventListener("click", function () {
+    document.documentElement.dataset.paid = "1";
+  });
+  document.getElementById("checkout").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    document.documentElement.dataset.submitted = "1";
+  });
+</script>

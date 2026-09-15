@@ -1,0 +1,34 @@
+{
+  "name": "veil-vault",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --port 4470",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "deploy": "pnpm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "1.132.47",
+    "@vortex-api/pwm-sdk": "workspace:*",
+    "@vortexnyc/ui": "0.5.0",
+    "lucide-react": "^1.8.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.40.2",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/router-plugin": "1.132.47",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.0.2",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5",
+    "vite": "7.1.5",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.100.0"
+  }
+}

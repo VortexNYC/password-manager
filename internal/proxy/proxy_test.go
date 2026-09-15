@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pquerna/otp/totp"
+
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
@@ -183,6 +185,85 @@ func TestLevel1BlocksUntilApprove(t *testing.T) {
 	}
 	if scrub.Contains(body, []byte(secret)) {
 		t.Fatal(string(body))
+	}
+}
+
+func TestHTTPInjectsTOTPAndScrubsCode(t *testing.T) {
+	const seed = "JBSWY3DPEHPK3PXP"
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	code, err := totp.GenerateCode(seed, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	a, err := app.Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	var sawTOTP string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawTOTP = r.Header.Get("X-TOTP")
+		w.Header().Set("X-Echo-TOTP", sawTOTP)
+		_, _ = io.WriteString(w, "otp:"+sawTOTP)
+	}))
+	t.Cleanup(upstream.Close)
+
+	if _, err := a.PutItem(app.ItemOpts{
+		Name:     "stripe",
+		URI:      upstream.URL,
+		Token:    []byte(secret),
+		TOTPSeed: []byte(seed),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(a, "claude", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Now = func() time.Time { return now }
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(s.CAPEM) {
+		t.Fatal("ca pem")
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy:             http.ProxyURL(s.ProxyURL()),
+			TLSClientConfig:   &tls.Config{RootCAs: pool},
+			ForceAttemptHTTP2: false,
+		},
+		Timeout: 8 * time.Second,
+	}
+	res, err := client.Get(upstream.URL + "/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 {
+		t.Fatalf("status=%d body=%s", res.StatusCode, body)
+	}
+	if sawTOTP != code {
+		t.Fatalf("upstream totp=%q want %q", sawTOTP, code)
+	}
+	if scrub.Contains(body, []byte(secret)) || scrub.Contains(body, []byte(seed)) || scrub.Contains(body, []byte(code)) {
+		t.Fatalf("leaked material in body: %s", body)
+	}
+	if scrub.Contains([]byte(res.Header.Get("X-Echo-TOTP")), []byte(code)) {
+		t.Fatal("minted code in response header")
 	}
 }
 

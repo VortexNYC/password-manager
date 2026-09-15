@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Veil fill — system design</title>
+    <style>
+      :root { color-scheme: light; }
+      html, body {
+        margin: 0;
+        background: #faf8f5;
+        color: #1a1a1a;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        padding: 14px 28px 12px;
+        background: #faf8f5f0;
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #e6e1d8;
+      }
+      header h1 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: 0.02em;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 14px;
+        font-size: 13px;
+      }
+      nav a { color: #3b5bdb; text-decoration: none; }
+      nav a:hover { text-decoration: underline; }
+      main { max-width: 1500px; margin: 0 auto; padding: 8px 20px 64px; }
+      figure { margin: 36px 0 56px; }
+      figcaption {
+        margin: 0 0 10px;
+        font-size: 14px;
+        line-height: 1.45;
+        color: #3d3a34;
+        max-width: 72ch;
+      }
+      figcaption strong { font-weight: 650; }
+      img { display: block; width: 100%; height: auto; background: #faf8f5; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Veil fill · system design</h1>
+      <nav>
+        <a href="#p01">01 job</a>
+        <a href="#p02">02 machine</a>
+        <a href="#p03">03 decrypt</a>
+        <a href="#p04">04 session</a>
+        <a href="#p05">05 replica</a>
+        <a href="#p06">06 confirm</a>
+        <a href="#p07">07 build</a>
+        <a href="#p08">08 holes</a>
+        <a href="#p09">09 HTTP</a>
+        <a href="#p10">10 generate</a>
+      </nav>
+    </header>
+    <main>
+      <figure id="p01">
+        <figcaption><strong>01.</strong> Fill writes values into fields. Spend is not a mode. MCP inject already exists and never touches a form. Choose vs execute is the whole product.</figcaption>
+        <img src="01-the-job.svg" alt="The job: fill, not spend, not MCP inject. Choose vs execute." />
+      </figure>
+      <figure id="p02">
+        <figcaption><strong>02.</strong> One pipe, one direction. Match never decrypts. Fill decrypts one uuid after Touch ID. Session lives on the Go host. Replica is airplane, origin is truth.</figcaption>
+        <img src="02-the-machine.svg" alt="The machine: browser to host to replica and origin. MCP off to the side." />
+      </figure>
+      <figure id="p03">
+        <figcaption><strong>03.</strong> Navigation is frequent. Decrypting the vault to badge a toolbar is how you lose. Login username is metadata so the chooser can show shlomo@ without opening the envelope.</figcaption>
+        <img src="03-decrypt-line.svg" alt="Decrypt line: match is metadata, fill is one uuid after Touch ID." />
+      </figure>
+      <figure id="p04">
+        <figcaption><strong>04.</strong> A session starts on purpose, lives on the Go host, writes fields. We never submit — the agent clicks Sign in.</figcaption>
+        <img src="04-session.svg" alt="Fill session on the Go host: execute vs choose, then armed 30s." />
+      </figure>
+      <figure id="p05">
+        <figcaption><strong>05.</strong> Do not copy origin’s master onto the Mac. Re-seal with this machine’s device.key. Match is a RAM index (one GET at start), then replica. Dead JWT + warm replica = fill now, remint in the background.</figcaption>
+        <img src="05-replica.svg" alt="Replica is a local re-seal, not origin master on the laptop." />
+      </figure>
+      <figure id="p06">
+        <figcaption><strong>06.</strong> 30s Touch ID reuse is per registrable domain. CVV never reuses. Website passwords stay api_key; the chooser says login. Cards inject nothing.</figcaption>
+        <img src="06-confirm-and-kinds.svg" alt="Confirm scopes and item kinds: inject vs fillable." />
+      </figure>
+      <figure id="p07">
+        <figcaption><strong>07.</strong> No JS until ping/match/fill. First product is Chrome fill online (4). Replica is optional after that. Pink must. Yellow cuts.</figcaption>
+        <img src="07-build-order.svg" alt="Build order with stop points after Chrome online and airplane." />
+      </figure>
+      <figure id="p08">
+        <figcaption><strong>08.</strong> Left is what this tree does wrong today. Right is deleted from the design on purpose.</figcaption>
+        <img src="08-holes-and-never.svg" alt="Holes in the tree today vs what is deleted from the design." />
+      </figure>
+      <figure id="p09">
+        <figcaption><strong>09.</strong> Human Bearer. Not OpenAPI. Not MCP. One new path: POST /v1/fill/sync. GET /v1/items is once at host start, not per navigation. Do not add /v1/fill/match.</figcaption>
+        <img src="09-origin-http.svg" alt="Origin HTTP: 37 fill by uuid, sync, items. Do not add match or cards paths." />
+      </figure>
+      <figure id="p10">
+        <figcaption><strong>10.</strong> Generate + save + fill is one job. Empty match = signup, execute may mint. Existing items + new-password = change-password, choose only — never silent rotate.</figcaption>
+        <img src="10-generate.svg" alt="Generate plus save plus fill, vs change-password choose only." />
+      </figure>
+    </main>
+  </body>
+</html>

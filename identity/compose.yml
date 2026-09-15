@@ -1,0 +1,132 @@
+# Sibling plane. Official images, pinned. Not compiled into the broker.
+# Oathkeeper is not here. Keto is identity-plane owner/member. Grants stay in the vault.
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    environment:
+      POSTGRES_USER: identity
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    restart: unless-stopped
+
+  kratos-migrate:
+    image: oryd/kratos:v26.2.0
+    environment:
+      DSN: postgres://identity:${POSTGRES_PASSWORD}@postgres:5432/kratos?sslmode=disable
+    volumes:
+      - ./kratos:/etc/config/kratos:ro
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  kratos:
+    image: oryd/kratos:v26.2.0
+    environment:
+      DSN: postgres://identity:${POSTGRES_PASSWORD}@postgres:5432/kratos?sslmode=disable
+      SECRETS_COOKIE: ${KRATOS_COOKIE_SECRET:?set KRATOS_COOKIE_SECRET}
+      SECRETS_CIPHER: ${KRATOS_CIPHER_SECRET:?set KRATOS_CIPHER_SECRET}
+    ports:
+      - "127.0.0.1:4433:4433"
+      - "127.0.0.1:4434:4434"
+    volumes:
+      - ./kratos:/etc/config/kratos:ro
+    command: serve -c /etc/config/kratos/kratos.yml --watch-courier
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+      hydra:
+        condition: service_started
+    restart: unless-stopped
+
+  hydra-migrate:
+    image: oryd/hydra:v26.2.0
+    environment:
+      DSN: postgres://identity:${POSTGRES_PASSWORD}@postgres:5432/hydra?sslmode=disable
+      HYDRA_SYSTEM_SECRET: ${HYDRA_SYSTEM_SECRET:?set HYDRA_SYSTEM_SECRET}
+      HYDRA_PAIRWISE_SALT: ${HYDRA_PAIRWISE_SALT:?set HYDRA_PAIRWISE_SALT}
+    volumes:
+      - ./hydra:/etc/config/hydra:ro
+    command: migrate sql -e --yes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  hydra:
+    image: oryd/hydra:v26.2.0
+    environment:
+      DSN: postgres://identity:${POSTGRES_PASSWORD}@postgres:5432/hydra?sslmode=disable
+      HYDRA_SYSTEM_SECRET: ${HYDRA_SYSTEM_SECRET:?set HYDRA_SYSTEM_SECRET}
+      HYDRA_PAIRWISE_SALT: ${HYDRA_PAIRWISE_SALT:?set HYDRA_PAIRWISE_SALT}
+      URLS_SELF_ISSUER: ${URLS_SELF_ISSUER:-http://127.0.0.1:4444}
+    ports:
+      - "127.0.0.1:4444:4444"
+      - "127.0.0.1:4445:4445"
+    volumes:
+      - ./hydra:/etc/config/hydra:ro
+    command: serve -c /etc/config/hydra/hydra.yml all --dev --sqa-opt-out
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  keto-createdb:
+    image: postgres:16.10-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    command:
+      [
+        "sh",
+        "-c",
+        "until pg_isready -h postgres -U identity; do sleep 1; done; psql -h postgres -U identity -d identity -tc \"SELECT 1 FROM pg_database WHERE datname='keto'\" | grep -q 1 || psql -h postgres -U identity -d identity -c 'CREATE DATABASE keto'",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  keto-migrate:
+    image: oryd/keto:v26.2.0
+    environment:
+      DSN: postgres://identity:${POSTGRES_PASSWORD}@postgres:5432/keto?sslmode=disable
+    volumes:
+      - ./keto:/etc/config/keto:ro
+    command: -c /etc/config/keto/keto.yml migrate up -y
+    depends_on:
+      keto-createdb:
+        condition: service_completed_successfully
+    restart: on-failure
+
+  keto:
+    image: oryd/keto:v26.2.0
+    environment:
+      DSN: postgres://identity:${POSTGRES_PASSWORD}@postgres:5432/keto?sslmode=disable
+    ports:
+      - "127.0.0.1:4466:4466"
+      - "127.0.0.1:4467:4467"
+    volumes:
+      - ./keto:/etc/config/keto:ro
+    command: serve -c /etc/config/keto/keto.yml
+    depends_on:
+      keto-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  mail:
+    image: axllent/mailpit:v1.27.1
+    ports:
+      - "127.0.0.1:8025:8025"
+    restart: unless-stopped
+
+volumes:
+  postgres:
