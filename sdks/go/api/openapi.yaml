@@ -217,7 +217,7 @@ paths:
         "401":
           description: missing or invalid Bearer
         "403":
-          description: agent cannot list grants
+          description: not owner
       summary: Grants in this org. No secrets. Not MCP.
       tags:
       - Owner
@@ -241,7 +241,7 @@ paths:
         "401":
           description: missing or invalid Bearer
         "403":
-          description: agent cannot create grants
+          description: not owner
       summary: Grant an agent or a Kratos human Use on an item. Same grant object.
         Not MCP. Not a family vault.
       tags:
@@ -259,7 +259,7 @@ paths:
         "401":
           description: missing or invalid Bearer
         "403":
-          description: agent cannot list agents
+          description: not owner
       summary: Agents in this org. Ids only. Never secrets. Not MCP.
       tags:
       - Owner
@@ -283,7 +283,7 @@ paths:
         "401":
           description: missing or invalid Bearer
         "403":
-          description: agent cannot create agents
+          description: not owner
       summary: Register an agent principal. Not a Hydra secret. Not MCP.
       tags:
       - Owner

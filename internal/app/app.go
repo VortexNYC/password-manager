@@ -203,10 +203,25 @@ type ItemOpts struct {
 	MIME         string
 	File         []byte
 	Passkey      []byte
+	Owner        protocol.Owner
 }
 
 func (a *App) AddItem(name, uri string, secret []byte) (protocol.Item, error) {
 	return a.PutItem(ItemOpts{Name: name, URI: uri, Token: secret})
+}
+
+func (a *App) PutItemFor(p protocol.Principal, opts ItemOpts) (protocol.Item, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return protocol.Item{}, fmt.Errorf("app: create is human")
+	}
+	ok, err := a.ownsVault(p)
+	if err != nil {
+		return protocol.Item{}, err
+	}
+	if !ok {
+		opts.Owner = protocol.Owner{Kind: protocol.OwnerUser, ID: p.ID}
+	}
+	return a.PutItem(opts)
 }
 
 func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
@@ -245,12 +260,16 @@ func (a *App) PutItem(opts ItemOpts) (protocol.Item, error) {
 	if opts.URI != "" {
 		uris = append([]string{opts.URI}, uris...)
 	}
+	owner := opts.Owner
+	if owner.Kind == "" {
+		owner = protocol.Owner{Kind: protocol.OwnerOrg, ID: a.OrgID}
+	}
 	item := protocol.Item{
 		ID:      itemID,
 		OrgID:   a.OrgID,
 		Name:    name,
 		Kind:    kind,
-		Owner:   protocol.Owner{Kind: protocol.OwnerOrg, ID: a.OrgID},
+		Owner:   owner,
 		URIs:    uris,
 		Tags:    opts.Tags,
 		HasTOTP: len(opts.TOTPSeed) > 0,
@@ -292,6 +311,13 @@ type ImportResult struct {
 func (a *App) ImportItems(p protocol.Principal, rows []oneimport.Row) (ImportResult, error) {
 	if p.Kind != protocol.PrincipalHuman {
 		return ImportResult{}, fmt.Errorf("app: import is human")
+	}
+	ok, err := a.ownsVault(p)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	if !ok {
+		return ImportResult{}, fmt.Errorf("app: import is owner")
 	}
 	names := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -493,17 +519,62 @@ func (a *App) CanCreateGrant(p protocol.Principal) (bool, error) {
 	return a.ownsVault(p)
 }
 
+func (a *App) OwnsVault(p protocol.Principal) (bool, error) {
+	return a.ownsVault(p)
+}
+
+func (a *App) MayWriteItem(p protocol.Principal, item protocol.Item) (bool, error) {
+	if p.Kind != protocol.PrincipalHuman {
+		return false, nil
+	}
+	if item.Owner.Kind == protocol.OwnerUser && item.Owner.ID == p.ID {
+		return true, nil
+	}
+	ok, err := a.ownsVault(p)
+	if err != nil {
+		return false, err
+	}
+	return ok && item.Owner.Kind == protocol.OwnerOrg, nil
+}
+
 func (a *App) ItemsForPrincipal(p protocol.Principal) ([]protocol.Item, error) {
-	if p.Kind == protocol.PrincipalHuman {
-		ok, err := a.ownsVault(p)
-		if err != nil {
-			return nil, err
+	granted, err := a.ItemsForAgent(p.ID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Kind != protocol.PrincipalHuman {
+		return granted, nil
+	}
+	ok, err := a.ownsVault(p)
+	if err != nil {
+		return nil, err
+	}
+	all, err := a.Store.ListItems()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(all))
+	out := make([]protocol.Item, 0, len(all))
+	add := func(item protocol.Item) {
+		if _, dup := seen[item.ID]; dup {
+			return
 		}
-		if ok {
-			return a.Store.ListItems()
+		seen[item.ID] = struct{}{}
+		out = append(out, item)
+	}
+	for _, item := range all {
+		if item.Owner.Kind == protocol.OwnerUser && item.Owner.ID == p.ID {
+			add(item)
+			continue
+		}
+		if ok && item.Owner.Kind == protocol.OwnerOrg {
+			add(item)
 		}
 	}
-	return a.ItemsForAgent(p.ID)
+	for _, item := range granted {
+		add(item)
+	}
+	return out, nil
 }
 
 // Match lists fill candidates for a URL. Metadata only. Never Secret().

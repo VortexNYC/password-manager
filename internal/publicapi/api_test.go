@@ -214,6 +214,97 @@ func TestAgentCannotCreateItemOrFill(t *testing.T) {
 	}
 }
 
+func TestMemberCreateItemTheyOwn(t *testing.T) {
+	const member = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	const nf = "nf_login_secret"
+	a := testApp(t)
+	a.Members = fakeMembers{members: map[string]bool{member: true}}
+	if _, err := a.AddItem("github", "https://api.github.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "member", CreateItemRequest{
+		Name:   "netflix",
+		URI:    "https://www.netflix.com",
+		Secret: nf,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(nf)) {
+		t.Fatal("create echoed secret")
+	}
+	var created protocol.Item
+	if err := json.Unmarshal(raw, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Owner.Kind != protocol.OwnerUser || created.Owner.ID != member {
+		t.Fatalf("owner stamp %+v", created.Owner)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "member", nil)
+	if code != http.StatusOK {
+		t.Fatalf("member list %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte("netflix")) || bytes.Contains(raw, []byte("github")) {
+		t.Fatalf("member list %s", raw)
+	}
+	if scrub.Contains(raw, []byte(nf)) || scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("member list leaked secret")
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("owner list %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte("github")) || bytes.Contains(raw, []byte("netflix")) {
+		t.Fatalf("owner list %s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "member", FillLoginsRequest{URL: "https://www.netflix.com/login"})
+	if code != http.StatusOK {
+		t.Fatalf("member fill own %d %s", code, raw)
+	}
+	if !scrub.Contains(raw, []byte(nf)) {
+		t.Fatal("member fill missing own password")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "member", FillLoginsRequest{URL: "https://api.github.com/user"})
+	if code != http.StatusOK {
+		t.Fatalf("member fill other %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("member filled ungranted github")
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/logins", "human", FillLoginsRequest{URL: "https://www.netflix.com/login"})
+	if code != http.StatusOK {
+		t.Fatalf("owner fill member %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(nf)) {
+		t.Fatal("owner filled member netflix without grant")
+	}
+	code, raw = doJSON(t, srv, http.MethodPatch, "/v1/items/netflix", "member", UpdateItemRequest{Login: "ada"})
+	if code != http.StatusOK {
+		t.Fatalf("member patch own %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPatch, "/v1/items/netflix", "human", UpdateItemRequest{Login: "other"})
+	if code != http.StatusForbidden {
+		t.Fatalf("owner patch member %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/items", "agent", CreateItemRequest{Name: "x", Secret: secret})
+	if code != http.StatusForbidden {
+		t.Fatalf("agent create %d %s", code, raw)
+	}
+	code, raw = doRaw(t, srv, http.MethodPost, "/v1/import?filename=x.csv", "member", []byte("name,url,username,password\nx,https://x,a,p\n"), "text/csv")
+	if code != http.StatusForbidden {
+		t.Fatalf("member import %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPatch, "/v1/items/github", "member", UpdateItemRequest{Login: "ada"})
+	if code != http.StatusForbidden {
+		t.Fatalf("member patch org %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodDelete, "/v1/items/github", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member delete org %d %s", code, raw)
+	}
+}
+
 func TestFillPathNotInOpenAPI(t *testing.T) {
 	if bytes.Contains(Spec, []byte("/v1/fill")) {
 		t.Fatal("fill is GetSecret; not on the generated contract")
@@ -555,6 +646,10 @@ func TestHumanGrantAPI(t *testing.T) {
 	if code != http.StatusForbidden {
 		t.Fatalf("member created grant %d %s", code, raw)
 	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/grants", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member listed grants %d %s", code, raw)
+	}
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
 		Human: "not-an-email@example.com",
 		Item:  "github",
@@ -603,6 +698,16 @@ func TestHumanGrantAPI(t *testing.T) {
 	if !bytes.Contains(raw, []byte("github")) {
 		t.Fatalf("member list %s", raw)
 	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/grants", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("owner list grants %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte(member)) || !bytes.Contains(raw, []byte("github")) {
+		t.Fatalf("owner grants %s", raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("grant list leaked secret")
+	}
 }
 
 func TestOwnerAgentsNoSecret(t *testing.T) {
@@ -628,6 +733,22 @@ func TestOwnerAgentsNoSecret(t *testing.T) {
 	code, raw = doJSON(t, srv, http.MethodGet, "/v1/agents", "agent", nil)
 	if code != http.StatusForbidden {
 		t.Fatalf("agent list %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/agents", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member list agents %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/agents", "member", CreateAgentRequest{Name: "nope"})
+	if code != http.StatusForbidden {
+		t.Fatalf("member create agent %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/events", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member listed events %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/events", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("owner events %d %s", code, raw)
 	}
 }
 
@@ -840,7 +961,7 @@ func TestSandboxSessionExpiredUnauthorized(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := apiServer(t, a)
-	code, raw := doJSON(t, srv, http.MethodPost, "/v1/sessions", "human", CreateSessionRequest{Agent: "claude", TTL: "200ms"})
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/sessions", "human", CreateSessionRequest{Agent: "claude", TTL: "2s"})
 	if code != http.StatusOK {
 		t.Fatalf("create %d %s", code, raw)
 	}
@@ -848,7 +969,7 @@ func TestSandboxSessionExpiredUnauthorized(t *testing.T) {
 	if err := json.Unmarshal(raw, &created); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 	code, raw = doJSON(t, srv, http.MethodPost, "/v1/use", created.Token, UseRequest{
 		Item: "stripe",
 		URL:  "https://example.com",

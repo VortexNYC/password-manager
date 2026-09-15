@@ -1,22 +1,27 @@
-import { createFileRoute, redirect } from "@tanstack/react-router"
-import { finishLogin } from "../auth"
+import { Text } from "@cloudflare/kumo/components/text";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { finishLogin } from "../auth";
 
 export const Route = createFileRoute("/oidc/callback")({
   loader: async () => {
-    await finishLogin(window.location.href)
-    throw redirect({ to: "/items" })
+    await finishLogin(window.location.href);
+    throw redirect({ to: "/items" });
   },
   component: Callback,
   errorComponent: ({ error }) => (
     <main className="p-6">
-      <p className="text-sm">Sign-in failed.</p>
-      <p className="text-muted-foreground mt-1 text-xs">
+      <Text as="p">Sign-in failed.</Text>
+      <Text as="p" variant="secondary" size="xs">
         {error instanceof Error ? error.message : "error"}
-      </p>
+      </Text>
     </main>
   ),
-})
+});
 
 function Callback() {
-  return <p className="p-6 text-sm">Signing in…</p>
+  return (
+    <main className="p-6">
+      <Text as="p">Signing in…</Text>
+    </main>
+  );
 }
