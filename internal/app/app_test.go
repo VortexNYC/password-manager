@@ -986,6 +986,45 @@ func TestMemberCreateOwnsLogin(t *testing.T) {
 	}
 }
 
+func TestAttachTOTPMemberOwnAndDenyOrg(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	a.Members = fakeMembers{members: map[string]bool{familyHuman: true}}
+	gh, err := a.AddItem("github", "https://api.github.com", []byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	member := protocol.Principal{Kind: protocol.PrincipalHuman, ID: familyHuman, OrgID: a.OrgID}
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	got, err := a.PutItemFor(member, ItemOpts{Name: "netflix", URI: "https://www.netflix.com", Token: []byte("nf_secret"), Login: "ada"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const seed = "JBSWY3DPEHPK3PXP"
+	if err := a.AttachTOTP(member, got.ID, seed); err != nil {
+		t.Fatal(err)
+	}
+	code, err := a.FillTOTP(member, got.ID, time.Now())
+	if err != nil || len(code) != 6 {
+		t.Fatalf("mint %q %v", code, err)
+	}
+	if err := a.AttachTOTP(member, got.ID, seed); err == nil {
+		t.Fatal("overwrite")
+	}
+	if err := a.AttachTOTP(member, gh.ID, seed); !errors.Is(err, ErrTOTPEnrollDenied) {
+		t.Fatalf("org enroll %v", err)
+	}
+	if err := a.AttachTOTP(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}, got.ID, seed); !errors.Is(err, ErrTOTPEnrollDenied) {
+		t.Fatalf("agent %v", err)
+	}
+	if err := a.AttachTOTP(owner, gh.ID, seed); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFillPasskeyHumanOnlyNoListLeak(t *testing.T) {
 	a, err := Init(t.TempDir())
 	if err != nil {

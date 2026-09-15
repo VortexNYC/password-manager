@@ -39,12 +39,40 @@ function suggestButton(got) {
   return b;
 }
 
+function saveButton(got) {
+  const b = document.createElement("button");
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = "Save this sign-in";
+  b.appendChild(name);
+  b.addEventListener("click", function () {
+    chrome.runtime.sendMessage(
+      {
+        type: "popup-save",
+        tabId: got.tabId,
+        url: got.url,
+      },
+      function (res) {
+        if (res && res.ok) {
+          window.close();
+          return;
+        }
+        show('<div class="err">Save canceled or failed.</div>');
+      },
+    );
+  });
+  return b;
+}
+
 chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
   if (chrome.runtime.lastError) {
     show('<div class="err">Host is not running. password-manager fill install</div>');
     return;
   }
   const entries = (got && got.entries) || [];
+  const logins = entries.filter(function (e) {
+    return e.kind === "login";
+  });
   root.textContent = "";
   const host = hostOf((got && got.url) || "");
   if (host) {
@@ -53,12 +81,16 @@ chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
     where.textContent = host;
     root.appendChild(where);
   }
-  if (!entries.length && !(got && got.canGenerate)) {
+  const offerSave = !!(got && got.canSave && !logins.length);
+  if (!entries.length && !(got && got.canGenerate) && !offerSave) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = "Nothing saved for this site.";
     root.appendChild(empty);
     return;
+  }
+  if (offerSave) {
+    root.appendChild(saveButton(got));
   }
   entries.forEach(function (e) {
     const b = document.createElement("button");

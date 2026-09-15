@@ -1,11 +1,12 @@
 // Package fill is the native host. Product name nyc.veil.fill (plain JSON
-// ping/match/fill/generate). org.keepassxc.keepassxc_browser nacl remains in this
+// ping/match/fill/generate/save/enrollTotp). org.keepassxc.keepassxc_browser nacl remains in this
 // binary and is not installed. We do not copy KeePassXC-Browser (GPL-3)
 // and we do not use KeePassXC as the vault.
 //
 // Wire: Chrome native messaging (uint32 LE + JSON). nyc.veil.fill does not
 // box. Fill writes into the page. The password and passkey private key never
-// return on an agent surface.
+// return on an agent surface. save / enrollTotp are the same host: Accept
+// required. The TOTP seed never sits in browser.storage.
 package fill
 
 import (
@@ -71,6 +72,8 @@ type Host struct {
 	confirmUntil time.Time
 	confirmScope string
 	needLogin    bool
+	lastScope    string
+	lastUUID     string
 }
 
 type session struct {
@@ -165,7 +168,7 @@ func (h *Host) Handle(raw []byte) []byte {
 	}
 	if peek.Nonce == "" && peek.Message == "" {
 		switch peek.Action {
-		case "ping", "match", "fill", "generate", "passkeyCreate", "passkeyGet":
+		case "ping", "match", "fill", "generate", "save", "enrollTotp", "passkeyCreate", "passkeyGet":
 			fillDebug("action=" + peek.Action + " nonce=")
 			return h.handleJSON(raw)
 		}

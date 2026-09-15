@@ -235,9 +235,12 @@ The next slices, in this order, and nothing else until each is proven:
                          keep distinct ids. 1pux SSH+notes import.
                          Family-member create written (OwnerUser
                          stamp; list/fill is owned or granted;
-                         grant list is owner).
-                         Next is typed-save / TOTP-from-page on
-                         Chrome. Firefox / Safari after that.
+                         grant list is owner). Typed-save +
+                         TOTP-from-page written on Chrome (`save`
+                         / `enrollTotp`; origin enroll is not
+                         OpenAPI; seed never in browser.storage).
+                         Next is Mac helper (slice 32). Firefox /
+                         Safari after that.
                          Design: docs/fill.md. Two modes: choose
                          (click field, pick a match) and execute
                          (trusted focus, unambiguous, write the
@@ -247,7 +250,7 @@ The next slices, in this order, and nothing else until each is proven:
                          ASCredentialProvider is still 32.
 ```
 
-Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Replica is written+proven. Cards/identities CFT-proven 2026-09-14. Branded Stripe-test card fill wrote field lengths 2026-09-15. Origin import + owner create is written+live. Family-member create is written (a member owns a login they save; grants still gate someone else's). Next is typed-save / TOTP-from-page on Chrome, then Mac helper (slice 32), phone add+fill (33–34), Windows/Linux helpers (35–36, re-check OS APIs then). Firefox / Safari wait. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Do not wrap the SPA in Native SDK / Tauri / Electron.
+Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Replica is written+proven. Cards/identities CFT-proven 2026-09-14. Branded Stripe-test card fill wrote field lengths 2026-09-15. Origin import + owner create is written+live. Family-member create is written (a member owns a login they save; grants still gate someone else's). Typed-save + TOTP-from-page are written on Chrome. Then Mac helper (slice 32), phone add+fill (33–34), Windows/Linux helpers (35–36, re-check OS APIs then). Firefox / Safari wait. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Do not wrap the SPA in Native SDK / Tauri / Electron.
 
 ## What the broker is
 
@@ -665,7 +668,7 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
-Next: typed-save / TOTP-from-page on Chrome (`docs/fill.md` increment 13). Family-member create is written. Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP, never list JSON. Import is one-shot onto origin (duplicate titles, new ids, SSH+notes). Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start Firefox, Safari, or 32.
+Next: Mac helper (slice 32). Typed-save / TOTP-from-page on Chrome are CFT-proven (`docs/fill.md` increment 13). Origin `POST /v1/fill/totp/enroll` ships with the pwm SHA of that change. Family-member create is written. Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP, never list JSON. Import is one-shot onto origin (duplicate titles, new ids, SSH+notes). Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start Firefox, Safari, or 32.
 
 ## Testing
 

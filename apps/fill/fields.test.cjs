@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { pickFields } = require("./fields.js");
+const { pickFields, canSave, findOTPAuth } = require("./fields.js");
 
 function el(partial) {
   const node = Object.assign({ autocomplete: "", type: "text", name: "", id: "", hidden: false, disabled: false }, partial);
@@ -173,4 +173,60 @@ test("writeCard fills hidden cc-number via querySelector", () => {
     true,
   );
   assert.equal(number.value.length, 16);
+});
+
+test("canSave current-password with a value", () => {
+  const pw = el({ autocomplete: "current-password", type: "password", name: "p", value: "hunter2" });
+  const fields = pickFields([el({ autocomplete: "username", name: "u" }), pw]);
+  assert.equal(canSave(fields, fields.password), true);
+});
+
+test("canSave empty current-password is false", () => {
+  const pw = el({ autocomplete: "current-password", type: "password", name: "p", value: "" });
+  const fields = pickFields([pw]);
+  assert.equal(canSave(fields, fields.password), false);
+});
+
+test("canSave new-password is generate, not typed-save", () => {
+  const np = el({ autocomplete: "new-password", type: "password", name: "np", value: "generated" });
+  const fields = pickFields([np]);
+  assert.equal(canSave(fields, fields.password), false);
+});
+
+test("canSave cc-number is not a login", () => {
+  const num = el({ autocomplete: "cc-number", name: "num", value: "4111111111111111" });
+  const fields = pickFields([num]);
+  assert.equal(canSave(fields, fields.number), false);
+});
+
+test("findOTPAuth from totp link", () => {
+  const href = "otpauth://totp/Example:ada?secret=JBSWY3DPEHPK3PXP";
+  const root = {
+    querySelector: function (sel) {
+      return sel === 'a[href^="otpauth://totp"]' ? { href: href } : null;
+    },
+    querySelectorAll: function () {
+      return [];
+    },
+  };
+  assert.equal(findOTPAuth(root), href);
+});
+
+test("findOTPAuth empty in iframe", () => {
+  const prev = global.window;
+  global.window = { top: {} };
+  try {
+    const href = "otpauth://totp/Example:ada?secret=JBSWY3DPEHPK3PXP";
+    const root = {
+      querySelector: function () {
+        return { href: href };
+      },
+      querySelectorAll: function () {
+        return [];
+      },
+    };
+    assert.equal(findOTPAuth(root), "");
+  } finally {
+    global.window = prev;
+  }
 });

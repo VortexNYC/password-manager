@@ -226,38 +226,42 @@ func debugDelta(before []byte, path string) string {
 }
 
 func dismissTouchID(stop <-chan struct{}) {
-	// AXPress Cancel on the CFT-owned LocalAuthentication sheet. Do not
-	// synthesize a mouse. Do not match branded "Google Chrome".
+	// The branded sheet is an NSPanel on the native host, not a
+	// coreauthd sheet on Chrome for Testing. Cancel that window.
+	// Then Cancel any LocalAuthentication sheet if Authorize was hit.
+	// Do not frontmost branded Chrome. Do not synthesize a mouse.
 	script := `
 tell application "System Events"
 	repeat with proc in (every process)
+		try
+			repeat with w in (windows of proc)
+				if name of w is "Veil Access Requested" then
+					set frontmost of proc to true
+					perform action "AXPress" of button "Cancel" of w
+				end if
+			end repeat
+		end try
 		set n to name of proc as text
-		if n contains "Testing" or n contains "Chromium" or n contains "coreauth" then
-			try
-				set frontmost of proc to true
-			end try
+		if n contains "coreauth" then
 			try
 				click button "Cancel" of sheet 1 of window 1 of proc
 			end try
 			try
 				click button "Cancel" of window 1 of proc
 			end try
-			try
-				key code 53
-			end try
 		end if
 	end repeat
+	key code 53
 end tell
 `
-	deadline := time.Now().Add(18 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		select {
 		case <-stop:
 			return
 		default:
 		}
 		_ = exec.Command("osascript", "-e", script).Run()
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(120 * time.Millisecond)
 	}
 }
 
