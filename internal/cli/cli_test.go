@@ -870,6 +870,22 @@ func TestCLIRejectsSecretOnArgvPattern(t *testing.T) {
 		}
 	}
 	for _, c := range cmd.Commands() {
+		if c.Name() != "session" {
+			continue
+		}
+		for _, sub := range c.Commands() {
+			if sub.Name() != "create" {
+				continue
+			}
+			if sub.Flags().Lookup("token") != nil || sub.Flags().Lookup("secret") != nil {
+				t.Fatal("do not accept --token or --secret on session create")
+			}
+			if sub.Flags().Lookup("out-file") == nil {
+				t.Fatal("missing --out-file on session create")
+			}
+		}
+	}
+	for _, c := range cmd.Commands() {
 		if c.Name() != "use" {
 			continue
 		}
@@ -1515,6 +1531,42 @@ func TestJWTNeedsRefresh(t *testing.T) {
 	}
 	if !jwtNeedsRefresh(testJWT("agent-cursor", time.Now().Add(-time.Minute))) {
 		t.Fatal("expired jwt skipped")
+	}
+	if jwtNeedsRefresh("ses_" + strings.Repeat("ab", 32)) {
+		t.Fatal("session token must not remint as a JWT")
+	}
+}
+
+func TestCLISessionCreateWritesFileNotStdout(t *testing.T) {
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(home, "session.jwt")
+	out, err := run(t, home, "", "session", "create", "claude", "--out-file", outFile)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if strings.Contains(out, "ses_") {
+		t.Fatalf("cli printed session token: %s", out)
+	}
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(tok, "ses_") {
+		t.Fatalf("out-file %q", tok)
+	}
+	listed, err := run(t, home, "", "session", "list")
+	if err != nil {
+		t.Fatal(err, listed)
+	}
+	if strings.Contains(listed, tok) {
+		t.Fatal("session list printed token")
 	}
 }
 

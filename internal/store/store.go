@@ -47,6 +47,10 @@ type Store interface {
 	Workload(issuer, subject string) (*protocol.Workload, error)
 	WorkloadsForIssuer(issuer string) ([]protocol.Workload, error)
 
+	PutSession(s protocol.Session, secretHash []byte) error
+	SessionByHash(secretHash []byte) (protocol.Session, error)
+	ListSessions() ([]protocol.Session, error)
+
 	AppendAudit(protocol.AuditEvent) error
 	Audit() ([]protocol.AuditEvent, error)
 	Close() error

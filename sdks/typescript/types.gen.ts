@@ -162,6 +162,39 @@ export type CreateAgentRequest = {
 };
 
 /**
+ * Sandbox Use lease metadata. Never the token.
+ */
+export type Session = {
+    id: string;
+    org_id: string;
+    agent_id: string;
+    expires_at: string;
+};
+
+export type SessionsResponse = {
+    sessions: Array<Session>;
+};
+
+export type CreateSessionRequest = {
+    agent: string;
+    /**
+     * Go duration. Default 15m. Max 1h.
+     */
+    ttl?: string;
+};
+
+/**
+ * Token is create-only. Never list. Never MCP.
+ */
+export type CreateSessionResponse = {
+    id: string;
+    org_id: string;
+    agent_id: string;
+    expires_at: string;
+    token: string;
+};
+
+/**
  * Request only. Never returned. Never MCP.
  */
 export type CardFields = {
@@ -526,6 +559,64 @@ export type CreateAgentResponses = {
 };
 
 export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponses];
+
+export type ListSessionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/sessions';
+};
+
+export type ListSessionsErrors = {
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * not owner
+     */
+    403: unknown;
+};
+
+export type ListSessionsResponses = {
+    /**
+     * Sessions
+     */
+    200: SessionsResponse;
+};
+
+export type ListSessionsResponse = ListSessionsResponses[keyof ListSessionsResponses];
+
+export type CreateSessionData = {
+    body: CreateSessionRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/sessions';
+};
+
+export type CreateSessionErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * not owner
+     */
+    403: unknown;
+};
+
+export type CreateSessionResponses = {
+    /**
+     * Session plus token once.
+     */
+    200: CreateSessionResponse;
+};
+
+export type CreateSessionResponse2 = CreateSessionResponses[keyof CreateSessionResponses];
 
 export type UseItemData = {
     body: UseRequest;

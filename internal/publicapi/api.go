@@ -10,6 +10,7 @@ package publicapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -119,6 +120,20 @@ type AgentsResponse struct {
 	Agents []protocol.Principal `json:"agents"`
 }
 
+type CreateSessionRequest struct {
+	Agent string `json:"agent"`
+	TTL   string `json:"ttl,omitempty"`
+}
+
+type CreateSessionResponse struct {
+	protocol.Session
+	Token string `json:"token"`
+}
+
+type SessionsResponse struct {
+	Sessions []protocol.Session `json:"sessions"`
+}
+
 type FillLoginsRequest struct {
 	URL      string `json:"url,omitempty"`
 	UUID     string `json:"uuid,omitempty"`
@@ -190,6 +205,8 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/grants", s.createGrant)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
 	mux.HandleFunc("POST /v1/agents", s.createAgent)
+	mux.HandleFunc("GET /v1/sessions", s.listSessions)
+	mux.HandleFunc("POST /v1/sessions", s.createSession)
 	mux.HandleFunc("POST /v1/use", s.useItem)
 	mux.HandleFunc("GET /v1/events", s.listEvents)
 	mux.HandleFunc("POST /v1/fill/logins", s.fillLogins)
@@ -430,6 +447,57 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, p)
 }
 
+func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return
+	}
+	sessions, err := s.App.ListSessions(p)
+	if err != nil {
+		if errors.Is(err, app.ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, "list failed", http.StatusBadRequest)
+		return
+	}
+	if sessions == nil {
+		sessions = []protocol.Session{}
+	}
+	writeJSON(w, SessionsResponse{Sessions: sessions})
+}
+
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return
+	}
+	var in CreateSessionRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var ttl time.Duration
+	if strings.TrimSpace(in.TTL) != "" {
+		d, err := time.ParseDuration(in.TTL)
+		if err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		ttl = d
+	}
+	sess, token, err := s.App.CreateSession(p, strings.TrimSpace(in.Agent), ttl)
+	if err != nil {
+		if errors.Is(err, app.ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, "create failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, CreateSessionResponse{Session: sess, Token: token})
+}
+
 func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requireAgent(w, r)
 	if !ok {
@@ -605,6 +673,9 @@ func (s *Server) fillPasskey(w http.ResponseWriter, r *http.Request, register bo
 
 func (s *Server) resolve(r *http.Request) (protocol.Principal, error) {
 	raw := bearer(r.Header.Get("Authorization"))
+	if app.IsSessionToken(raw) {
+		return s.App.PrincipalFromSession(raw)
+	}
 	if s.Identity != nil {
 		return s.Identity(r.Context(), raw)
 	}

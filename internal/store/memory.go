@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/hex"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ type Memory struct {
 	approvals map[string]protocol.Approval
 	audit     []protocol.AuditEvent
 	workloads map[string]protocol.Workload // key: issuer+"\x00"+subject
+	sessions  map[string]protocol.Session  // key: hex(secret_hash)
 	versions  []protocol.ItemVersion
 	verSecret map[int64]Secret
 	nextVer   int64
@@ -31,6 +33,7 @@ func NewMemory() *Memory {
 		grants:    map[string]protocol.Grant{},
 		approvals: map[string]protocol.Approval{},
 		workloads: map[string]protocol.Workload{},
+		sessions:  map[string]protocol.Session{},
 		verSecret: map[int64]Secret{},
 	}
 }
@@ -344,6 +347,35 @@ func (m *Memory) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) 
 		if w.Issuer == issuer {
 			out = append(out, w)
 		}
+	}
+	return out, nil
+}
+
+func sessionHashKey(secretHash []byte) string { return hex.EncodeToString(secretHash) }
+
+func (m *Memory) PutSession(s protocol.Session, secretHash []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sessions[sessionHashKey(secretHash)] = s
+	return nil
+}
+
+func (m *Memory) SessionByHash(secretHash []byte) (protocol.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[sessionHashKey(secretHash)]
+	if !ok {
+		return protocol.Session{}, ErrNotFound
+	}
+	return s, nil
+}
+
+func (m *Memory) ListSessions() ([]protocol.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]protocol.Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		out = append(out, s)
 	}
 	return out, nil
 }

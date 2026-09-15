@@ -440,12 +440,18 @@ func (a *App) BindWorkload(agentID, issuer, subject, audience string) (protocol.
 }
 
 func (a *App) AgentFromOIDC(ctx context.Context, rawToken string) (protocol.Principal, error) {
+	if IsSessionToken(rawToken) {
+		return a.PrincipalFromSession(rawToken)
+	}
 	return workload.New(a.Store).Agent(ctx, rawToken)
 }
 
-// PrincipalFromOIDC is origin identity. Bound agent first. Else Hydra human
-// plus Keto membership. Grants stay in the vault.
+// PrincipalFromOIDC is origin identity. Session lease first. Bound agent
+// next. Else Hydra human plus Keto membership. Grants stay in the vault.
 func (a *App) PrincipalFromOIDC(ctx context.Context, rawToken string) (protocol.Principal, error) {
+	if IsSessionToken(rawToken) {
+		return a.PrincipalFromSession(rawToken)
+	}
 	agent, err := a.AgentFromOIDC(ctx, rawToken)
 	if err == nil {
 		return agent, nil

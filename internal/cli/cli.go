@@ -57,6 +57,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(humanCmd(&home))
 	root.AddCommand(itemCmd(&home))
 	root.AddCommand(agentCmd(&home))
+	root.AddCommand(sessionCmd(&home))
 	root.AddCommand(grantCmd(&home))
 	root.AddCommand(useCmd(&home))
 	root.AddCommand(approveCmd(&home))
@@ -886,6 +887,79 @@ func agentCmd(home *string) *cobra.Command {
 	_ = token.MarkFlagRequired("out-file")
 	c.AddCommand(token)
 	return c
+}
+
+func sessionCmd(home *string) *cobra.Command {
+	c := &cobra.Command{Use: "session", Short: "Sandbox Use lease. Not the agent JWT."}
+	var ttl time.Duration
+	var outFile string
+	create := &cobra.Command{
+		Use:   "create AGENT",
+		Short: "Mint a short-lived session. Writes --out-file. Never stdout.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if outFile == "" {
+				return fmt.Errorf("--out-file is required")
+			}
+			if originBase() != "" {
+				return originSessionCreate(cmd, args[0], ttl, outFile)
+			}
+			a, err := openApp(*home)
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			actor := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
+			sess, token, err := a.CreateSession(actor, args[0], ttl)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(outFile, []byte(token+"\n"), 0o600); err != nil {
+				return err
+			}
+			return encode(cmd, sessionCreateDTO{
+				ID:        sess.ID,
+				AgentID:   sess.AgentID,
+				ExpiresAt: sess.ExpiresAt,
+				OutFile:   outFile,
+			})
+		},
+	}
+	create.Flags().DurationVar(&ttl, "ttl", app.SessionTTLDefault, "lease length. max 1h.")
+	create.Flags().StringVar(&outFile, "out-file", "", "write the session token here. never stdout.")
+	_ = create.MarkFlagRequired("out-file")
+	c.AddCommand(create)
+	c.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "Active sessions. Metadata only. Never the token.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originSessionList(cmd)
+			}
+			a, err := openApp(*home)
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			actor := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
+			sessions, err := a.ListSessions(actor)
+			if err != nil {
+				return err
+			}
+			if sessions == nil {
+				sessions = []protocol.Session{}
+			}
+			return encode(cmd, sessions)
+		},
+	})
+	return c
+}
+
+type sessionCreateDTO struct {
+	ID        string    `json:"id"`
+	AgentID   string    `json:"agent_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	OutFile   string    `json:"out_file"`
 }
 
 type tokenDTO struct {

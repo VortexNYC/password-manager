@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/grant"
@@ -745,5 +746,121 @@ func TestImportCSVNoSecretInResponse(t *testing.T) {
 	}
 	if scrub.Contains(raw, []byte(pass)) {
 		t.Fatal("list leaked password")
+	}
+}
+
+func TestSandboxSessionMintUsesAsAgent(t *testing.T) {
+	a := testApp(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"echo":"`+r.Header.Get("Authorization")+`"}`)
+	}))
+	t.Cleanup(upstream.Close)
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err != nil {
+		t.Fatal(err)
+	}
+	srv := apiServer(t, a)
+
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/sessions", "human", CreateSessionRequest{Agent: "claude", TTL: "15m"})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	var created CreateSessionResponse
+	if err := json.Unmarshal(raw, &created); err != nil || created.Token == "" || created.AgentID != "claude" {
+		t.Fatalf("create body %s", raw)
+	}
+	if !app.IsSessionToken(created.Token) {
+		t.Fatalf("token %s", created.Token)
+	}
+
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/sessions", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(created.Token)) {
+		t.Fatal("list leaked session token")
+	}
+	if bytes.Contains(raw, []byte(`"token"`)) {
+		t.Fatalf("list included token field %s", raw)
+	}
+
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/use", created.Token, UseRequest{
+		Item:   "stripe",
+		URL:    upstream.URL + "/v1",
+		Method: http.MethodGet,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("use %d %s", code, raw)
+	}
+	var used UseResponse
+	if err := json.Unmarshal(raw, &used); err != nil {
+		t.Fatal(err)
+	}
+	if used.Decision != protocol.DecisionAllow {
+		t.Fatalf("use %+v %s", used, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("use leaked secret")
+	}
+
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/items", created.Token, CreateItemRequest{Name: "x", Secret: secret})
+	if code != http.StatusForbidden {
+		t.Fatalf("session create item %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/sessions", created.Token, CreateSessionRequest{Agent: "claude"})
+	if code != http.StatusForbidden {
+		t.Fatalf("session mint session %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/sessions", "agent", CreateSessionRequest{Agent: "claude"})
+	if code != http.StatusForbidden {
+		t.Fatalf("agent mint %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/sessions", "member", CreateSessionRequest{Agent: "claude"})
+	if code != http.StatusForbidden {
+		t.Fatalf("member mint %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/sessions", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member list %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/sessions", "human", CreateSessionRequest{Agent: "claude", TTL: "2h"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("ttl %d %s", code, raw)
+	}
+}
+
+func TestSandboxSessionExpiredUnauthorized(t *testing.T) {
+	a := testApp(t)
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	srv := apiServer(t, a)
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/sessions", "human", CreateSessionRequest{Agent: "claude", TTL: "200ms"})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, raw)
+	}
+	var created CreateSessionResponse
+	if err := json.Unmarshal(raw, &created); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/use", created.Token, UseRequest{
+		Item: "stripe",
+		URL:  "https://example.com",
+	})
+	if code != http.StatusUnauthorized {
+		t.Fatalf("expired %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/sessions", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	if bytes.Contains(raw, []byte(created.ID)) {
+		t.Fatalf("expired session still listed %s", raw)
 	}
 }

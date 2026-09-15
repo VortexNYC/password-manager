@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vortexnyc/password-manager/identity/glue"
+	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/id"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/publicapi"
@@ -75,6 +76,9 @@ func originTokenLive(ctx context.Context, tokenFile string) (string, error) {
 }
 
 func jwtNeedsRefresh(tok string) bool {
+	if app.IsSessionToken(tok) {
+		return false
+	}
 	exp, ok := jwtExpUnix(tok)
 	if !ok {
 		return false
@@ -459,4 +463,58 @@ func originGrantList(cmd *cobra.Command) error {
 		out.Grants = []publicapi.GrantView{}
 	}
 	return encode(cmd, out.Grants)
+}
+
+func originSessionCreate(cmd *cobra.Command, agent string, ttl time.Duration, outFile string) error {
+	tok, err := originHumanCLI(cmd.Context())
+	if err != nil {
+		return err
+	}
+	in := publicapi.CreateSessionRequest{Agent: agent}
+	if ttl > 0 {
+		in.TTL = ttl.String()
+	}
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodPost, "/v1/sessions", tok, payload)
+	if err != nil {
+		return err
+	}
+	var out publicapi.CreateSessionResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	if strings.TrimSpace(out.Token) == "" {
+		return fmt.Errorf("origin session: empty token")
+	}
+	if err := os.WriteFile(outFile, []byte(out.Token+"\n"), 0o600); err != nil {
+		return err
+	}
+	return encode(cmd, sessionCreateDTO{
+		ID:        out.ID,
+		AgentID:   out.AgentID,
+		ExpiresAt: out.ExpiresAt,
+		OutFile:   outFile,
+	})
+}
+
+func originSessionList(cmd *cobra.Command) error {
+	tok, err := originHumanCLI(cmd.Context())
+	if err != nil {
+		return err
+	}
+	raw, err := originDo(cmd.Context(), http.MethodGet, "/v1/sessions", tok, nil)
+	if err != nil {
+		return err
+	}
+	var out publicapi.SessionsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	if out.Sessions == nil {
+		out.Sessions = []protocol.Session{}
+	}
+	return encode(cmd, out.Sessions)
 }

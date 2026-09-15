@@ -136,7 +136,10 @@ The next slices, in this order, and nothing else until each is proven:
                          is the dummy `veil-inject`, never the secret.
                          `--inject` stays local vault (or replica when
                          origin is unreachable on the laptop).
-                         PrincipalFromOIDC: bound agent, else human+Keto.
+                         PrincipalFromOIDC: session lease (`ses_`), bound
+                         agent, else human+Keto. Owner `POST /v1/sessions`
+                         mints a Use lease onto an existing agent. Token
+                         once. Default 15m, max 1h. Not MCP. Not list.
                          POST /v1/items and /v1/grants are owner (family
                          member creating a login they own is fill.md).
                          Secret in create request, never in response.
@@ -731,6 +734,7 @@ Next: family-member create (`docs/fill.md` increment 10). `POST /v1/items` is ow
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
 - [x] One store. Origin is the source of truth. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host replica is sealed `replica.box`; wrapping key is Keychain (`WhenUnlockedThisDeviceOnly` + UserPresence), not `device.key`. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
+- [x] Owner `POST /v1/sessions` mints a short-lived Use lease onto an existing agent. Token once on create. `session create --out-file`. Sandbox gets that file, not the agent JWT. Default 15m, max 1h. Bearer `ses_` maps to the agent. Not MCP. Not list.
 - [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. `prompt=login` so Hydra cannot skip on a remembered session. `amr` must include totp. HTTP remint uses PWM_LOGIN_EMAIL + password/TOTP files. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 - [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.

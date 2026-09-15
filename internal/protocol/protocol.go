@@ -189,3 +189,12 @@ type AuditEvent struct {
 	Reason     string     `json:"reason,omitempty"`
 	ApprovalID string     `json:"approval_id,omitempty"`
 }
+
+// Session is a short-lived Use lease onto an existing agent. The token
+// is never on this type. Owner mint only. Not MCP. Not list.
+type Session struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	AgentID   string    `json:"agent_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}

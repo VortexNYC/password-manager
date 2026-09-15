@@ -287,6 +287,49 @@ paths:
       summary: Register an agent principal. Not a Hydra secret. Not MCP.
       tags:
       - Owner
+  /v1/sessions:
+    get:
+      operationId: listSessions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionsResponse"
+          description: Sessions
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: not owner
+      summary: Active sandbox sessions. Metadata only. Never the token. Not MCP.
+      tags:
+      - Owner
+    post:
+      operationId: createSession
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSessionResponse"
+          description: Session plus token once.
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: not owner
+      summary: "Mint a short-lived Use lease onto an existing agent. Token is in this\
+        \ response once. Sandbox gets the session file, not the agent JWT. Default\
+        \ 15m, max 1h. Not MCP."
+      tags:
+      - Owner
   /v1/use:
     post:
       operationId: useItem
@@ -815,6 +858,89 @@ components:
           type: string
       required:
       - name
+    Session:
+      additionalProperties: false
+      description: Sandbox Use lease metadata. Never the token.
+      example:
+        id: id
+        org_id: org_id
+        agent_id: agent_id
+        expires_at: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        org_id:
+          type: string
+        agent_id:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+      required:
+      - agent_id
+      - expires_at
+      - id
+      - org_id
+    SessionsResponse:
+      additionalProperties: false
+      example:
+        sessions:
+        - id: id
+          org_id: org_id
+          agent_id: agent_id
+          expires_at: 2000-01-23T04:56:07.000+00:00
+        - id: id
+          org_id: org_id
+          agent_id: agent_id
+          expires_at: 2000-01-23T04:56:07.000+00:00
+      properties:
+        sessions:
+          items:
+            $ref: "#/components/schemas/Session"
+          type: array
+          default: null
+      required:
+      - sessions
+    CreateSessionRequest:
+      additionalProperties: false
+      example:
+        agent: agent
+        ttl: ttl
+      properties:
+        agent:
+          type: string
+        ttl:
+          description: Go duration. Default 15m. Max 1h.
+          type: string
+      required:
+      - agent
+    CreateSessionResponse:
+      additionalProperties: false
+      description: Token is create-only. Never list. Never MCP.
+      example:
+        id: id
+        org_id: org_id
+        agent_id: agent_id
+        expires_at: 2000-01-23T04:56:07.000+00:00
+        token: token
+      properties:
+        id:
+          type: string
+        org_id:
+          type: string
+        agent_id:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        token:
+          type: string
+      required:
+      - agent_id
+      - expires_at
+      - id
+      - org_id
+      - token
     CardFields:
       additionalProperties: false
       description: Request only. Never returned. Never MCP.
