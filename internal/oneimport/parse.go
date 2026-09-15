@@ -27,6 +27,9 @@ type Row struct {
 	Login    string
 	Token    []byte
 	TOTPSeed []byte
+	File     []byte
+	FileName string
+	MIME     string
 }
 
 func Parse(name string, raw []byte) ([]Row, error) {
@@ -129,9 +132,13 @@ func puxRow(it puxItem) (Row, bool) {
 	switch it.Category {
 	case "002":
 		return puxCard(name, uris, it)
+	case "003":
+		return puxNote(name, uris, it)
 	case "004":
 		return puxIdentity(name, uris, it)
-	case "001", "005", "":
+	case "114":
+		return puxSSH(name, uris, it)
+	case "001", "005", "110", "112", "":
 		return puxLogin(name, uris, it)
 	default:
 		return Row{}, false
@@ -220,6 +227,29 @@ func puxIdentity(name string, uris []string, it puxItem) (Row, bool) {
 		return Row{}, false
 	}
 	return Row{Name: name, Kind: protocol.ItemIdentity, URIs: uris, Token: blob}, true
+}
+
+func puxNote(name string, uris []string, it puxItem) (Row, bool) {
+	notes := strings.TrimSpace(it.Details.Notes)
+	if notes == "" {
+		return Row{}, false
+	}
+	return Row{
+		Name:     name,
+		Kind:     protocol.ItemFile,
+		URIs:     uris,
+		File:     []byte(notes),
+		FileName: name + ".txt",
+		MIME:     "text/plain",
+	}, true
+}
+
+func puxSSH(name string, uris []string, it puxItem) (Row, bool) {
+	key := puxField(it, "private_key", "privateKey", "ssh_private_key")
+	if strings.TrimSpace(key) == "" {
+		return Row{}, false
+	}
+	return Row{Name: name, Kind: protocol.ItemSSH, URIs: uris, Token: []byte(key)}, true
 }
 
 func puxField(it puxItem, ids ...string) string {

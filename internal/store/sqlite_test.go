@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestSQLiteRoundTripAndNoPlaintextOnDisk(t *testing.T) {
@@ -479,5 +482,68 @@ func TestSQLiteArchiveHistoryFileNoPlaintext(t *testing.T) {
 	}
 	if _, err := s.Item("stripe"); err != ErrNotFound {
 		t.Fatalf("deleted: %v", err)
+	}
+}
+
+func TestSQLiteAllowsDuplicateNames(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE items (
+			id TEXT PRIMARY KEY,
+			org_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			owner_kind TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			uris TEXT NOT NULL,
+			secret BLOB NOT NULL,
+			has_totp INTEGER NOT NULL DEFAULT 0,
+			tags TEXT NOT NULL DEFAULT '[]',
+			archived INTEGER NOT NULL DEFAULT 0,
+			has_file INTEGER NOT NULL DEFAULT 0,
+			login TEXT NOT NULL DEFAULT '',
+			UNIQUE(org_id, name)
+		)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	secret := Secret("x")
+	base := protocol.Item{
+		OrgID: "org",
+		Kind:  protocol.ItemAPIKey,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org"},
+	}
+	a := base
+	a.ID, a.Name = "i1", "Microsoft"
+	b := base
+	b.ID, b.Name = "i2", "Microsoft"
+	if err := s.PutItem(a, secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutItem(b, secret); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("n=%d", len(items))
 	}
 }
