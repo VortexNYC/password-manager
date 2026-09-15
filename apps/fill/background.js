@@ -8,6 +8,15 @@ const waiters = [];
 const matches = new Map();
 let openedLogin = false;
 let lastPage = null;
+let pendingSave = null;
+
+function wipePending() {
+  if (pendingSave) {
+    pendingSave.login = "";
+    pendingSave.password = "";
+  }
+  pendingSave = null;
+}
 
 function rememberTab(tab) {
   if (tab && tab.id != null && usable(tab.url)) {
@@ -265,6 +274,46 @@ async function generateTab(tabId, url, login, passwordRules) {
   return { ok: true };
 }
 
+async function saveTab(tabId, url, login, password) {
+  if (!password) {
+    return { ok: false, error: "empty" };
+  }
+  const body = { action: "save", url: url, login: login || "", password: password };
+  const msg = await hostSend(body, 90000);
+  password = "";
+  if (needLogin(msg)) {
+    openLogin();
+    return { ok: false, error: "need_login" };
+  }
+  if (msg && msg.error) {
+    return { ok: false, error: msg.error };
+  }
+  if (!msg || !msg.uuid) {
+    return { ok: false, error: "empty" };
+  }
+  await matchTab(tabId, url);
+  return { ok: true };
+}
+
+async function enrollTotp(tabId, url, otpauth) {
+  if (!otpauth) {
+    return { ok: false, error: "empty" };
+  }
+  const msg = await hostSend({ action: "enrollTotp", url: url, otpauth: otpauth }, 90000);
+  if (needLogin(msg)) {
+    openLogin();
+    return { ok: false, error: "need_login" };
+  }
+  if (msg && msg.error) {
+    return { ok: false, error: msg.error };
+  }
+  if (!msg || !msg.uuid) {
+    return { ok: false, error: "empty" };
+  }
+  await matchTab(tabId, url);
+  return { ok: true };
+}
+
 async function executeTab(tabId, url, opts) {
   let hit = matches.get(tabId);
   if (!hit || hit.url !== url) {
@@ -291,7 +340,7 @@ async function probeTab(tabId) {
   try {
     return await chrome.tabs.sendMessage(tabId, { type: "probe" });
   } catch {
-    return { generate: false, canGenerate: false, login: "", passwordRules: "" };
+    return { generate: false, canGenerate: false, canSave: false, login: "", passwordRules: "" };
   }
 }
 
@@ -415,9 +464,31 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       passwordRules: msg.passwordRules,
     }).then(function (got) {
       if (got && got.error === "choose") {
-        chrome.action.openPopup().catch(function () {});
+        if (msg.generate || (got.entries && got.entries.length)) {
+          chrome.action.openPopup().catch(function () {});
+        }
       }
     }, function () {});
+    return;
+  }
+  if (msg.type === "offer-save") {
+    const tab = sender.tab;
+    const url = tab && (tab.url || tab.pendingUrl);
+    if (!tab || !usable(url) || !msg.password) {
+      return;
+    }
+    wipePending();
+    pendingSave = { tabId: tab.id, url: url, login: msg.login || "", password: msg.password };
+    chrome.action.openPopup().catch(function () {});
+    return;
+  }
+  if (msg.type === "found-otpauth") {
+    const tab = sender.tab;
+    const url = tab && (tab.url || tab.pendingUrl);
+    if (!tab || !usable(url) || !msg.otpauth) {
+      return;
+    }
+    enrollTotp(tab.id, url, msg.otpauth).catch(function () {});
     return;
   }
   if (msg.type === "popup-list") {
@@ -436,12 +507,15 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       }
       matchTab(tab.id, tab.url).then(function (entries) {
         probeTab(tab.id).then(function (ctx) {
+          const liveSave = !!(ctx && ctx.canSave);
+          const pending = !!(pendingSave && pendingSave.tabId === tab.id);
           sendResponse({
             entries: entries,
             url: tab.url,
             tabId: tab.id,
             canGenerate: !!(ctx && ctx.canGenerate),
-            login: (ctx && ctx.login) || "",
+            canSave: liveSave || pending,
+            login: (ctx && ctx.login) || (pendingSave && pendingSave.login) || "",
             passwordRules: (ctx && ctx.passwordRules) || "",
           });
         });
@@ -471,6 +545,29 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (msg.type === "popup-generate") {
     generateTab(msg.tabId, msg.url, msg.login, msg.passwordRules).then(function (got) {
       sendResponse(got);
+    });
+    return true;
+  }
+  if (msg.type === "popup-save") {
+    const tabId = msg.tabId;
+    const url = msg.url;
+    const fromPending = pendingSave && pendingSave.tabId === tabId;
+    const creds = fromPending
+      ? Promise.resolve({ login: pendingSave.login, password: pendingSave.password })
+      : chrome.tabs.sendMessage(tabId, { type: "typed" }).catch(function () {
+          return { login: "", password: "" };
+        });
+    creds.then(function (got) {
+      const login = (got && got.login) || "";
+      const password = (got && got.password) || "";
+      return saveTab(tabId, url, login, password).finally(function () {
+        wipePending();
+      });
+    }).then(function (got) {
+      sendResponse(got);
+    }, function () {
+      wipePending();
+      sendResponse({ ok: false, error: "host" });
     });
     return true;
   }

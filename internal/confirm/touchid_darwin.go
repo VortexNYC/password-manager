@@ -140,7 +140,7 @@ static int pwm_access(const char *action, const char *account, const char *reaso
 	__block int out = 0;
 	void (^run)(void) = ^{
 		[NSApplication sharedApplication];
-		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 		PWMAccessSheet *ctrl = [[PWMAccessSheet alloc] init];
 		ctrl.why = [NSString stringWithUTF8String:reason];
 		NSRunningApplication *client = pwm_client_app();
@@ -150,12 +150,13 @@ static int pwm_access(const char *action, const char *account, const char *reaso
 		NSString *who = [NSString stringWithUTF8String:account];
 
 		NSRect frame = NSMakeRect(0, 0, 420, 288);
-		NSWindow *win = [[NSPanel alloc] initWithContentRect:frame
+		NSWindow *win = [[NSWindow alloc] initWithContentRect:frame
 			styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
 			backing:NSBackingStoreBuffered
 			defer:NO];
 		win.title = @"Veil Access Requested";
 		win.level = NSModalPanelWindowLevel;
+		win.releasedWhenClosed = NO;
 		win.delegate = ctrl;
 		ctrl.win = win;
 
@@ -235,6 +236,7 @@ static int pwm_access(const char *action, const char *account, const char *reaso
 		[win makeKeyAndOrderFront:nil];
 		[NSApp runModalForWindow:win];
 		[win orderOut:nil];
+		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 		out = ctrl.result;
 	};
 	run();

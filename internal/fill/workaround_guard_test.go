@@ -120,3 +120,33 @@ func TestReplicaSourceDoesNotUseDeviceKeyOrPlainSqlite(t *testing.T) {
 		t.Fatal("replica is a sealed box; device.key sqlite is how agents steal the vault")
 	}
 }
+
+func TestFillExtensionDoesNotStoreSeed(t *testing.T) {
+	root := filepath.Join(repoRoot(t), "apps/fill")
+	for _, name := range []string{"background.js", "content.js", "popup.js", "fields.js"} {
+		src, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(src, []byte("chrome.storage.local")) || bytes.Contains(src, []byte("chrome.storage.sync")) {
+			t.Fatalf("%s uses durable extension storage", name)
+		}
+		idx := 0
+		for {
+			i := bytes.Index(src[idx:], []byte("chrome.storage"))
+			if i < 0 {
+				break
+			}
+			i += idx
+			end := i + 160
+			if end > len(src) {
+				end = len(src)
+			}
+			window := src[i:end]
+			if bytes.Contains(window, []byte("otpauth")) || bytes.Contains(window, []byte("totp_seed")) || bytes.Contains(window, []byte("totpSeed")) {
+				t.Fatalf("%s stored a TOTP seed: %s", name, window)
+			}
+			idx = i + 1
+		}
+	}
+}

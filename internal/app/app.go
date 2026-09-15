@@ -768,6 +768,59 @@ func (a *App) FillTOTP(p protocol.Principal, itemID string, now time.Time) (stri
 	return code, nil
 }
 
+var (
+	ErrTOTPEnrollDenied = errors.New("app: totp enroll denied")
+	errTOTPEnrollSeed   = errors.New("app: totp seed")
+	errTOTPEnrollExists = errors.New("app: totp already enrolled")
+	errTOTPEnrollKind   = errors.New("app: totp enroll login")
+)
+
+func (a *App) AttachTOTP(p protocol.Principal, itemID, seed string) error {
+	if p.Kind != protocol.PrincipalHuman {
+		return ErrTOTPEnrollDenied
+	}
+	seed = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(seed), " ", ""))
+	if seed == "" {
+		return errTOTPEnrollSeed
+	}
+	item, err := a.Store.Item(itemID)
+	if err != nil {
+		return err
+	}
+	ok, err := a.MayWriteItem(p, item)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrTOTPEnrollDenied
+	}
+	if item.HasTOTP {
+		return errTOTPEnrollExists
+	}
+	if item.Kind != protocol.ItemAPIKey && item.Kind != "" {
+		return errTOTPEnrollKind
+	}
+	sec, err := a.Store.Secret(item.ID)
+	if err != nil {
+		return err
+	}
+	env := material.Unpack([]byte(sec))
+	blob, err := material.Pack([]byte(env.Token), []byte(seed))
+	if err != nil {
+		return err
+	}
+	login := env.Login
+	if login == "" {
+		login = item.Login
+	}
+	blob, err = material.WithLogin(blob, login)
+	if err != nil {
+		return err
+	}
+	item.HasTOTP = true
+	return a.Store.PutItem(item, store.Secret(blob))
+}
+
 func (a *App) FillPasskeyRegister(p protocol.Principal, origin string, publicKey json.RawMessage, extraURIs []string) (json.RawMessage, error) {
 	if p.Kind != protocol.PrincipalHuman {
 		return nil, fmt.Errorf("app: fill is human")

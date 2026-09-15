@@ -160,6 +160,16 @@ type FillTOTPResponse struct {
 	TOTP string `json:"totp"`
 }
 
+type FillTOTPEnrollRequest struct {
+	UUID     string `json:"uuid"`
+	TOTPSeed string `json:"totp_seed"`
+}
+
+type FillTOTPEnrollResponse struct {
+	UUID    string `json:"uuid"`
+	HasTOTP bool   `json:"has_totp"`
+}
+
 type FillPasskeysRequest struct {
 	Origin         string          `json:"origin"`
 	PublicKey      json.RawMessage `json:"publicKey"`
@@ -211,6 +221,7 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/events", s.listEvents)
 	mux.HandleFunc("POST /v1/fill/logins", s.fillLogins)
 	mux.HandleFunc("POST /v1/fill/totp", s.fillTOTP)
+	mux.HandleFunc("POST /v1/fill/totp/enroll", s.fillTOTPEnroll)
 	mux.HandleFunc("POST /v1/fill/passkeys/register", s.fillPasskeyRegister)
 	mux.HandleFunc("POST /v1/fill/passkeys/get", s.fillPasskeyGet)
 	mux.HandleFunc("POST /v1/fill/sync", s.fillSync)
@@ -615,6 +626,28 @@ func (s *Server) fillTOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, FillTOTPResponse{TOTP: code})
+}
+
+func (s *Server) fillTOTPEnroll(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.requireHuman(w, r)
+	if !ok {
+		return
+	}
+	var in FillTOTPEnrollRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	err := s.App.AttachTOTP(p, in.UUID, in.TOTPSeed)
+	if err != nil {
+		if errors.Is(err, app.ErrTOTPEnrollDenied) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, "enroll failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, FillTOTPEnrollResponse{UUID: in.UUID, HasTOTP: true})
 }
 
 func (s *Server) fillSync(w http.ResponseWriter, r *http.Request) {

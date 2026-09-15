@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -1400,6 +1401,7 @@ func fillCmd(home *string) *cobra.Command {
 		Use:   "fill",
 		Short: "Veil fill native host. Fill writes into the page. Agents never see the secret.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			runtime.LockOSThread()
 			dir, err := resolveFillHome(*home)
 			if err != nil {
 				return err

@@ -19,5 +19,6 @@ func TestMain(m *testing.M) {
 	_ = os.Unsetenv("PWM_LOGIN_EMAIL")
 	_ = os.Unsetenv("PWM_KRATOS_PASSWORD_FILE")
 	_ = os.Unsetenv("PWM_KRATOS_TOTP_FILE")
+	_ = os.Setenv("PWM_FILL_TOUCHID", "0")
 	os.Exit(m.Run())
 }

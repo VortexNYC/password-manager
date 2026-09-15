@@ -1,8 +1,10 @@
 package fill
 
 import (
+	"encoding/base32"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -52,7 +54,9 @@ func (h *Host) handleJSON(raw []byte) []byte {
 		App            string          `json:"app"`
 		UUID           string          `json:"uuid"`
 		Login          string          `json:"login"`
+		Password       string          `json:"password"`
 		PasswordRules  string          `json:"passwordRules"`
+		OTPAuth        string          `json:"otpauth"`
 		Origin         string          `json:"origin"`
 		PublicKey      json.RawMessage `json:"publicKey"`
 		RelatedOrigins []string        `json:"relatedOrigins"`
@@ -87,6 +91,10 @@ func (h *Host) handleJSON(raw []byte) []byte {
 		return jsonFillReply(entries, err)
 	case "generate":
 		return h.jsonGenerate(in.URL, in.Login, in.PasswordRules)
+	case "save":
+		return h.jsonSave(in.URL, in.Login, in.Password)
+	case "enrollTotp":
+		return h.jsonEnrollTotp(in.URL, in.OTPAuth)
 	case "passkeyCreate":
 		return h.jsonPasskeyCreate(in.Origin, in.PublicKey, in.RelatedOrigins)
 	case "passkeyGet":
@@ -380,12 +388,191 @@ func (h *Host) jsonGenerate(rawURL, login, rules string) []byte {
 		return jsonGenerateErr("failed")
 	}
 	h.invalidateIndex()
+	h.rememberCreated(rawURL, item.ID)
 	return jsonBytes(struct {
 		UUID     string `json:"uuid"`
 		Name     string `json:"name"`
 		Login    string `json:"login,omitempty"`
 		Password string `json:"password"`
 	}{UUID: item.ID, Name: item.Name, Login: login, Password: string(secret)})
+}
+
+func loginMatch(entries []jsonMatchEntry) bool {
+	for _, e := range entries {
+		if e.Kind == "login" {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Host) jsonSave(rawURL, login, password string) []byte {
+	rawURL = strings.TrimSpace(rawURL)
+	login = strings.TrimSpace(login)
+	password = strings.TrimSpace(password)
+	if rawURL == "" || password == "" {
+		return jsonGenerateErr("failed")
+	}
+	uri, host, ok := generateURI(rawURL)
+	if !ok {
+		return jsonGenerateErr("failed")
+	}
+	matches := h.jsonMatch(rawURL)
+	if h.loginNeeded() {
+		return jsonGenerateErr("need_login")
+	}
+	if loginMatch(matches) {
+		return jsonGenerateErr("choose")
+	}
+	if err := h.confirm("Veil wants to save this sign-in", grant.Registrable(rawURL), false); err != nil {
+		return jsonGenerateErr("canceled")
+	}
+	item, err := h.createGeneratedLogin(host, uri, login, password)
+	if err != nil {
+		if h.loginNeeded() {
+			return jsonGenerateErr("need_login")
+		}
+		return jsonGenerateErr("failed")
+	}
+	h.invalidateIndex()
+	h.rememberCreated(rawURL, item.ID)
+	return jsonBytes(struct {
+		UUID  string `json:"uuid"`
+		Name  string `json:"name"`
+		Login string `json:"login,omitempty"`
+	}{UUID: item.ID, Name: item.Name, Login: login})
+}
+
+func (h *Host) jsonEnrollTotp(rawURL, otpauth string) []byte {
+	seed := parseOTPAuth(otpauth)
+	if seed == "" {
+		return jsonGenerateErr("failed")
+	}
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return jsonGenerateErr("failed")
+	}
+	uuid := h.createdFor(rawURL)
+	if uuid == "" {
+		return jsonGenerateErr("choose")
+	}
+	item, ok := h.enrollTarget(uuid, rawURL)
+	if h.loginNeeded() {
+		return jsonGenerateErr("need_login")
+	}
+	if !ok {
+		return jsonGenerateErr("choose")
+	}
+	if err := h.confirm("Veil wants to save this authenticator", grant.Registrable(rawURL), false); err != nil {
+		return jsonGenerateErr("canceled")
+	}
+	if err := h.attachTOTP(item.ID, seed); err != nil {
+		if h.loginNeeded() {
+			return jsonGenerateErr("need_login")
+		}
+		return jsonGenerateErr("failed")
+	}
+	h.forgetCreated()
+	h.invalidateIndex()
+	return jsonBytes(struct {
+		UUID    string `json:"uuid"`
+		HasTOTP bool   `json:"hasTotp"`
+	}{UUID: item.ID, HasTOTP: true})
+}
+
+func (h *Host) enrollTarget(uuid, rawURL string) (protocol.Item, bool) {
+	h.ensureIndex()
+	h.mu.Lock()
+	items := append([]protocol.Item(nil), h.index...)
+	h.mu.Unlock()
+	for _, item := range items {
+		if item.ID != uuid || item.Archived || item.HasTOTP {
+			continue
+		}
+		if !item.Kind.Fillable() || item.Kind == protocol.ItemCard || item.Kind == protocol.ItemIdentity || item.Kind == protocol.ItemPasskey {
+			continue
+		}
+		if !grant.HostAllowed(item, rawURL) {
+			continue
+		}
+		return item, true
+	}
+	return protocol.Item{}, false
+}
+
+func (h *Host) attachTOTP(uuid, seed string) error {
+	if h.Origin != "" {
+		payload, err := json.Marshal(struct {
+			UUID     string `json:"uuid"`
+			TOTPSeed string `json:"totp_seed"`
+		}{UUID: uuid, TOTPSeed: seed})
+		if err != nil {
+			return err
+		}
+		raw, err := h.originPOST("/v1/fill/totp/enroll", payload)
+		if err != nil {
+			return err
+		}
+		var out struct {
+			UUID    string `json:"uuid"`
+			HasTOTP bool   `json:"has_totp"`
+		}
+		if json.Unmarshal(raw, &out) != nil || !out.HasTOTP || out.UUID == "" {
+			return errGenerateCreate
+		}
+		return nil
+	}
+	if h.App == nil {
+		return errGenerateCreate
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: h.App.HumanID, OrgID: h.App.OrgID}
+	return h.App.AttachTOTP(human, uuid, seed)
+}
+
+func (h *Host) rememberCreated(rawURL, uuid string) {
+	h.mu.Lock()
+	h.lastScope = grant.Registrable(rawURL)
+	h.lastUUID = uuid
+	h.mu.Unlock()
+}
+
+func (h *Host) createdFor(rawURL string) string {
+	scope := grant.Registrable(rawURL)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.lastUUID == "" || h.lastScope == "" || h.lastScope != scope {
+		return ""
+	}
+	return h.lastUUID
+}
+
+func (h *Host) forgetCreated() {
+	h.mu.Lock()
+	h.lastScope = ""
+	h.lastUUID = ""
+	h.mu.Unlock()
+}
+
+func parseOTPAuth(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "otpauth") || !strings.EqualFold(u.Host, "totp") {
+		return ""
+	}
+	secret := strings.ToUpper(strings.ReplaceAll(u.Query().Get("secret"), " ", ""))
+	secret = strings.ReplaceAll(secret, "-", "")
+	if secret == "" {
+		return ""
+	}
+	if _, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret); err != nil {
+		if _, err := base32.StdEncoding.DecodeString(secret); err != nil {
+			return ""
+		}
+	}
+	return secret
 }
 
 func (h *Host) createGeneratedLogin(name, uri, login, secret string) (protocol.Item, error) {

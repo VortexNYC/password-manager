@@ -985,3 +985,65 @@ func TestSandboxSessionExpiredUnauthorized(t *testing.T) {
 		t.Fatalf("expired session still listed %s", raw)
 	}
 }
+
+func TestFillTOTPEnroll(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+	const seed = "JBSWY3DPEHPK3PXP"
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name: "github", URI: "https://github.com", Secret: secret,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("github %d %s", code, raw)
+	}
+	var gh protocol.Item
+	if err := json.Unmarshal(raw, &gh); err != nil || gh.ID == "" {
+		t.Fatalf("github item %s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/items", "member", CreateItemRequest{
+		Name: "netflix", URI: "https://www.netflix.com", Secret: "nf_secret", Login: "ada",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("netflix %d %s", code, raw)
+	}
+	var nf protocol.Item
+	if err := json.Unmarshal(raw, &nf); err != nil || nf.ID == "" {
+		t.Fatalf("netflix item %s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/totp/enroll", "member", FillTOTPEnrollRequest{
+		UUID: nf.ID, TOTPSeed: seed,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("member enroll own %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(seed)) {
+		t.Fatal("enroll echoed seed")
+	}
+	var out FillTOTPEnrollResponse
+	if err := json.Unmarshal(raw, &out); err != nil || !out.HasTOTP || out.UUID != nf.ID {
+		t.Fatalf("enroll %s", raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/totp/enroll", "member", FillTOTPEnrollRequest{
+		UUID: gh.ID, TOTPSeed: seed,
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("member enroll org %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/totp/enroll", "agent", FillTOTPEnrollRequest{
+		UUID: nf.ID, TOTPSeed: seed,
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("agent enroll %d %s", code, raw)
+	}
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/fill/totp", "member", FillTOTPRequest{UUID: nf.ID})
+	if code != http.StatusOK {
+		t.Fatalf("mint %d %s", code, raw)
+	}
+	var minted FillTOTPResponse
+	if err := json.Unmarshal(raw, &minted); err != nil || len(minted.TOTP) != 6 {
+		t.Fatalf("mint %s", raw)
+	}
+	if minted.TOTP == seed {
+		t.Fatal("mint returned seed")
+	}
+}

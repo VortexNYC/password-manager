@@ -267,6 +267,78 @@
     );
   }
 
+  function isTopWindow() {
+    try {
+      return typeof window === "undefined" || window === window.top;
+    } catch {
+      return false;
+    }
+  }
+
+  function canSave(fields, el) {
+    if (!isTopWindow()) {
+      return false;
+    }
+    if (!fields || !fields.password) {
+      return false;
+    }
+    if (fields.newPassword && fields.newPassword.length) {
+      return false;
+    }
+    const target = el || fields.password;
+    const a = auto(target);
+    if (a.indexOf("cc-") === 0) {
+      return false;
+    }
+    if (fields.number && target === fields.number) {
+      return false;
+    }
+    if (a === "new-password") {
+      return false;
+    }
+    const pw = String(fields.password.value || "");
+    if (!pw) {
+      return false;
+    }
+    return a === "current-password" || typ(fields.password) === "password";
+  }
+
+  function findOTPAuth(root) {
+    if (!isTopWindow()) {
+      return "";
+    }
+    if (!root || typeof root.querySelector !== "function") {
+      return "";
+    }
+    const link = root.querySelector('a[href^="otpauth://totp"]');
+    if (link && link.href && String(link.href).indexOf("otpauth://totp") === 0) {
+      return String(link.href);
+    }
+    const nodes =
+      typeof root.querySelectorAll === "function"
+        ? root.querySelectorAll("input, textarea, code, pre, [data-otpauth]")
+        : [];
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      const bits = [el.value, el.textContent];
+      if (typeof el.getAttribute === "function") {
+        bits.push(el.getAttribute("data-otpauth"));
+      }
+      for (let j = 0; j < bits.length; j++) {
+        const s = String(bits[j] || "").trim();
+        const idx = s.indexOf("otpauth://totp");
+        if (idx === -1) {
+          continue;
+        }
+        const rest = s.slice(idx).split(/\s/)[0];
+        if (rest.indexOf("otpauth://totp") === 0) {
+          return rest;
+        }
+      }
+    }
+    return "";
+  }
+
   root.veilFields = {
     auto: auto,
     pickFields: pickFields,
@@ -276,6 +348,8 @@
     writeIdentity: writeIdentity,
     writeEntry: writeEntry,
     isFillTarget: isFillTarget,
+    canSave: canSave,
+    findOTPAuth: findOTPAuth,
   };
   if (typeof module !== "undefined" && module.exports) {
     module.exports = root.veilFields;
