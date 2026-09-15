@@ -1077,6 +1077,106 @@ func TestFillPasskeyHumanOnlyNoListLeak(t *testing.T) {
 	}
 }
 
+func TestRevokeAgentKillsGrantsAndSessions(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	defer upstream.Close()
+
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("flue"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("flue", "stripe", protocol.Level2); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := a.Use(context.Background(), "flue", "stripe", http.MethodGet, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionAllow {
+		t.Fatalf("before revoke: %+v", got)
+	}
+
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	_, token, err := a.CreateSession(owner, "flue", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.RevokeAgent(owner, "flue"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same agent JWT Use now denies.
+	got, err = a.Use(context.Background(), "flue", "stripe", http.MethodGet, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "agent_revoked" {
+		t.Fatalf("after revoke: %+v", got)
+	}
+
+	// Existing sandbox session is now dead.
+	if _, err := a.PrincipalFromSession(token); err == nil {
+		t.Fatal("session still alive after revoke")
+	}
+
+	// New sandbox mint is denied.
+	if _, _, err := a.CreateSession(owner, "flue", time.Minute); err == nil {
+		t.Fatal("created session for revoked agent")
+	}
+
+	// New grant is denied.
+	if _, err := a.AddGrant("flue", "stripe", protocol.Level2); err == nil {
+		t.Fatal("granted item to revoked agent")
+	}
+
+	// List is empty for the revoked agent.
+	items, err := a.ItemsForAgent("flue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("items for revoked agent: %+v", items)
+	}
+
+	// Agent record remains and carries revocation time.
+	agent, err := a.Store.Agent("flue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.RevokedAt == nil {
+		t.Fatalf("agent not revoked: %+v", agent)
+	}
+
+	// Re-adding the same name does not re-enable.
+	if _, err := a.AddAgent("flue"); err == nil {
+		t.Fatal("re-added revoked agent")
+	}
+
+	// Audit events contain no secret.
+	events, err := a.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if bytes.Contains([]byte(e.Reason), []byte(secret)) || bytes.Contains([]byte(e.AgentID), []byte(secret)) {
+			t.Fatal("audit leaked secret")
+		}
+	}
+}
+
 func TestSessionMapsToAgentAndExpires(t *testing.T) {
 	a, err := Init(t.TempDir())
 	if err != nil {

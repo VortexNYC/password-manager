@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -310,3 +311,34 @@ func jsonLeak(v any) error {
 type errSecret string
 
 func (e errSecret) Error() string { return "secret leaked: " + string(e) }
+
+func TestProxyRevokeFailsClosed(t *testing.T) {
+	a, _, upstream, client := startVault(t, protocol.Level2, false)
+
+	res, err := client.Get(upstream.URL + "/v1/customers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("before: %d", res.StatusCode)
+	}
+
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: app.DefaultHuman, OrgID: a.OrgID}
+	if err := a.RevokeAgent(owner, "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err = client.Get(upstream.URL + "/v1/customers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("after: %d", res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !bytes.Contains(body, []byte("agent_revoked")) && !bytes.Contains(body, []byte("deny")) {
+		t.Fatalf("body: %s", body)
+	}
+}

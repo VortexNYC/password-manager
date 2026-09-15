@@ -19,6 +19,9 @@ type Store interface {
 	PutAgent(protocol.Principal) error
 	Agent(id string) (protocol.Principal, error)
 	ListAgents() ([]protocol.Principal, error)
+	// RevokeAgent sets RevokedAt on the agent. It is idempotent and preserves
+	// the earliest revocation time. It returns ErrNotFound if the agent does not exist.
+	RevokeAgent(id string, at time.Time) error
 
 	PutHuman(protocol.Principal) error
 	Human(id string) (protocol.Principal, error)

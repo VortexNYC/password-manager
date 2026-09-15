@@ -32,6 +32,9 @@ func Evaluate(in Input) protocol.UseResult {
 	if in.Principal.Kind != protocol.PrincipalAgent {
 		return deny("human_cannot_use")
 	}
+	if in.Principal.RevokedAt != nil {
+		return deny("agent_revoked")
+	}
 	if in.Item.Archived {
 		return deny("item_archived")
 	}

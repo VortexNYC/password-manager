@@ -440,7 +440,47 @@ func (a *App) AddAgent(name string) (protocol.Principal, error) {
 	if err := a.Store.PutAgent(p); err != nil {
 		return protocol.Principal{}, err
 	}
-	return p, nil
+	got, err := a.Store.Agent(name)
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	if got.RevokedAt != nil {
+		return protocol.Principal{}, fmt.Errorf("app: agent %s is revoked", name)
+	}
+	return got, nil
+}
+
+func (a *App) RevokeAgent(actor protocol.Principal, agentID string) error {
+	ok, err := a.ownsVault(actor)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForbidden
+	}
+	if !id.Valid(agentID) {
+		return fmt.Errorf("app: invalid agent name %q", agentID)
+	}
+	agent, err := a.Store.Agent(agentID)
+	if err != nil {
+		return err
+	}
+	if agent.RevokedAt != nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	if err := a.Store.RevokeAgent(agentID, now); err != nil {
+		return err
+	}
+	return a.Store.AppendAudit(protocol.AuditEvent{
+		Time:     now,
+		OrgID:    a.OrgID,
+		AgentID:  agentID,
+		ItemID:   "",
+		Action:   protocol.ActionRevoke,
+		Decision: protocol.DecisionAllow,
+		Reason:   "",
+	})
 }
 
 func (a *App) BindWorkload(agentID, issuer, subject, audience string) (protocol.Workload, error) {
@@ -450,8 +490,12 @@ func (a *App) BindWorkload(agentID, issuer, subject, audience string) (protocol.
 	if issuer == "" || subject == "" || audience == "" {
 		return protocol.Workload{}, fmt.Errorf("app: issuer, subject, and audience are required")
 	}
-	if _, err := a.Store.Agent(agentID); err != nil {
+	agent, err := a.Store.Agent(agentID)
+	if err != nil {
 		return protocol.Workload{}, err
+	}
+	if agent.RevokedAt != nil {
+		return protocol.Workload{}, ErrAgentRevoked
 	}
 	w := protocol.Workload{
 		AgentID:  agentID,
@@ -773,6 +817,8 @@ var (
 	errTOTPEnrollSeed   = errors.New("app: totp seed")
 	errTOTPEnrollExists = errors.New("app: totp already enrolled")
 	errTOTPEnrollKind   = errors.New("app: totp enroll login")
+
+	ErrAgentRevoked = errors.New("app: agent revoked")
 )
 
 func (a *App) AttachTOTP(p protocol.Principal, itemID, seed string) error {
@@ -920,6 +966,9 @@ func (a *App) GrantUntil(grantee, itemID string, level protocol.GrantLevel, expi
 	agent, err := a.Store.Agent(grantee)
 	switch {
 	case err == nil:
+		if agent.RevokedAt != nil {
+			return protocol.Grant{}, ErrAgentRevoked
+		}
 		if agent.Owner.ID != "" && agent.Owner.ID != a.HumanID {
 			return protocol.Grant{}, fmt.Errorf("app: not the owner")
 		}
@@ -1101,6 +1150,13 @@ func Accept(dir string, priv, blob []byte) error {
 }
 
 func (a *App) ItemsForAgent(agentID string) ([]protocol.Item, error) {
+	agent, err := a.Store.Agent(agentID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	if err == nil && agent.RevokedAt != nil {
+		return []protocol.Item{}, nil
+	}
 	grants, err := a.Store.ListGrants()
 	if err != nil {
 		return nil, err

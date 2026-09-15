@@ -489,3 +489,60 @@ func (i *testIssuer) token(t *testing.T, sub, aud string) string {
 	}
 	return raw
 }
+
+func TestMCPRevokeAgent(t *testing.T) {
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.Header.Get("Authorization"))
+	}))
+	t.Cleanup(upstream.Close)
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Fetch(context.Background(), a, "claude", FetchIn{Item: "stripe", URL: upstream.URL + "/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Decision != "allow" {
+		t.Fatalf("before: %+v", out)
+	}
+
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: app.DefaultHuman, OrgID: a.OrgID}
+	if err := a.RevokeAgent(owner, "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err = Fetch(context.Background(), a, "claude", FetchIn{Item: "stripe", URL: upstream.URL + "/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Decision != "deny" || out.Reason != "agent_revoked" {
+		t.Fatalf("after fetch: %+v", out)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatalf("mcp denied output leaked secret: %s", raw)
+	}
+
+	items, err := a.ItemsForAgent("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("mcp list after revoke: %+v", items)
+	}
+}

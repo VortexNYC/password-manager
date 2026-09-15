@@ -169,6 +169,13 @@ func (s *Server) checkAuth(req *http.Request) bool {
 	return resp == nil && ok
 }
 
+func (s *Server) currentAgent() (protocol.Principal, error) {
+	if s.App == nil {
+		return s.Agent, nil
+	}
+	return s.App.Store.Agent(s.Agent.ID)
+}
+
 func (s *Server) agentMayHost(raw string) bool {
 	if s.OriginUse != nil {
 		_, dec := s.originItem(raw)
@@ -261,6 +268,10 @@ func destURL(req *http.Request) string {
 }
 
 func (s *Server) lookup(rawURL string) (protocol.Item, *protocol.Grant, protocol.UseResult, error) {
+	agent, err := s.currentAgent()
+	if err != nil {
+		return protocol.Item{}, nil, protocol.UseResult{}, err
+	}
 	grants, err := s.App.Store.ListGrants()
 	if err != nil {
 		return protocol.Item{}, nil, protocol.UseResult{}, err
@@ -296,7 +307,7 @@ func (s *Server) lookup(rawURL string) (protocol.Item, *protocol.Grant, protocol
 		return protocol.Item{}, nil, protocol.UseResult{}, err
 	}
 	dec := grant.Evaluate(grant.Input{
-		Principal: s.Agent,
+		Principal: agent,
 		Item:      hitItem,
 		Grant:     hitGrant,
 		Action:    protocol.ActionFetch,

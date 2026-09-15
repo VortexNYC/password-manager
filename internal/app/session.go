@@ -67,7 +67,14 @@ func (a *App) PrincipalFromSession(rawToken string) (protocol.Principal, error) 
 	if !sess.ExpiresAt.After(time.Now()) {
 		return protocol.Principal{}, ErrSessionExpired
 	}
-	return a.Store.Agent(sess.AgentID)
+	agent, err := a.Store.Agent(sess.AgentID)
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	if agent.RevokedAt != nil {
+		return protocol.Principal{}, ErrAgentRevoked
+	}
+	return agent, nil
 }
 
 func (a *App) CreateSession(actor protocol.Principal, agentID string, ttl time.Duration) (protocol.Session, string, error) {
@@ -87,6 +94,9 @@ func (a *App) CreateSession(actor protocol.Principal, agentID string, ttl time.D
 	agent, err := a.Store.Agent(agentID)
 	if err != nil {
 		return protocol.Session{}, "", err
+	}
+	if agent.RevokedAt != nil {
+		return protocol.Session{}, "", ErrForbidden
 	}
 	token, err := newSessionToken()
 	if err != nil {

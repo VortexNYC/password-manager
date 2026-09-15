@@ -518,3 +518,16 @@ func originSessionList(cmd *cobra.Command) error {
 	}
 	return encode(cmd, out.Sessions)
 }
+
+func originAgentRevoke(cmd *cobra.Command, id string) error {
+	tok, err := originHumanCLI(cmd.Context())
+	if err != nil {
+		return err
+	}
+	path := "/v1/agents/" + id + "/revoke"
+	_, err = originDo(cmd.Context(), http.MethodPost, path, tok, nil)
+	if err != nil {
+		return err
+	}
+	return encode(cmd, map[string]bool{"ok": true})
+}
