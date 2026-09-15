@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"strings"
 	"testing"
 	"time"
@@ -1174,6 +1175,149 @@ func TestRevokeAgentKillsGrantsAndSessions(t *testing.T) {
 		if bytes.Contains([]byte(e.Reason), []byte(secret)) || bytes.Contains([]byte(e.AgentID), []byte(secret)) {
 			t.Fatal("audit leaked secret")
 		}
+	}
+}
+
+func TestRevokeAgentOwnerAndIdempotentAndMetadata(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	if _, err := a.AddAgent("flue"); err != nil {
+		t.Fatal(err)
+	}
+
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	member := protocol.Principal{Kind: protocol.PrincipalHuman, ID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", OrgID: a.OrgID}
+	stranger := protocol.Principal{Kind: protocol.PrincipalHuman, ID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", OrgID: a.OrgID}
+
+	// Only the owner may revoke.
+	if err := a.RevokeAgent(member, "flue"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("member revoke: %v", err)
+	}
+	if err := a.RevokeAgent(stranger, "flue"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("stranger revoke: %v", err)
+	}
+
+	// Owner revokes.
+	if err := a.RevokeAgent(owner, "flue"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Revoking an unknown agent is an error.
+	if err := a.RevokeAgent(owner, "does-not-exist"); err == nil {
+		t.Fatal("revoked unknown agent")
+	}
+
+	// Revoke is idempotent.
+	if err := a.RevokeAgent(owner, "flue"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent list still contains the agent with revoked_at metadata.
+	agents, err := a.Store.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].ID != "flue" || agents[0].RevokedAt == nil {
+		t.Fatalf("agents: %+v", agents)
+	}
+
+	// Audit includes the revoke event and carries no secret.
+	events, err := a.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawRevoke bool
+	for _, e := range events {
+		if e.Action == protocol.ActionRevoke {
+			sawRevoke = true
+		}
+		if bytes.Contains([]byte(e.AgentID), []byte(secret)) || bytes.Contains([]byte(e.Reason), []byte(secret)) {
+			t.Fatal("audit leaked secret")
+		}
+	}
+	if !sawRevoke {
+		t.Fatalf("no revoke audit: %+v", events)
+	}
+}
+
+func TestConcurrentRevokeAndUse(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	defer upstream.Close()
+
+	if _, err := a.AddItem("stripe", upstream.URL, []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddAgent("flue"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddGrant("flue", "stripe", protocol.Level2); err != nil {
+		t.Fatal(err)
+	}
+
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				_, _ = a.Use(context.Background(), "flue", "stripe", http.MethodGet, upstream.URL)
+			}
+		}
+	}()
+
+	// Revoke after a short window while Use is hammering.
+	time.Sleep(2 * time.Millisecond)
+	if err := a.RevokeAgent(owner, "flue"); err != nil {
+		t.Fatal(err)
+	}
+	close(done)
+	wg.Wait()
+
+	// Final state: denied.
+	got, err := a.Use(context.Background(), "flue", "stripe", http.MethodGet, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "agent_revoked" {
+		t.Fatalf("final: %+v", got)
+	}
+}
+
+func TestBindWorkloadRejectsRevokedAgent(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.AddAgent("flue"); err != nil {
+		t.Fatal(err)
+	}
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	if err := a.RevokeAgent(owner, "flue"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.BindWorkload("flue", "https://id.example.com", "sub", "aud"); err == nil {
+		t.Fatal("bound workload to revoked agent")
 	}
 }
 

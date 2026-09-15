@@ -525,9 +525,13 @@ func originAgentRevoke(cmd *cobra.Command, id string) error {
 		return err
 	}
 	path := "/v1/agents/" + id + "/revoke"
-	_, err = originDo(cmd.Context(), http.MethodPost, path, tok, nil)
+	raw, err := originDo(cmd.Context(), http.MethodPost, path, tok, nil)
 	if err != nil {
 		return err
 	}
-	return encode(cmd, map[string]bool{"ok": true})
+	var agent protocol.Principal
+	if err := json.Unmarshal(raw, &agent); err != nil {
+		return err
+	}
+	return encode(cmd, agent)
 }

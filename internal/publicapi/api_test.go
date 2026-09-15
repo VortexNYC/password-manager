@@ -1167,4 +1167,28 @@ func TestRevokeAgentEndpoint(t *testing.T) {
 	if code == http.StatusOK {
 		t.Fatal("grant after revoke succeeded")
 	}
+
+	// Revoke is idempotent.
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/agents/flue/revoke", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("idempotent revoke %d", code)
+	}
+
+	// Unknown agent returns bad request, not a crash.
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/agents/unknown/revoke", "human", nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("unknown agent %d", code)
+	}
+
+	// Audit includes the revoke event and contains no secret or token.
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/events", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("events %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("audit leaked secret")
+	}
+	if !bytes.Contains(raw, []byte(`"revoke"`)) {
+		t.Fatalf("audit missing revoke: %s", raw)
+	}
 }
