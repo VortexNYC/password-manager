@@ -72,7 +72,7 @@ func (m *Memory) Agent(id string) (protocol.Principal, error) {
 	return p, nil
 }
 
-func (m *Memory) RevokeAgent(id string, at time.Time) error {
+func (m *Memory) RevokeAgent(id string, at time.Time, audit ...protocol.AuditEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.agents[id]
@@ -84,6 +84,7 @@ func (m *Memory) RevokeAgent(id string, at time.Time) error {
 		p.RevokedAt = &t
 		m.agents[id] = p
 	}
+	m.audit = append(m.audit, audit...)
 	return nil
 }
 

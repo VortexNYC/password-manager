@@ -788,7 +788,11 @@ func agentCmd(home *string) *cobra.Command {
 			if err := a.RevokeAgent(actor, id); err != nil {
 				return err
 			}
-			return encode(cmd, map[string]bool{"ok": true})
+			agent, err := a.Store.Agent(id)
+			if err != nil {
+				return err
+			}
+			return encode(cmd, agent)
 		},
 	}
 	revoke.Flags().StringVar(&revokeID, "id", "", "agent id to revoke. never argv.")

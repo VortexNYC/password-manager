@@ -1899,7 +1899,7 @@ func TestCLIAgentRevokeKillsUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err, out)
 	}
-	if !strings.Contains(out, `"ok"`) || !strings.Contains(out, `true`) {
+	if !strings.Contains(out, "revoked_at") {
 		t.Fatalf("revoke: %s", out)
 	}
 

@@ -445,7 +445,7 @@ func (a *App) AddAgent(name string) (protocol.Principal, error) {
 		return protocol.Principal{}, err
 	}
 	if got.RevokedAt != nil {
-		return protocol.Principal{}, fmt.Errorf("app: agent %s is revoked", name)
+		return protocol.Principal{}, fmt.Errorf("%w: %s", ErrAgentRevoked, name)
 	}
 	return got, nil
 }
@@ -465,14 +465,14 @@ func (a *App) RevokeAgent(actor protocol.Principal, agentID string) error {
 	if err != nil {
 		return err
 	}
+	if agent.OrgID != a.OrgID || agent.Owner.Kind != protocol.OwnerUser || agent.Owner.ID != a.HumanID {
+		return ErrForbidden
+	}
 	if agent.RevokedAt != nil {
 		return nil
 	}
 	now := time.Now().UTC()
-	if err := a.Store.RevokeAgent(agentID, now); err != nil {
-		return err
-	}
-	return a.Store.AppendAudit(protocol.AuditEvent{
+	event := protocol.AuditEvent{
 		Time:     now,
 		OrgID:    a.OrgID,
 		AgentID:  agentID,
@@ -480,7 +480,8 @@ func (a *App) RevokeAgent(actor protocol.Principal, agentID string) error {
 		Action:   protocol.ActionRevoke,
 		Decision: protocol.DecisionAllow,
 		Reason:   "",
-	})
+	}
+	return a.Store.RevokeAgent(agentID, now, event)
 }
 
 func (a *App) BindWorkload(agentID, issuer, subject, audience string) (protocol.Workload, error) {

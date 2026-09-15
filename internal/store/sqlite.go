@@ -253,9 +253,31 @@ func (s *SQLite) ListAgents() ([]protocol.Principal, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) RevokeAgent(id string, at time.Time) error {
+func (s *SQLite) RevokeAgent(id string, at time.Time, audit ...protocol.AuditEvent) error {
+	if len(audit) == 0 {
+		rv := at.UTC().Format(time.RFC3339)
+		res, err := s.db.Exec(`UPDATE agents SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, rv, id)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	rv := at.UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(`UPDATE agents SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, rv, id)
+	res, err := tx.Exec(`UPDATE agents SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, rv, id)
 	if err != nil {
 		return err
 	}
@@ -266,7 +288,16 @@ func (s *SQLite) RevokeAgent(id string, at time.Time) error {
 	if n == 0 {
 		return ErrNotFound
 	}
-	return nil
+
+	for _, e := range audit {
+		if _, err := tx.Exec(`INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
+			VALUES(?,?,?,?,?,?,?,?)`,
+			e.Time.UTC().Format(time.RFC3339Nano), e.OrgID, e.AgentID, e.ItemID, e.Action, e.Decision, e.Reason, e.ApprovalID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (s *SQLite) PutHuman(p protocol.Principal) error {
