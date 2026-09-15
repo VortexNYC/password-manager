@@ -79,6 +79,15 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	ctx, span := otel.Tracer("veil").Start(ctx, "use")
 	defer span.End()
 	now := b.now()
+
+	// Second authorization check: the agent may have been revoked between the
+	// initial resolution and this Use. Tests may pass a bare principal with no
+	// store entry; do not fail those. Unknown agents fall through to grant
+	// evaluation, which will deny as no_grant.
+	if current, err := b.Store.Agent(agent.ID); err == nil {
+		agent = current
+	}
+
 	item, err := b.Store.Item(req.ItemID)
 	if err != nil {
 		dec := protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "item_not_found"}
