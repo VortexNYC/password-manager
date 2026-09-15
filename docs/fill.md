@@ -172,7 +172,7 @@ One initiative. Modules a later agent can cut without rewriting the others.
 | `safari` | Containing `.app` + original Swift handler that forwards the same JSON to the same Go process. | `host-json` |
 | `as-credential` | Slice 32. Same jobs, OS chooser. | `session` jobs only |
 
-Build order stays **Increments** at the bottom. Chrome execute against origin is proven (CFT + branded 2026-09-14). Replica is live. Cards + identities are CFT-proven; branded HTML checkout wrote field lengths 2026-09-15. Import + owner create is written and live (`POST /v1/import`, `POST /v1/items` card/identity/login). Display names are not unique; import always mints an item id so it cannot clobber `github`. 1pux SSH (114) and secure notes (003) import as `ssh` / `file`. Next backend: family member may create a login they own (`POST /v1/items` is owner-only today — generate is a lie without it). Typed-save / TOTP-from-page stay Chrome after that. Do not start Firefox or Safari. Firefox is a pipe, not the limiter.
+Build order stays **Increments** at the bottom. Chrome execute against origin is proven (CFT + branded 2026-09-14). Replica is live. Cards + identities are CFT-proven; branded HTML checkout wrote field lengths 2026-09-15. Import + owner create is written and live (`POST /v1/import`, `POST /v1/items` card/identity/login). Display names are not unique; import always mints an item id so it cannot clobber `github`. 1pux SSH (114) and secure notes (003) import as `ssh` / `file`. Family member create is written (`OwnerUser` stamp; list/fill is owned ∪ granted). Next backend: typed-save / TOTP-from-page on Chrome. Do not start Firefox or Safari. Firefox is a pipe, not the limiter.
 
 ### What already exists
 
@@ -324,7 +324,7 @@ Still not on OpenAPI. Still human Bearer.
 | `POST /v1/fill/totp` | unused after mint-in-fill (and unused after replica) | 6-digit code |
 | `POST /v1/fill/passkeys/*` | host `passkey*` | host `passkeys-*` |
 | `POST /v1/fill/sync` | replica pull | unused |
-| `POST /v1/items` | generate + save; member may create a login they **own** (fix on the generate slice) | unused |
+| `POST /v1/items` | generate + save; member creates a login they **own**; owner stamps org | unused |
 | `GET /v1/items` | host start / remint → RAM index. **not** per navigation | unused |
 
 Audit on origin: choose/execute/generate, uuid + url + kind, no secret.
@@ -487,7 +487,7 @@ Fill + generate is the 1Password-shaped core. A few more things belong in the re
 
 ### In — families, or generate is a lie
 
-`POST /v1/items` is owner today. A family member filling a new Netflix must be allowed to **create a login they own**. Org owner is not the only human who may save. Grants still gate what a member can *fill* of someone else’s. This is the limiter after import. Not a second vault type.
+`POST /v1/items` is human. A family member filling a new Netflix creates a login they own. Org owner is not the only human who may save. Grants still gate what a member can *fill* of someone else’s. Not a second vault type.
 
 ### In — later slices, already named
 
@@ -546,7 +546,7 @@ Each step leaves the tree working. Tests before the next file. Do not scaffold J
 7. **Replica. Origin live + branded airplane proven 2026-09-14.** Sealed `replica.box` + Keychain key (`nyc.veil.fill` / `replica`). `POST /v1/fill/sync` human only. Fill after pull does not call origin. Confirm fail-closed. Airplane: fill.json origin `https://127.0.0.1:9`, Cmd+Shift+Period on dash.cloudflare.com/login, `confirm ok` 15:46:14, Password empty then 21 bullets. Box 4379 no catalog leak. `fill.json` restored to `https://veil.nyc`. Do not `fill install`.
 8. **Cards + identities. Written + CFT-proven + origin live 2026-09-14 (`f679407e`). Branded Stripe-test checkout wrote fields 2026-09-15.** `ItemCard` / `ItemIdentity` are Fillable, not Injects. Envelope PAN/CVV/address never on list/MCP. Match: unbound cards/identities always appear; URI-tagged ones use HostAllowed. Fill by uuid. Cards without uuid stay choose. Confirm `scope` is eTLD+1. Password/TOTP/passkey reuse 30s same scope. CVV never reuses (a card fill that returns CVV always prompts). Never submit. CFT: `checkout-fixture.html` — click `#number` leaves fields empty; chooser uuid writes number/exp/CVV/name; `#pay` is `type=button` and was never clicked. `identity-fixture.html` chooser writes given/family/street/tel; Continue never clicked. Card fill from origin with replica nil is `POST /v1/fill/sync` by uuid, not `POST /v1/fill/logins`. Live FillSync human 200 / agent 403. Origin item `stripe-test` (`kind=card`, Stripe test Visa). Branded Profile 2 2026-09-14 18:24:50: chooser `stripe-test card` → `confirm ok` with empty fields (MV3 popup was the fill tab; replica empty Number counted as success). 2026-09-15 HTML checkout `http://127.0.0.1:8765/stripe-test-checkout.html`: confirm ok **and** Card number len=16 last4 4242, Month 12, Year 2034, CVC len=3, Name Ada. Chooser URL binds the checkout http(s) tab, not the popup. Replica empty Number falls through to origin; empty fill URL does not confirm. Tests: `tab.test.cjs` (http(s) only), `fields.test.cjs` writeCard on hidden `cc-number`, `TestJSONFillEmptyURLDoesNotConfirm`, `TestJSONCardFillReplicaEmptyFallsBackToOrigin`, `TestJSONCardFillReplicaEmptyOriginDownDoesNotConfirm`. Pay never clicked. Stripe Elements iframes are not this path (`all_frames: false`). Laptop host copied over `~/.password-manager/native-host`; `fill.json` untouched. Identity branded soak and airplane card are not this gate. Firefox waits.
 9. **Import + owner create. Written + origin live 2026-09-15.** One-shot `.1pux` / CSV onto origin (`POST /v1/import`, CLI `item import`). Import always `id.NewItem()` — display names may collide; existing ids (`github`) are never reused. `UNIQUE(org_id, name)` is dropped on open. 1pux 114 SSH → `ItemSSH` (PEM never in list). 1pux 003 note → `ItemFile` text/plain (body never in list). Owner create is `POST /v1/items` with `kind` `api_key` / `card` / `identity`. Card/identity fields are request-only; PAN/CVV/address never in the response, list, or MCP. SPA Add and Import are the same owner calls.
-10. **Family member create. Origin. Not a second vault.** `POST /v1/items` is owner today. A member filling a new Netflix must create a login they own or generate is a lie. Grants still gate fill of someone else’s. **STOP: Firefox / Safari / 32.** Typed-save and TOTP-from-page stay Chrome, after this.
+10. **Family member create. Written.** `POST /v1/items` is human. Owner stamps `OwnerOrg`. Member stamps `OwnerUser`. List/fill is owned ∪ granted. Import and grant-create stay owner. Agent 403. Not a second vault. Proof: `TestMemberCreateOwnsLogin`, `TestMemberCreateItemTheyOwn`. Origin `pwm` is a later deploy. **STOP: Firefox / Safari / 32.** Typed-save and TOTP-from-page stay Chrome, after this.
 11. Safari `.app` + original Swift. Same JSON.
 12. Slice 32 Mac AutoFill.
 13. Typed-save and TOTP-from-page (Chrome). Then Win/Linux native APIs (reopen). Phone when we mean it.

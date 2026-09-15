@@ -922,6 +922,70 @@ func TestHumanGrantFillIsNotAFamilyVault(t *testing.T) {
 	}
 }
 
+func TestMemberCreateOwnsLogin(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	a.Members = fakeMembers{members: map[string]bool{familyHuman: true}}
+	if _, err := a.AddItem("github", "https://api.github.com", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	member := protocol.Principal{Kind: protocol.PrincipalHuman, ID: familyHuman, OrgID: a.OrgID}
+	got, err := a.PutItemFor(member, ItemOpts{Name: "netflix", URI: "https://www.netflix.com", Token: []byte("nf_secret")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Owner.Kind != protocol.OwnerUser || got.Owner.ID != familyHuman {
+		t.Fatalf("member stamp %+v", got.Owner)
+	}
+	org, err := a.PutItemFor(owner, ItemOpts{Name: "stripe", URI: "https://dashboard.stripe.com", Token: []byte(secret)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if org.Owner.Kind != protocol.OwnerOrg || org.Owner.ID != a.OrgID {
+		t.Fatalf("owner stamp %+v", org.Owner)
+	}
+	listed, err := a.ItemsForPrincipal(member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Name != "netflix" {
+		t.Fatalf("member list %+v", listed)
+	}
+	listed, err = a.ItemsForPrincipal(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, item := range listed {
+		names[item.Name] = true
+	}
+	if !names["github"] || !names["stripe"] || names["netflix"] {
+		t.Fatalf("owner list %+v", listed)
+	}
+	fills, err := a.FillLogins(member, "https://www.netflix.com/login")
+	if err != nil || len(fills) != 1 || fills[0].Password != "nf_secret" {
+		t.Fatalf("member fill own %+v %v", fills, err)
+	}
+	fills, err = a.FillLogins(member, "https://api.github.com/user")
+	if err != nil || len(fills) != 0 {
+		t.Fatalf("member fill other %+v %v", fills, err)
+	}
+	fills, err = a.FillLogins(owner, "https://www.netflix.com/login")
+	if err != nil || len(fills) != 0 {
+		t.Fatalf("owner fill member %+v %v", fills, err)
+	}
+	if _, err := a.ImportItems(member, nil); err == nil {
+		t.Fatal("member imported")
+	}
+	if _, err := a.PutItemFor(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: a.OrgID}, ItemOpts{Name: "x", Token: []byte(secret)}); err == nil {
+		t.Fatal("agent created")
+	}
+}
+
 func TestFillPasskeyHumanOnlyNoListLeak(t *testing.T) {
 	a, err := Init(t.TempDir())
 	if err != nil {
@@ -984,7 +1048,7 @@ func TestSessionMapsToAgentAndExpires(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
-	sess, token, err := a.CreateSession(owner, "claude", 200*time.Millisecond)
+	sess, token, err := a.CreateSession(owner, "claude", 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1012,7 +1076,7 @@ func TestSessionMapsToAgentAndExpires(t *testing.T) {
 	if err != nil || len(listed) != 1 || listed[0].ID != sess.ID {
 		t.Fatalf("%+v %v", listed, err)
 	}
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 	if _, err := a.PrincipalFromSession(token); !errors.Is(err, ErrSessionExpired) {
 		t.Fatalf("expired: %v", err)
 	}

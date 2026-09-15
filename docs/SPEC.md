@@ -140,9 +140,9 @@ The next slices, in this order, and nothing else until each is proven:
                          agent, else human+Keto. Owner `POST /v1/sessions`
                          mints a Use lease onto an existing agent. Token
                          once. Default 15m, max 1h. Not MCP. Not list.
-                         POST /v1/items and /v1/grants are owner (family
-                         member creating a login they own is fill.md).
-                         Secret in create request, never in response.
+                         POST /v1/items is human: owner stamps org,
+                         member stamps themselves. POST /v1/grants
+                         is owner. Secret in create request, never in response.
                          Fill path /v1/fill/* is human native-host only,
                          not OpenAPI, not MCP. Chrome URI fill is 26.
                          Passkeys fill is 31. Cards/identities are fill.
@@ -233,9 +233,10 @@ The next slices, in this order, and nothing else until each is proven:
                          2026-09-15. Origin import + owner create
                          written+live 2026-09-15. Duplicate titles
                          keep distinct ids. 1pux SSH+notes import.
-                         Next is family-member create (owner-only
-                         POST /v1/items is the lie). Firefox /
-                         Safari after that. Thin client.
+                         Family-member create written (OwnerUser
+                         stamp; list/fill is owned or granted).
+                         Next is typed-save / TOTP-from-page on
+                         Chrome. Firefox / Safari after that.
                          Design: docs/fill.md. Two modes: choose
                          (click field, pick a match) and execute
                          (trusted focus, unambiguous, write the
@@ -245,7 +246,7 @@ The next slices, in this order, and nothing else until each is proven:
                          ASCredentialProvider is still 32.
 ```
 
-Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Replica is written+proven. Cards/identities CFT-proven 2026-09-14. Branded Stripe-test card fill wrote field lengths 2026-09-15. Origin import + owner create is written+live. Next is family-member create (a member must own a login they save). Firefox / Safari wait. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. After member create: typed-save / TOTP-from-page on Chrome, then Mac helper (slice 32), phone add+fill (33–34), Windows/Linux helpers (35–36, re-check OS APIs then). Do not wrap the SPA in Native SDK / Tauri / Electron.
+Identity screens exist (Ory Elements at login.veil.nyc). Do not restyle them. Do not add a Go web framework. The vault SPA is slice 30. Slice 37 Chrome MV3 is written+proven. Replica is written+proven. Cards/identities CFT-proven 2026-09-14. Branded Stripe-test card fill wrote field lengths 2026-09-15. Origin import + owner create is written+live. Family-member create is written (a member owns a login they save; grants still gate someone else's). Next is typed-save / TOTP-from-page on Chrome, then Mac helper (slice 32), phone add+fill (33–34), Windows/Linux helpers (35–36, re-check OS APIs then). Firefox / Safari wait. Fill product (choose vs execute, browsers + OS) is `docs/fill.md`. Do not wrap the SPA in Native SDK / Tauri / Electron.
 
 ## What the broker is
 
@@ -663,7 +664,7 @@ Canonical write-up: [docs/fill.md](fill.md). Learning closed. We do not copy kpx
 
 Two modes: **choose** (click field, pick a domain/app match) and **execute** (trusted focus, unambiguous, write username → password → TOTP in one session). Match has no secrets. Fill has Touch ID. Agents move the cursor; they do not get the password on MCP. **Generate + save + fill** on `autocomplete=new-password` is written on `nyc.veil.fill` (`generate`). `passgen` stays CLI; the host is what makes the value a vault item. Change-password execute never generates.
 
-Next: family-member create (`docs/fill.md` increment 10). `POST /v1/items` is owner today — generate is a lie for anyone else. Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP, never list JSON. Import is one-shot onto origin (duplicate titles, new ids, SSH+notes). Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start Firefox, Safari, or 32.
+Next: typed-save / TOTP-from-page on Chrome (`docs/fill.md` increment 13). Family-member create is written. Confirm scope is eTLD+1; CVV never reuses. PAN/CVV never MCP, never list JSON. Import is one-shot onto origin (duplicate titles, new ids, SSH+notes). Replica airplane proven 2026-09-14. `fill install` writes `nyc.veil.fill` only — do not run it against production `fill.json`. Do not start Firefox, Safari, or 32.
 
 ## Testing
 
@@ -733,13 +734,14 @@ Next: family-member create (`docs/fill.md` increment 10). `POST /v1/items` is ow
 - [x] OpenAPI is the contract (`docs/openapi/password-manager.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
-- [x] One store. Origin is the source of truth. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host replica is sealed `replica.box`; wrapping key is Keychain (`WhenUnlockedThisDeviceOnly` + UserPresence), not `device.key`. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Owner `POST /v1/items` may send the secret; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
+- [x] One store. Origin is the source of truth. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host replica is sealed `replica.box`; wrapping key is Keychain (`WhenUnlockedThisDeviceOnly` + UserPresence), not `device.key`. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Human `POST /v1/items` may send the secret; owner stamps org, member stamps themselves; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
 - [x] Owner `POST /v1/sessions` mints a short-lived Use lease onto an existing agent. Token once on create. `session create --out-file`. Sandbox gets that file, not the agent JWT. Default 15m, max 1h. Bearer `ses_` maps to the agent. Not MCP. Not list.
 - [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. `prompt=login` so Hydra cannot skip on a remembered session. `amr` must include totp. HTTP remint uses PWM_LOGIN_EMAIL + password/TOTP files. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
 - [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
 - [x] Origin Kratos courier is Resend HTTP (`api.resend.com`) from `noreply@veil.nyc`. Compose stays mailpit. `--watch-courier` on origin. Railway blocks outbound SMTP. Recovery email is a product sender.
-- [x] Human grants are the same grant object. `grant add --human` XOR `--agent`. CreateGrantRequest.human is a Kratos identity id, not email. Org owner fill/list is the vault; a member fills only granted items. Not a family vault. Not collections. Not Keto tuples.
+- [x] Human grants are the same grant object. `grant add --human` XOR `--agent`. CreateGrantRequest.human is a Kratos identity id, not email. Fill/list is owned or granted. Owner lists org items; a member lists items they own plus grants. Not a family vault. Not collections. Not Keto tuples.
+- [x] Family member `POST /v1/items` stamps OwnerUser. Owner stamps org. Import and grant-create stay owner. Agent 403. Generate is not a lie.
 - [x] SPA vault is Cloudflare (`apps/vault`, `app.veil.nyc`). Kumo. Browser PKCE, `prompt=login`, ID token kept only if `amr` contains totp. Origin CORS for that origin. Hydra first-party keeps the laptop callback and adds the SPA. Items, grants, agents, audit via generated SDK. Invite recovery code stays `--code-file`. Settings is Ory Elements. Not Tauri. Not a Reveal.
 
 ## Use what exists. Do not rewrite it.
@@ -770,7 +772,7 @@ None on the enemy. 1Password. Individual / Families / Teams / startup <100, plus
 
 Windows and Linux password-into-an-app fill: no Apple-style API as of 2026-09-10 (passkeys plugin / Secret Service / Auto-Type). The two *jobs* (choose vs execute) are in `docs/fill.md`. Reopen the OS APIs on slices 35 and 36. Do not reopen now.
 
-Import is a one-shot file onto origin after fill is proven (`docs/fill.md`). It is not 1Password Connect, not MCP. Replica sync (encrypted local, origin truth) is the airplane-mode path, not a second product vault. A family member must be able to create a login they own or fill-generate is owner-only.
+Import is a one-shot file onto origin after fill is proven (`docs/fill.md`). It is not 1Password Connect, not MCP. Replica sync (encrypted local, origin truth) is the airplane-mode path, not a second product vault. A family member creates a login they own; generate is not owner-only.
 
 Cards and identities are fill items (`docs/fill.md`): write values into fields. PAN/CVV never on MCP, never child env. We are not a payment processor. We do not click Pay. Agents filling a card field is fill; agents placing an order is spending money and is out. Pay-button auto-submit is never on.
 
