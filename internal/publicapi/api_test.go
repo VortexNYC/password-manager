@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/vortexnyc/password-manager/internal/store"
 )
 
 const secret = "sk_live_API_SECRET"
@@ -30,15 +33,30 @@ func testApp(t *testing.T) *app.App {
 	return a
 }
 
-func identity(tok string) func(context.Context, string) (protocol.Principal, error) {
+func identity(a *app.App) func(context.Context, string) (protocol.Principal, error) {
 	return func(_ context.Context, raw string) (protocol.Principal, error) {
-		switch raw {
-		case "human":
+		switch {
+		case raw == "human":
 			return protocol.Principal{Kind: protocol.PrincipalHuman, ID: "self", OrgID: protocol.LocalOrgID}, nil
-		case "member":
+		case raw == "member":
 			return protocol.Principal{Kind: protocol.PrincipalHuman, ID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", OrgID: protocol.LocalOrgID}, nil
-		case "agent":
-			return protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: protocol.LocalOrgID}, nil
+		case strings.HasPrefix(raw, "agent"):
+			agentID := "claude"
+			if rest := strings.TrimPrefix(raw, "agent"); rest != "" {
+				agentID = strings.TrimPrefix(rest, "-")
+			}
+			if agentID == "" {
+				agentID = "claude"
+			}
+			p, err := a.Store.Agent(agentID)
+			if err == nil {
+				return p, nil
+			}
+			if !errors.Is(err, store.ErrNotFound) {
+				return protocol.Principal{}, err
+			}
+			// Tests that only need an agent principal kind may run without creating that agent.
+			return protocol.Principal{Kind: protocol.PrincipalAgent, ID: agentID, OrgID: protocol.LocalOrgID}, nil
 		default:
 			return protocol.Principal{}, fmt.Errorf("unauthorized")
 		}
@@ -48,7 +66,7 @@ func identity(tok string) func(context.Context, string) (protocol.Principal, err
 func apiServer(t *testing.T, a *app.App) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	(&Server{App: a, Identity: identity("")}).Mount(mux)
+	(&Server{App: a, Identity: identity(a)}).Mount(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -1045,5 +1063,132 @@ func TestFillTOTPEnroll(t *testing.T) {
 	}
 	if minted.TOTP == seed {
 		t.Fatal("mint returned seed")
+	}
+}
+
+func TestRevokeAgentEndpoint(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	defer upstream.Close()
+
+	// Owner creates item, agent, and grant.
+	doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name:   "stripe",
+		URI:    upstream.URL,
+		Secret: secret,
+	})
+	doJSON(t, srv, http.MethodPost, "/v1/agents", "human", CreateAgentRequest{Name: "flue"})
+	doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
+		Agent: "flue",
+		Item:  "stripe",
+		Level: "level2",
+	})
+
+	// Agent Use is allowed before revoke.
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/use", "agent-flue", UseRequest{
+		Item:   "stripe",
+		URL:    upstream.URL,
+		Method: http.MethodGet,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("use before %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte(`"allow"`)) {
+		t.Fatalf("use not allowed: %s", raw)
+	}
+
+	// Member cannot revoke.
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/agents/flue/revoke", "member", nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("member revoke %d", code)
+	}
+
+	// Owner revokes.
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/agents/flue/revoke", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("revoke %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte(`"revoked_at"`)) {
+		t.Fatalf("response missing revoked_at: %s", raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("revoke response leaked secret")
+	}
+
+	// Same agent Use now denies and does not leak the secret.
+	code, raw = doJSON(t, srv, http.MethodPost, "/v1/use", "agent-flue", UseRequest{
+		Item:   "stripe",
+		URL:    upstream.URL,
+		Method: http.MethodGet,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("use after %d %s", code, raw)
+	}
+	if !bytes.Contains(raw, []byte(`"deny"`)) || !bytes.Contains(raw, []byte(`agent_revoked`)) {
+		t.Fatalf("use after not denied: %s", raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("denied use leaked secret")
+	}
+
+	// List is empty for revoked agent.
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/items", "agent-flue", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list %d %s", code, raw)
+	}
+	var items ItemsResponse
+	if err := json.Unmarshal(raw, &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items.Items) != 0 {
+		t.Fatalf("items for revoked agent: %+v", items.Items)
+	}
+
+	// New session mint is denied.
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/sessions", "human", CreateSessionRequest{
+		Agent: "flue",
+		TTL:   "15m",
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("session %d", code)
+	}
+
+	// New grant is denied.
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
+		Agent: "flue",
+		Item:  "stripe",
+		Level: "level2",
+	})
+	if code == http.StatusOK {
+		t.Fatal("grant after revoke succeeded")
+	}
+
+	// Revoke is idempotent.
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/agents/flue/revoke", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("idempotent revoke %d", code)
+	}
+
+	// Unknown agent returns bad request, not a crash.
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/agents/unknown/revoke", "human", nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("unknown agent %d", code)
+	}
+
+	// Audit includes the revoke event and contains no secret or token.
+	code, raw = doJSON(t, srv, http.MethodGet, "/v1/events", "human", nil)
+	if code != http.StatusOK {
+		t.Fatalf("events %d %s", code, raw)
+	}
+	if scrub.Contains(raw, []byte(secret)) {
+		t.Fatal("audit leaked secret")
+	}
+	if !bytes.Contains(raw, []byte(`"revoke"`)) {
+		t.Fatalf("audit missing revoke: %s", raw)
 	}
 }

@@ -731,3 +731,25 @@ func TestUseSpanHasNoSecret(t *testing.T) {
 		t.Fatal("missing use span")
 	}
 }
+
+func TestUseReloadsAgentAndDeniesRevoked(t *testing.T) {
+	b, agent, _, upstream, _ := setup(t, protocol.Level2)
+	mem := b.Store.(*store.Memory)
+	now := time.Now().UTC()
+	if err := mem.RevokeAgent(agent.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	// Pass a stale, non-revoked copy of the principal. Broker should reload and deny.
+	stale := agent
+	got, err := b.Use(context.Background(), stale, protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "agent_revoked" {
+		t.Fatalf("got %+v", got)
+	}
+}

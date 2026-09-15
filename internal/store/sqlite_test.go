@@ -588,3 +588,49 @@ func TestSQLiteSessionHashNotPlaintext(t *testing.T) {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
+
+func TestSQLiteRevokeAgentIsIdempotentAndSurvivesReload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s1, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.PutAgent(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "flue", OrgID: "org"}); err != nil {
+		t.Fatal(err)
+	}
+	first := time.Unix(1700000000, 0).UTC()
+	if err := s1.RevokeAgent("flue", first); err != nil {
+		t.Fatal(err)
+	}
+	s1.Close()
+
+	s2, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	p, err := s2.Agent("flue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.RevokedAt == nil || !p.RevokedAt.Equal(first) {
+		t.Fatalf("revoked_at not preserved: %+v", p.RevokedAt)
+	}
+	later := time.Unix(1800000000, 0).UTC()
+	if err := s2.RevokeAgent("flue", later); err != nil {
+		t.Fatal(err)
+	}
+	p, err = s2.Agent("flue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.RevokedAt == nil || !p.RevokedAt.Equal(first) {
+		t.Fatalf("revoked_at was overwritten to %+v", p.RevokedAt)
+	}
+}

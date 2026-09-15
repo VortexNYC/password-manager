@@ -195,6 +195,70 @@ func TestOriginUnknownHostDenied(t *testing.T) {
 	}
 }
 
+func TestOriginRevokeFailsClosed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("child must not hit upstream after revoke")
+	}))
+	t.Cleanup(upstream.Close)
+
+	dir := t.TempDir()
+	items := []protocol.Item{{
+		ID:   "stripe",
+		Name: "stripe",
+		Kind: protocol.ItemAPIKey,
+		URIs: []string{upstream.URL},
+	}}
+	revoked := false
+	s, err := NewOrigin("cursor", dir, items, func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error) {
+		if !revoked {
+			return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: `ok`}, nil
+		}
+		return OriginResult{Decision: protocol.DecisionDeny, Reason: "agent_revoked"}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(s.CAPEM) {
+		t.Fatal("ca pem")
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy:           http.ProxyURL(s.ProxyURL()),
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+		},
+		Timeout: 8 * time.Second,
+	}
+
+	res, err := client.Get(upstream.URL + "/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("before: %d", res.StatusCode)
+	}
+
+	revoked = true
+	res, err = client.Get(upstream.URL + "/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("after: %d", res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "agent_revoked") {
+		t.Fatalf("body: %s", body)
+	}
+}
+
 func TestDummyEnvWellKnownCloudflare(t *testing.T) {
 	env := DummyEnv([]protocol.Item{{
 		Name: "cloudflare",

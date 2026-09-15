@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -79,6 +80,18 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	ctx, span := otel.Tracer("veil").Start(ctx, "use")
 	defer span.End()
 	now := b.now()
+
+	// Second authorization check: the agent may have been revoked between the
+	// initial resolution and this Use. Tests may pass a bare principal with no
+	// store entry; do not fail those. Unknown agents fall through to grant
+	// evaluation, which will deny as no_grant. A real store error fails closed.
+	current, err := b.Store.Agent(agent.ID)
+	if err == nil {
+		agent = current
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return protocol.UseResult{}, err
+	}
+
 	item, err := b.Store.Item(req.ItemID)
 	if err != nil {
 		dec := protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "item_not_found"}
@@ -113,6 +126,19 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		Approval:  appr,
 		Now:       now,
 	})
+
+	// Final authorization check immediately before touching the secret. A
+	// revocation that happened during the grant/approval lookups must still fail
+	// closed. A real store error fails closed; an unknown agent passes through.
+	if current, err := b.Store.Agent(agent.ID); err == nil {
+		agent = current
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return protocol.UseResult{}, err
+	}
+	if agent.RevokedAt != nil {
+		dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "agent_revoked"}
+	}
+
 	event := protocol.AuditEvent{
 		Time:       now,
 		OrgID:      agent.OrgID,

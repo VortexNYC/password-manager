@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/scrub"
@@ -49,5 +50,27 @@ func TestMissingGrantIsNilNotError(t *testing.T) {
 	}
 	if g != nil {
 		t.Fatalf("got %+v", g)
+	}
+}
+
+func TestMemoryRevokeAgentSurvivesReAdd(t *testing.T) {
+	m := NewMemory()
+	p := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "flue", OrgID: "org"}
+	if err := m.PutAgent(p); err != nil {
+		t.Fatal(err)
+	}
+	first := time.Now()
+	if err := m.RevokeAgent("flue", first); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.PutAgent(p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Agent("flue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RevokedAt == nil || !got.RevokedAt.Equal(first) {
+		t.Fatalf("revoked_at not preserved: %+v", got.RevokedAt)
 	}
 }

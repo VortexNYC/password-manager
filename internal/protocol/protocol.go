@@ -74,8 +74,9 @@ func (k ItemKind) Fillable() bool {
 type ActionKind string
 
 const (
-	ActionFetch ActionKind = "fetch"
-	ActionEnv   ActionKind = "env"
+	ActionFetch  ActionKind = "fetch"
+	ActionEnv    ActionKind = "env"
+	ActionRevoke ActionKind = "revoke"
 )
 
 type Decision string
@@ -97,6 +98,9 @@ type Principal struct {
 	OrgID string        `json:"org_id"`
 	// Owner is who may create grants for this agent. Humans leave it empty.
 	Owner Owner `json:"owner,omitempty"`
+	// RevokedAt is set when an agent's grants and sessions are killed.
+	// It is a timestamp, not a secret, and is included in agent lists.
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
 
 type Item struct {

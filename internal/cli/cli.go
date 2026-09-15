@@ -766,6 +766,38 @@ func agentCmd(home *string) *cobra.Command {
 			return encode(cmd, agents)
 		},
 	})
+	var revokeID string
+	revoke := &cobra.Command{
+		Use:   "revoke",
+		Short: "Revoke an agent principal and all its grants/sessions",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.TrimSpace(revokeID)
+			if id == "" {
+				return fmt.Errorf("--id is required")
+			}
+			if originBase() != "" {
+				return originAgentRevoke(cmd, id)
+			}
+			a, err := openApp(*home)
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			actor := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
+			if err := a.RevokeAgent(actor, id); err != nil {
+				return err
+			}
+			agent, err := a.Store.Agent(id)
+			if err != nil {
+				return err
+			}
+			return encode(cmd, agent)
+		},
+	}
+	revoke.Flags().StringVar(&revokeID, "id", "", "agent id to revoke. never argv.")
+	_ = revoke.MarkFlagRequired("id")
+	c.AddCommand(revoke)
 	var issuer, subject, audience string
 	bind := &cobra.Command{
 		Use:   "bind NAME",

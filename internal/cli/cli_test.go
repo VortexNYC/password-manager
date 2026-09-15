@@ -1859,3 +1859,90 @@ func mustMaster(t *testing.T, dir string) []byte {
 	}
 	return master
 }
+
+func TestCLIAgentRevokeKillsUse(t *testing.T) {
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+	secFile := filepath.Join(home, "sec")
+	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "item", "add", "stripe", "--uri", upstream.URL, "--secret-file", secFile); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "grant", "add", "--agent", "claude", "--item", "stripe", "--level", "level2"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, home, "", "use", "--agent", "claude", "--item", "stripe", "--url", upstream.URL+"/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before useDTO
+	if err := json.Unmarshal([]byte(out), &before); err != nil {
+		t.Fatal(err)
+	}
+	if before.Decision != protocol.DecisionAllow {
+		t.Fatalf("before: %+v", before)
+	}
+
+	out, err = run(t, home, "", "agent", "revoke", "--id", "claude")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !strings.Contains(out, "revoked_at") {
+		t.Fatalf("revoke: %s", out)
+	}
+
+	out, err = run(t, home, "", "use", "--agent", "claude", "--item", "stripe", "--url", upstream.URL+"/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after useDTO
+	if err := json.Unmarshal([]byte(out), &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.Decision != protocol.DecisionDeny || after.Reason != "agent_revoked" {
+		t.Fatalf("after: %+v", after)
+	}
+}
+
+func TestCLIOriginAgentRevoke(t *testing.T) {
+	var sawRevoke bool
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/agents/flue/revoke" {
+			sawRevoke = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"flue","org_id":"org","revoked_at":"2026-09-10T00:00:00Z"}`)
+			return
+		}
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	t.Cleanup(origin.Close)
+	t.Setenv("PWM_ORIGIN", origin.URL)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	home := t.TempDir()
+	out, err := run(t, home, "", "agent", "revoke", "--id", "flue")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !sawRevoke {
+		t.Fatal("did not hit origin POST /v1/agents/flue/revoke")
+	}
+	if !strings.Contains(out, "revoked_at") {
+		t.Fatalf("cli: %s", out)
+	}
+}

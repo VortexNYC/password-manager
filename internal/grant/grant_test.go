@@ -164,6 +164,16 @@ func TestNoGrantDenied(t *testing.T) {
 	}
 }
 
+func TestRevokedAgentDenied(t *testing.T) {
+	in := fixture(protocol.Level2)
+	revoked := in.Now.Add(-time.Second)
+	in.Principal.RevokedAt = &revoked
+	got := Evaluate(in)
+	if got.Decision != protocol.DecisionDeny || got.Reason != "agent_revoked" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestHTTPSDefaultPortMatchesBareHost(t *testing.T) {
 	in := fixture(protocol.Level2)
 	in.Item.URIs = []string{"https://api.stripe.com"}

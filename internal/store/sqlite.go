@@ -123,6 +123,7 @@ func (s *SQLite) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN has_totp INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE agents ADD COLUMN owner_kind TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE agents ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE agents ADD COLUMN revoked_at TEXT`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN has_file INTEGER NOT NULL DEFAULT 0`)
@@ -179,18 +180,37 @@ func (s *SQLite) dropItemsNameUnique() error {
 
 func (s *SQLite) Close() error { return s.db.Close() }
 
+func revokedAtString(t *time.Time) sql.NullString {
+	if t == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: t.UTC().Format(time.RFC3339), Valid: true}
+}
+
+func parseRevokedAt(s sql.NullString) (*time.Time, error) {
+	if !s.Valid || s.String == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, s.String)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 func (s *SQLite) PutAgent(p protocol.Principal) error {
-	_, err := s.db.Exec(`INSERT INTO agents(id, org_id, owner_kind, owner_id) VALUES(?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET org_id=excluded.org_id, owner_kind=excluded.owner_kind, owner_id=excluded.owner_id`,
-		p.ID, p.OrgID, p.Owner.Kind, p.Owner.ID)
+	rv := revokedAtString(p.RevokedAt)
+	_, err := s.db.Exec(`INSERT INTO agents(id, org_id, owner_kind, owner_id, revoked_at) VALUES(?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET org_id=excluded.org_id, owner_kind=excluded.owner_kind, owner_id=excluded.owner_id, revoked_at=COALESCE(agents.revoked_at, excluded.revoked_at)`,
+		p.ID, p.OrgID, p.Owner.Kind, p.Owner.ID, rv)
 	return err
 }
 
 func (s *SQLite) Agent(id string) (protocol.Principal, error) {
 	var p protocol.Principal
 	p.Kind = protocol.PrincipalAgent
-	var ownerKind, ownerID sql.NullString
-	err := s.db.QueryRow(`SELECT id, org_id, owner_kind, owner_id FROM agents WHERE id=?`, id).Scan(&p.ID, &p.OrgID, &ownerKind, &ownerID)
+	var ownerKind, ownerID, revokedAt sql.NullString
+	err := s.db.QueryRow(`SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents WHERE id=?`, id).Scan(&p.ID, &p.OrgID, &ownerKind, &ownerID, &revokedAt)
 	if err == sql.ErrNoRows {
 		return protocol.Principal{}, ErrNotFound
 	}
@@ -199,11 +219,16 @@ func (s *SQLite) Agent(id string) (protocol.Principal, error) {
 	}
 	p.Owner.Kind = protocol.OwnerKind(ownerKind.String)
 	p.Owner.ID = ownerID.String
+	rv, err := parseRevokedAt(revokedAt)
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	p.RevokedAt = rv
 	return p, nil
 }
 
 func (s *SQLite) ListAgents() ([]protocol.Principal, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, owner_kind, owner_id FROM agents ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -212,15 +237,67 @@ func (s *SQLite) ListAgents() ([]protocol.Principal, error) {
 	for rows.Next() {
 		var p protocol.Principal
 		p.Kind = protocol.PrincipalAgent
-		var ownerKind, ownerID sql.NullString
-		if err := rows.Scan(&p.ID, &p.OrgID, &ownerKind, &ownerID); err != nil {
+		var ownerKind, ownerID, revokedAt sql.NullString
+		if err := rows.Scan(&p.ID, &p.OrgID, &ownerKind, &ownerID, &revokedAt); err != nil {
 			return nil, err
 		}
 		p.Owner.Kind = protocol.OwnerKind(ownerKind.String)
 		p.Owner.ID = ownerID.String
+		rv, err := parseRevokedAt(revokedAt)
+		if err != nil {
+			return nil, err
+		}
+		p.RevokedAt = rv
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLite) RevokeAgent(id string, at time.Time, audit ...protocol.AuditEvent) error {
+	if len(audit) == 0 {
+		rv := at.UTC().Format(time.RFC3339)
+		res, err := s.db.Exec(`UPDATE agents SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, rv, id)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rv := at.UTC().Format(time.RFC3339)
+	res, err := tx.Exec(`UPDATE agents SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, rv, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+
+	for _, e := range audit {
+		if _, err := tx.Exec(`INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
+			VALUES(?,?,?,?,?,?,?,?)`,
+			e.Time.UTC().Format(time.RFC3339Nano), e.OrgID, e.AgentID, e.ItemID, e.Action, e.Decision, e.Reason, e.ApprovalID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (s *SQLite) PutHuman(p protocol.Principal) error {

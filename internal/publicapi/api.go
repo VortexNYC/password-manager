@@ -215,6 +215,7 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/grants", s.createGrant)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
 	mux.HandleFunc("POST /v1/agents", s.createAgent)
+	mux.HandleFunc("POST /v1/agents/{name}/revoke", s.revokeAgent)
 	mux.HandleFunc("GET /v1/sessions", s.listSessions)
 	mux.HandleFunc("POST /v1/sessions", s.createSession)
 	mux.HandleFunc("POST /v1/use", s.useItem)
@@ -451,6 +452,32 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, p)
+}
+
+func (s *Server) revokeAgent(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.requireOwner(w, r)
+	if !ok {
+		return
+	}
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.App.RevokeAgent(p, name); err != nil {
+		if errors.Is(err, app.ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, "revoke failed", http.StatusBadRequest)
+		return
+	}
+	agent, err := s.App.Store.Agent(name)
+	if err != nil {
+		http.Error(w, "revoke failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, agent)
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {

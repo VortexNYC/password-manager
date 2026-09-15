@@ -17,7 +17,8 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from vortex_pwm.models.owner import Owner
 from typing import Optional, Set
@@ -32,7 +33,8 @@ class Agent(BaseModel):
     id: StrictStr
     org_id: StrictStr
     owner: Optional[Owner] = None
-    __properties: ClassVar[List[str]] = ["kind", "id", "org_id", "owner"]
+    revoked_at: Optional[datetime] = Field(default=None, description="Set when the agent is revoked. Record stays for audit.")
+    __properties: ClassVar[List[str]] = ["kind", "id", "org_id", "owner", "revoked_at"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -91,7 +93,8 @@ class Agent(BaseModel):
             "kind": obj.get("kind"),
             "id": obj.get("id"),
             "org_id": obj.get("org_id"),
-            "owner": Owner.from_dict(obj["owner"]) if obj.get("owner") is not None else None
+            "owner": Owner.from_dict(obj["owner"]) if obj.get("owner") is not None else None,
+            "revoked_at": obj.get("revoked_at")
         })
         return _obj
 

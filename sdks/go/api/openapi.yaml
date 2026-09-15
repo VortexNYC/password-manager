@@ -287,6 +287,34 @@ paths:
       summary: Register an agent principal. Not a Hydra secret. Not MCP.
       tags:
       - Owner
+  /v1/agents/{name}/revoke:
+    post:
+      operationId: revokeAgent
+      parameters:
+      - explode: false
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+          description: Revoked agent. No token or secret.
+        "400":
+          description: bad request
+        "401":
+          description: missing or invalid Bearer
+        "403":
+          description: not owner
+      summary: "Revoke an agent. Idempotent. Kills grants, sessions, and in-flight\
+        \ Use. Record stays for audit."
+      tags:
+      - Owner
   /v1/sessions:
     get:
       operationId: listSessions
@@ -812,6 +840,7 @@ components:
         owner:
           kind: kind
           id: id
+        revoked_at: 2000-01-23T04:56:07.000+00:00
       properties:
         kind:
           type: string
@@ -821,6 +850,10 @@ components:
           type: string
         owner:
           $ref: "#/components/schemas/Owner"
+        revoked_at:
+          description: Set when the agent is revoked. Record stays for audit.
+          format: date-time
+          type: string
       required:
       - id
       - kind
@@ -835,12 +868,14 @@ components:
           owner:
             kind: kind
             id: id
+          revoked_at: 2000-01-23T04:56:07.000+00:00
         - kind: kind
           id: id
           org_id: org_id
           owner:
             kind: kind
             id: id
+          revoked_at: 2000-01-23T04:56:07.000+00:00
       properties:
         agents:
           items:

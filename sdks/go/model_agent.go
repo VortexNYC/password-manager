@@ -12,6 +12,7 @@ package vortexpwm
 
 import (
 	"encoding/json"
+	"time"
 	"bytes"
 	"fmt"
 )
@@ -25,6 +26,8 @@ type Agent struct {
 	Id string `json:"id"`
 	OrgId string `json:"org_id"`
 	Owner *Owner `json:"owner,omitempty"`
+	// Set when the agent is revoked. Record stays for audit.
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
 
 type _Agent Agent
@@ -153,6 +156,38 @@ func (o *Agent) SetOwner(v Owner) {
 	o.Owner = &v
 }
 
+// GetRevokedAt returns the RevokedAt field value if set, zero value otherwise.
+func (o *Agent) GetRevokedAt() time.Time {
+	if o == nil || IsNil(o.RevokedAt) {
+		var ret time.Time
+		return ret
+	}
+	return *o.RevokedAt
+}
+
+// GetRevokedAtOk returns a tuple with the RevokedAt field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Agent) GetRevokedAtOk() (*time.Time, bool) {
+	if o == nil || IsNil(o.RevokedAt) {
+		return nil, false
+	}
+	return o.RevokedAt, true
+}
+
+// HasRevokedAt returns a boolean if a field has been set.
+func (o *Agent) HasRevokedAt() bool {
+	if o != nil && !IsNil(o.RevokedAt) {
+		return true
+	}
+
+	return false
+}
+
+// SetRevokedAt gets a reference to the given time.Time and assigns it to the RevokedAt field.
+func (o *Agent) SetRevokedAt(v time.Time) {
+	o.RevokedAt = &v
+}
+
 func (o Agent) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -168,6 +203,9 @@ func (o Agent) ToMap() (map[string]interface{}, error) {
 	toSerialize["org_id"] = o.OrgId
 	if !IsNil(o.Owner) {
 		toSerialize["owner"] = o.Owner
+	}
+	if !IsNil(o.RevokedAt) {
+		toSerialize["revoked_at"] = o.RevokedAt
 	}
 	return toSerialize, nil
 }

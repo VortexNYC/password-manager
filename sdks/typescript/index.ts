@@ -16,6 +16,7 @@ export {
   listItems,
   listSessions,
   type Options,
+  revokeAgent,
   updateItem,
   useItem,
 } from "./sdk.gen";
@@ -90,6 +91,10 @@ export type {
   ListSessionsResponse,
   ListSessionsResponses,
   Owner,
+  RevokeAgentData,
+  RevokeAgentErrors,
+  RevokeAgentResponse,
+  RevokeAgentResponses,
   Session,
   SessionsResponse,
   UpdateItemData,

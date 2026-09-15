@@ -45,6 +45,9 @@ func (m *Memory) Close() error { return nil }
 func (m *Memory) PutAgent(p protocol.Principal) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if existing, ok := m.agents[p.ID]; ok && p.RevokedAt == nil {
+		p.RevokedAt = existing.RevokedAt
+	}
 	m.agents[p.ID] = p
 	return nil
 }
@@ -67,6 +70,22 @@ func (m *Memory) Agent(id string) (protocol.Principal, error) {
 		return protocol.Principal{}, ErrNotFound
 	}
 	return p, nil
+}
+
+func (m *Memory) RevokeAgent(id string, at time.Time, audit ...protocol.AuditEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.agents[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if p.RevokedAt == nil {
+		t := at.UTC()
+		p.RevokedAt = &t
+		m.agents[id] = p
+	}
+	m.audit = append(m.audit, audit...)
+	return nil
 }
 
 func (m *Memory) PutHuman(p protocol.Principal) error {
