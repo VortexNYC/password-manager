@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,8 +59,7 @@ func (s *SQLite) migrate() error {
 			owner_id TEXT NOT NULL,
 			uris TEXT NOT NULL,
 			secret BLOB NOT NULL,
-			has_totp INTEGER NOT NULL DEFAULT 0,
-			UNIQUE(org_id, name)
+			has_totp INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS grants (
 			id TEXT PRIMARY KEY,
@@ -119,7 +119,54 @@ func (s *SQLite) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN has_file INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN login TEXT NOT NULL DEFAULT ''`)
+	if err := s.dropItemsNameUnique(); err != nil {
+		return err
+	}
 	return s.rewrapLegacy()
+}
+
+func (s *SQLite) dropItemsNameUnique() error {
+	var schema string
+	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='items'`).Scan(&schema); err != nil {
+		return err
+	}
+	compact := strings.ReplaceAll(schema, " ", "")
+	if !strings.Contains(compact, "UNIQUE(org_id,name)") {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`CREATE TABLE items_noidx (
+			id TEXT PRIMARY KEY,
+			org_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			owner_kind TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			uris TEXT NOT NULL,
+			secret BLOB NOT NULL,
+			has_totp INTEGER NOT NULL DEFAULT 0,
+			tags TEXT NOT NULL DEFAULT '[]',
+			archived INTEGER NOT NULL DEFAULT 0,
+			has_file INTEGER NOT NULL DEFAULT 0,
+			login TEXT NOT NULL DEFAULT ''
+		)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO items_noidx(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+		SELECT id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login FROM items`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE items`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE items_noidx RENAME TO items`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLite) Close() error { return s.db.Close() }

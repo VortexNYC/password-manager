@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/vortexnyc/password-manager/internal/material"
@@ -60,7 +61,7 @@ func TestImportItemsDuplicateNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Count != 3 || got.Names[0] != "Microsoft" || got.Names[1] != "Microsoft (2)" || got.Names[2] != "Microsoft (3)" {
+	if got.Count != 3 || got.Names[0] != "Microsoft" || got.Names[1] != "Microsoft" || got.Names[2] != "Microsoft" {
 		t.Fatalf("%+v", got)
 	}
 	items, err := a.Store.ListItems()
@@ -69,6 +70,85 @@ func TestImportItemsDuplicateNames(t *testing.T) {
 	}
 	if len(items) != 3 {
 		t.Fatalf("n=%d", len(items))
+	}
+	ids := map[string]struct{}{}
+	for _, it := range items {
+		if it.Name != "Microsoft" || it.ID == "" || it.ID == "microsoft" {
+			t.Fatalf("%+v", it)
+		}
+		ids[it.ID] = struct{}{}
+	}
+	if len(ids) != 3 {
+		t.Fatalf("ids %d", len(ids))
+	}
+}
+
+func TestImportItemsDoesNotClobberExistingID(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	const planted = "planted-github-secret"
+	if _, err := a.PutItem(ItemOpts{Name: "github", Token: []byte(planted)}); err != nil {
+		t.Fatal(err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: "self", OrgID: protocol.LocalOrgID}
+	if _, err := a.ImportItems(human, []oneimport.Row{{Name: "github", Token: []byte("imported-github-secret")}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.Store.Secret("github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != planted {
+		t.Fatal("import reused github id")
+	}
+	items, err := a.Store.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("n=%d", len(items))
+	}
+}
+
+func TestImportItemsSSHAndNoteNoPEMInList(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	const pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----"
+	const note = "ssn-must-not-list"
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: "self", OrgID: protocol.LocalOrgID}
+	got, err := a.ImportItems(human, []oneimport.Row{
+		{Name: "laptop", Kind: protocol.ItemSSH, Token: []byte(pem)},
+		{Name: "memo", Kind: protocol.ItemFile, File: []byte(note), FileName: "memo.txt", MIME: "text/plain"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Count != 2 {
+		t.Fatalf("%+v", got)
+	}
+	items, err := a.Store.ListItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scrub.Contains(raw, []byte(pem)) || scrub.Contains(raw, []byte(note)) {
+		t.Fatal("list leaked ssh or note")
+	}
+	kinds := map[protocol.ItemKind]int{}
+	for _, it := range items {
+		kinds[it.Kind]++
+	}
+	if kinds[protocol.ItemSSH] != 1 || kinds[protocol.ItemFile] != 1 {
+		t.Fatalf("%v", kinds)
 	}
 }
 

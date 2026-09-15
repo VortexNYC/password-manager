@@ -3,6 +3,7 @@ package oneimport
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/vortexnyc/password-manager/internal/material"
@@ -201,6 +202,38 @@ func TestParse1PUXIdentityNestedAddress(t *testing.T) {
 	ident := material.Unpack(rows[0].Token)
 	if ident.Address != "1 Street" || ident.City != "London" || ident.Postal != "E1" || ident.Country != "UK" {
 		t.Fatalf("identity %+v", ident)
+	}
+}
+
+func TestParse1PUXSSHAndNote(t *testing.T) {
+	const pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----"
+	const note = "ssn-not-a-password"
+	data := fmt.Sprintf(`{
+  "accounts": [{"vaults": [{"items": [
+    {
+      "categoryUuid": "114",
+      "overview": {"title": "laptop"},
+      "details": {"sections": [{"fields": [{"id": "private_key", "value": %q}]}]}
+    },
+    {
+      "categoryUuid": "003",
+      "overview": {"title": "memo"},
+      "details": {"notesPlain": %q}
+    }
+  ]}]}]
+}`, pem, note)
+	rows, err := Parse("export.1pux", zipBytes(t, "export.data", []byte(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("n=%d", len(rows))
+	}
+	if rows[0].Kind != protocol.ItemSSH || string(rows[0].Token) != pem {
+		t.Fatalf("ssh %+v", rows[0])
+	}
+	if rows[1].Kind != protocol.ItemFile || string(rows[1].File) != note || rows[1].MIME != "text/plain" {
+		t.Fatalf("note %+v", rows[1])
 	}
 }
 
