@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      railway:
-        specifier: ^3.11.0
-        version: 3.11.0
     devDependencies:
       '@hey-api/client-fetch':
         specifier: ^0.13.1
@@ -21,6 +17,9 @@ importers:
       '@openapitools/openapi-generator-cli':
         specifier: ^2.35.0
         version: 2.41.0
+      railway:
+        specifier: ^3.11.0
+        version: 3.11.0
       tsx:
         specifier: ^4.21.0
         version: 4.23.13
