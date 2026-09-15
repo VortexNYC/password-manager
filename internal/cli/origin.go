@@ -274,7 +274,7 @@ func originItemList(cmd *cobra.Command) error {
 }
 
 func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind protocol.ItemKind, token, totpSeed []byte, login string) error {
-	tok, err := originHumanTokenLive(cmd.Context())
+	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -303,7 +303,7 @@ func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind pro
 }
 
 func originItemImport(cmd *cobra.Command, path string) error {
-	tok, err := originHumanTokenLive(cmd.Context())
+	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -350,7 +350,7 @@ func originDoFile(ctx context.Context, path, token string, body []byte) ([]byte,
 }
 
 func originItemUpdate(cmd *cobra.Command, name string, addURIs, tags []string, login string) error {
-	tok, err := originHumanTokenLive(cmd.Context())
+	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -382,7 +382,7 @@ func originItemUpdate(cmd *cobra.Command, name string, addURIs, tags []string, l
 }
 
 func originItemArchive(cmd *cobra.Command, name string) error {
-	tok, err := originHumanTokenLive(cmd.Context())
+	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -398,7 +398,7 @@ func originItemArchive(cmd *cobra.Command, name string) error {
 }
 
 func originItemDelete(cmd *cobra.Command, name string) error {
-	tok, err := originHumanTokenLive(cmd.Context())
+	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -414,7 +414,7 @@ func originItemDelete(cmd *cobra.Command, name string) error {
 }
 
 func originGrantAdd(cmd *cobra.Command, grantee, item, level string, expires time.Duration, asHuman bool) error {
-	tok, err := originHumanTokenLive(cmd.Context())
+	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -443,7 +443,7 @@ func originGrantAdd(cmd *cobra.Command, grantee, item, level string, expires tim
 }
 
 func originGrantList(cmd *cobra.Command) error {
-	tok, err := originHumanTokenLive(cmd.Context())
+	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
