@@ -32,12 +32,15 @@ __all__ = [
     "Agent",
     "AgentsResponse",
     "AuditEvent",
+    "CardFields",
     "CreateAgentRequest",
     "CreateGrantRequest",
     "CreateItemRequest",
     "EventsResponse",
     "Grant",
     "GrantsResponse",
+    "IdentityFields",
+    "ImportResponse",
     "Item",
     "ItemsResponse",
     "Owner",
@@ -65,12 +68,15 @@ from vortex_pwm.exceptions import ApiException as ApiException
 from vortex_pwm.models.agent import Agent as Agent
 from vortex_pwm.models.agents_response import AgentsResponse as AgentsResponse
 from vortex_pwm.models.audit_event import AuditEvent as AuditEvent
+from vortex_pwm.models.card_fields import CardFields as CardFields
 from vortex_pwm.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
 from vortex_pwm.models.create_grant_request import CreateGrantRequest as CreateGrantRequest
 from vortex_pwm.models.create_item_request import CreateItemRequest as CreateItemRequest
 from vortex_pwm.models.events_response import EventsResponse as EventsResponse
 from vortex_pwm.models.grant import Grant as Grant
 from vortex_pwm.models.grants_response import GrantsResponse as GrantsResponse
+from vortex_pwm.models.identity_fields import IdentityFields as IdentityFields
+from vortex_pwm.models.import_response import ImportResponse as ImportResponse
 from vortex_pwm.models.item import Item as Item
 from vortex_pwm.models.items_response import ItemsResponse as ItemsResponse
 from vortex_pwm.models.owner import Owner as Owner

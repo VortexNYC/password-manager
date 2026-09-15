@@ -130,6 +130,7 @@
     const postal = byAuto(["postal-code"]);
     const country = byAuto(["country", "country-name"]);
     const phone = byAuto(["tel", "tel-national"]);
+    const email = byAuto(["email"]);
     return {
       username: username || null,
       password: current || null,
@@ -149,6 +150,7 @@
       postal: postal || null,
       country: country || null,
       phone: phone || null,
+      email: email || null,
     };
   }
 
@@ -211,6 +213,7 @@
     writeField(fields.postal, entry.postal);
     writeField(fields.country, entry.country);
     writeField(fields.phone, entry.phone);
+    writeField(fields.email, entry.email);
     if (entry.givenName && entry.familyName) {
       writeField(fields.name, entry.givenName + " " + entry.familyName);
     }

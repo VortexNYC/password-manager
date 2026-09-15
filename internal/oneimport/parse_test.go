@@ -1,0 +1,228 @@
+package oneimport
+
+import (
+	"archive/zip"
+	"bytes"
+	"testing"
+
+	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/vortexnyc/password-manager/internal/protocol"
+)
+
+func TestParseCSVChromeLogin(t *testing.T) {
+	raw := []byte("name,url,username,password\nGitHub,https://github.com,ada,s3cret\n")
+	rows, err := Parse("chrome.csv", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Name != "GitHub" || rows[0].Login != "ada" || string(rows[0].Token) != "s3cret" {
+		t.Fatalf("%+v", rows)
+	}
+	if rows[0].Kind != protocol.ItemAPIKey || len(rows[0].URIs) != 1 || rows[0].URIs[0] != "https://github.com" {
+		t.Fatalf("%+v", rows[0])
+	}
+}
+
+func TestParseCSV1PasswordTOTP(t *testing.T) {
+	raw := []byte("Title,Url,Username,Password,OTPAuth\nMail,https://mail.example,ada,pw,otpauth://totp/Mail?secret=JBSWY3DPEHPK3PXP\n")
+	rows, err := Parse("1p.csv", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || string(rows[0].TOTPSeed) != "JBSWY3DPEHPK3PXP" {
+		t.Fatalf("%+v", rows)
+	}
+}
+
+func TestParseCSVSkipsEmptyPassword(t *testing.T) {
+	raw := []byte("name,url,username,password\nGitHub,https://github.com,ada,\n")
+	rows, err := Parse("chrome.csv", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("%+v", rows)
+	}
+}
+
+func TestParseCSVRejectsNoPasswordColumn(t *testing.T) {
+	if _, err := Parse("x.csv", []byte("foo,bar\n1,2\n")); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestParse1PUXLoginCardIdentity(t *testing.T) {
+	const pan = "4111111111111111"
+	const cvv = "123"
+	const pass = "s3cret"
+	data := `{
+  "accounts": [{
+    "vaults": [{
+      "items": [
+        {
+          "categoryUuid": "001",
+          "overview": {"title": "GitHub", "url": "https://github.com", "urls": [{"url": "https://github.com/login"}]},
+          "details": {
+            "loginFields": [
+              {"designation": "username", "value": "ada"},
+              {"designation": "password", "value": "` + pass + `"}
+            ]
+          }
+        },
+        {
+          "categoryUuid": "002",
+          "overview": {"title": "Amex"},
+          "details": {
+            "sections": [{
+              "fields": [
+                {"id": "ccnum", "value": "` + pan + `"},
+                {"id": "cvv", "value": "` + cvv + `"},
+                {"id": "expiry", "value": "12/2030"},
+                {"id": "cardholder", "value": "Ada"}
+              ]
+            }]
+          }
+        },
+        {
+          "categoryUuid": "004",
+          "overview": {"title": "Home"},
+          "details": {
+            "sections": [{
+              "fields": [
+                {"id": "firstname", "value": "Ada"},
+                {"id": "lastname", "value": "Lovelace"},
+                {"id": "address1", "value": "1 Street"},
+                {"id": "defphone", "value": "+44"}
+              ]
+            }]
+          }
+        },
+        {
+          "categoryUuid": "001",
+          "state": "archived",
+          "overview": {"title": "Old"},
+          "details": {"loginFields": [{"designation": "password", "value": "nope"}]}
+        }
+      ]
+    }]
+  }]
+}`
+	raw := zipBytes(t, "export.data", []byte(data))
+	rows, err := Parse("export.1pux", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("n=%d", len(rows))
+	}
+	if rows[0].Name != "GitHub" || rows[0].Login != "ada" || string(rows[0].Token) != pass {
+		t.Fatalf("login %+v", rows[0])
+	}
+	if rows[1].Kind != protocol.ItemCard {
+		t.Fatalf("card kind %s", rows[1].Kind)
+	}
+	card := material.Unpack(rows[1].Token)
+	if card.Number != pan || card.CVV != cvv || card.ExpMonth != "12" || card.GivenName != "Ada" {
+		t.Fatalf("card %+v", card)
+	}
+	if rows[2].Kind != protocol.ItemIdentity {
+		t.Fatalf("identity kind %s", rows[2].Kind)
+	}
+	ident := material.Unpack(rows[2].Token)
+	if ident.GivenName != "Ada" || ident.FamilyName != "Lovelace" || ident.Phone != "+44" {
+		t.Fatalf("identity %+v", ident)
+	}
+}
+
+func TestParseCSVSkipsArchived(t *testing.T) {
+	raw := []byte("Title,Url,Username,Password,OTPAuth,Archived\nOld,https://x,ada,pw,,true\nKeep,https://y,ada,pw,,false\n")
+	rows, err := Parse("1p.csv", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Name != "Keep" {
+		t.Fatalf("%+v", rows)
+	}
+}
+
+func TestParseCSVTOTPOnly(t *testing.T) {
+	raw := []byte("Title,Url,Username,Password,OTPAuth\nGitHub,https://github.com,ada,,otpauth://totp/GitHub?secret=JBSWY3DPEHPK3PXP\n")
+	rows, err := Parse("1p.csv", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Name != "GitHub" || string(rows[0].Token) != "" || string(rows[0].TOTPSeed) != "JBSWY3DPEHPK3PXP" {
+		t.Fatalf("%+v", rows)
+	}
+}
+
+func TestParse1PUXCardExpiryYYYYMM(t *testing.T) {
+	data := `{
+  "accounts": [{"vaults": [{"items": [{
+    "categoryUuid": "002",
+    "overview": {"title": "Amex"},
+    "details": {"sections": [{"fields": [
+      {"id": "ccnum", "value": "4111111111111111"},
+      {"id": "expiry", "value": "203012"}
+    ]}]}
+  }]}]}]
+}`
+	rows, err := Parse("export.1pux", zipBytes(t, "export.data", []byte(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("n=%d", len(rows))
+	}
+	card := material.Unpack(rows[0].Token)
+	if card.ExpMonth != "12" || card.ExpYear != "2030" {
+		t.Fatalf("expiry %+v", card)
+	}
+}
+
+func TestParse1PUXIdentityNestedAddress(t *testing.T) {
+	data := `{
+  "accounts": [{"vaults": [{"items": [{
+    "categoryUuid": "004",
+    "overview": {"title": "Home"},
+    "details": {"sections": [{"fields": [
+      {"id": "firstname", "value": "Ada"},
+      {"id": "address", "value": {"address": {"street": "1 Street", "city": "London", "state": "LDN", "zip": "E1", "country": "UK"}}}
+    ]}]}
+  }]}]}]
+}`
+	rows, err := Parse("export.1pux", zipBytes(t, "export.data", []byte(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("n=%d", len(rows))
+	}
+	ident := material.Unpack(rows[0].Token)
+	if ident.Address != "1 Street" || ident.City != "London" || ident.Postal != "E1" || ident.Country != "UK" {
+		t.Fatalf("identity %+v", ident)
+	}
+}
+
+func TestParseEmptyRejected(t *testing.T) {
+	if _, err := Parse("x.csv", nil); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func zipBytes(t *testing.T, name string, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}

@@ -27,7 +27,9 @@ import (
 	"github.com/vortexnyc/password-manager/internal/fill"
 	"github.com/vortexnyc/password-manager/internal/human"
 	"github.com/vortexnyc/password-manager/internal/id"
+	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/mcpserver"
+	"github.com/vortexnyc/password-manager/internal/oneimport"
 	"github.com/vortexnyc/password-manager/internal/otelsetup"
 	"github.com/vortexnyc/password-manager/internal/passgen"
 	"github.com/vortexnyc/password-manager/internal/protocol"
@@ -427,6 +429,7 @@ type inviteDTO struct {
 func itemCmd(home *string) *cobra.Command {
 	c := &cobra.Command{Use: "item", Short: "Items (metadata only on list)"}
 	var uri, secretFile, totpFile, refreshFile, clientSecretFile, tokenURL, clientID, sshFile, attachFile, mime, login string
+	var numberFile, cvvFile, expMonth, expYear, holder string
 	var updateURIs []string
 	var tags []string
 	add := &cobra.Command{
@@ -468,6 +471,23 @@ func itemCmd(home *string) *cobra.Command {
 						return err
 					}
 				}
+			} else if numberFile != "" {
+				num, err := readFileMaterial(numberFile)
+				if err != nil {
+					return err
+				}
+				var cvv []byte
+				if cvvFile != "" {
+					cvv, err = readFileMaterial(cvvFile)
+					if err != nil {
+						return err
+					}
+				}
+				token, err = material.PackCard(string(num), expMonth, expYear, string(cvv), holder)
+				if err != nil {
+					return err
+				}
+				kind = protocol.ItemCard
 			} else {
 				token, totpSeed, err = readItemMaterial(secretFile, totpFile, cmd.InOrStdin())
 				if err != nil {
@@ -525,6 +545,39 @@ func itemCmd(home *string) *cobra.Command {
 	add.Flags().StringVar(&clientID, "client-id", "", "OAuth client id")
 	add.Flags().StringVar(&attachFile, "file", "", "seal a document. never argv. not MCP.")
 	add.Flags().StringVar(&mime, "mime", "", "optional content type for --file")
+	add.Flags().StringVar(&numberFile, "number-file", "", "card PAN file. never argv. kind becomes card.")
+	add.Flags().StringVar(&cvvFile, "cvv-file", "", "card CVV file. never argv.")
+	add.Flags().StringVar(&expMonth, "exp-month", "", "card expiry month")
+	add.Flags().StringVar(&expYear, "exp-year", "", "card expiry year")
+	add.Flags().StringVar(&holder, "holder", "", "card holder name")
+	imp := &cobra.Command{
+		Use:   "import FILE",
+		Short: "One-shot 1Password .1pux or CSV onto this vault or origin. Not MCP.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if originBase() != "" {
+				return originItemImport(cmd, args[0])
+			}
+			raw, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
+			rows, err := oneimport.Parse(filepath.Base(args[0]), raw)
+			if err != nil {
+				return err
+			}
+			a, err := openApp(*home)
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			got, err := a.ImportItems(protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}, rows)
+			if err != nil {
+				return err
+			}
+			return encode(cmd, got)
+		},
+	}
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List items (no secrets)",
@@ -669,7 +722,7 @@ func itemCmd(home *string) *cobra.Command {
 	}
 	write.Flags().StringVar(&outFile, "out-file", "", "destination path. never stdout.")
 	_ = write.MarkFlagRequired("out-file")
-	c.AddCommand(add, list, update, archive, del, versions, restore, write)
+	c.AddCommand(add, imp, list, update, archive, del, versions, restore, write)
 	return c
 }
 

@@ -32,6 +32,8 @@ type CreateItemRequest struct {
 	TotpSeed *string `json:"totp_seed,omitempty"`
 	// Fill username. Metadata on the item. Also sealed in the envelope. Not a secret.
 	Login *string `json:"login,omitempty"`
+	Card *CardFields `json:"card,omitempty"`
+	Identity *IdentityFields `json:"identity,omitempty"`
 }
 
 type _CreateItemRequest CreateItemRequest
@@ -302,6 +304,70 @@ func (o *CreateItemRequest) SetLogin(v string) {
 	o.Login = &v
 }
 
+// GetCard returns the Card field value if set, zero value otherwise.
+func (o *CreateItemRequest) GetCard() CardFields {
+	if o == nil || IsNil(o.Card) {
+		var ret CardFields
+		return ret
+	}
+	return *o.Card
+}
+
+// GetCardOk returns a tuple with the Card field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CreateItemRequest) GetCardOk() (*CardFields, bool) {
+	if o == nil || IsNil(o.Card) {
+		return nil, false
+	}
+	return o.Card, true
+}
+
+// HasCard returns a boolean if a field has been set.
+func (o *CreateItemRequest) HasCard() bool {
+	if o != nil && !IsNil(o.Card) {
+		return true
+	}
+
+	return false
+}
+
+// SetCard gets a reference to the given CardFields and assigns it to the Card field.
+func (o *CreateItemRequest) SetCard(v CardFields) {
+	o.Card = &v
+}
+
+// GetIdentity returns the Identity field value if set, zero value otherwise.
+func (o *CreateItemRequest) GetIdentity() IdentityFields {
+	if o == nil || IsNil(o.Identity) {
+		var ret IdentityFields
+		return ret
+	}
+	return *o.Identity
+}
+
+// GetIdentityOk returns a tuple with the Identity field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CreateItemRequest) GetIdentityOk() (*IdentityFields, bool) {
+	if o == nil || IsNil(o.Identity) {
+		return nil, false
+	}
+	return o.Identity, true
+}
+
+// HasIdentity returns a boolean if a field has been set.
+func (o *CreateItemRequest) HasIdentity() bool {
+	if o != nil && !IsNil(o.Identity) {
+		return true
+	}
+
+	return false
+}
+
+// SetIdentity gets a reference to the given IdentityFields and assigns it to the Identity field.
+func (o *CreateItemRequest) SetIdentity(v IdentityFields) {
+	o.Identity = &v
+}
+
 func (o CreateItemRequest) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -333,6 +399,12 @@ func (o CreateItemRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Login) {
 		toSerialize["login"] = o.Login
+	}
+	if !IsNil(o.Card) {
+		toSerialize["card"] = o.Card
+	}
+	if !IsNil(o.Identity) {
+		toSerialize["identity"] = o.Identity
 	}
 	return toSerialize, nil
 }

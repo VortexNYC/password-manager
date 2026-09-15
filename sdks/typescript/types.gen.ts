@@ -8,7 +8,7 @@ export type Item = {
     id: string;
     org_id: string;
     name: string;
-    kind: 'api_key' | 'oauth' | 'ssh' | 'file';
+    kind: 'api_key' | 'oauth' | 'ssh' | 'file' | 'passkey' | 'card' | 'identity';
     owner: Owner;
     uris: Array<string>;
     tags?: Array<string>;
@@ -83,7 +83,7 @@ export type CreateItemRequest = {
     uri?: string;
     uris?: Array<string>;
     tags?: Array<string>;
-    kind?: 'api_key' | 'oauth' | 'ssh' | 'file';
+    kind?: 'api_key' | 'oauth' | 'ssh' | 'file' | 'passkey' | 'card' | 'identity';
     /**
      * Vault material. Request only. Never returned.
      */
@@ -96,6 +96,8 @@ export type CreateItemRequest = {
      * Fill username. Metadata on the item. Also sealed in the envelope. Not a secret.
      */
     login?: string;
+    card?: CardFields;
+    identity?: IdentityFields;
 };
 
 export type UpdateItemRequest = {
@@ -157,6 +159,37 @@ export type AgentsResponse = {
 
 export type CreateAgentRequest = {
     name: string;
+};
+
+/**
+ * Request only. Never returned. Never MCP.
+ */
+export type CardFields = {
+    number?: string;
+    exp_month?: string;
+    exp_year?: string;
+    cvv?: string;
+    holder?: string;
+};
+
+/**
+ * Request only. Never returned. Never MCP.
+ */
+export type IdentityFields = {
+    given_name?: string;
+    family_name?: string;
+    address?: string;
+    city?: string;
+    region?: string;
+    postal?: string;
+    country?: string;
+    phone?: string;
+    email?: string;
+};
+
+export type ImportResponse = {
+    names: Array<string>;
+    count: number;
 };
 
 export type GetHealthData = {
@@ -246,6 +279,42 @@ export type CreateItemResponses = {
 };
 
 export type CreateItemResponse = CreateItemResponses[keyof CreateItemResponses];
+
+export type ImportItemsData = {
+    body: Blob | File;
+    path?: never;
+    query?: {
+        /**
+         * export.1pux or chrome.csv. Sniffed from bytes when empty.
+         */
+        filename?: string;
+    };
+    url: '/v1/import';
+};
+
+export type ImportItemsErrors = {
+    /**
+     * bad request
+     */
+    400: unknown;
+    /**
+     * missing or invalid Bearer
+     */
+    401: unknown;
+    /**
+     * agent cannot import
+     */
+    403: unknown;
+};
+
+export type ImportItemsResponses = {
+    /**
+     * Created item names. No secrets.
+     */
+    200: ImportResponse;
+};
+
+export type ImportItemsResponse = ImportItemsResponses[keyof ImportItemsResponses];
 
 export type DeleteItemData = {
     body?: never;

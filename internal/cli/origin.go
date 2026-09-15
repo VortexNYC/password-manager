@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -272,7 +274,7 @@ func originItemList(cmd *cobra.Command) error {
 }
 
 func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind protocol.ItemKind, token, totpSeed []byte, login string) error {
-	tok, err := originHumanToken()
+	tok, err := originHumanTokenLive(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -300,8 +302,55 @@ func originItemAdd(cmd *cobra.Command, name, uri string, tags []string, kind pro
 	return encode(cmd, item)
 }
 
+func originItemImport(cmd *cobra.Command, path string) error {
+	tok, err := originHumanTokenLive(cmd.Context())
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	q := url.QueryEscape(filepath.Base(path))
+	body, err := originDoFile(cmd.Context(), "/v1/import?filename="+q, tok, raw)
+	if err != nil {
+		return err
+	}
+	var got publicapi.ImportResponse
+	if err := json.Unmarshal(body, &got); err != nil {
+		return err
+	}
+	return encode(cmd, got)
+}
+
+func originDoFile(ctx context.Context, path, token string, body []byte) ([]byte, error) {
+	base := originBase()
+	if base == "" {
+		return nil, fmt.Errorf("origin: PWM_ORIGIN is empty")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return raw, fmt.Errorf("origin POST %s: http %d", path, res.StatusCode)
+	}
+	return raw, nil
+}
+
 func originItemUpdate(cmd *cobra.Command, name string, addURIs, tags []string, login string) error {
-	tok, err := originHumanToken()
+	tok, err := originHumanTokenLive(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -333,7 +382,7 @@ func originItemUpdate(cmd *cobra.Command, name string, addURIs, tags []string, l
 }
 
 func originItemArchive(cmd *cobra.Command, name string) error {
-	tok, err := originHumanToken()
+	tok, err := originHumanTokenLive(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -349,7 +398,7 @@ func originItemArchive(cmd *cobra.Command, name string) error {
 }
 
 func originItemDelete(cmd *cobra.Command, name string) error {
-	tok, err := originHumanToken()
+	tok, err := originHumanTokenLive(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -365,7 +414,7 @@ func originItemDelete(cmd *cobra.Command, name string) error {
 }
 
 func originGrantAdd(cmd *cobra.Command, grantee, item, level string, expires time.Duration, asHuman bool) error {
-	tok, err := originHumanToken()
+	tok, err := originHumanTokenLive(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -394,7 +443,7 @@ func originGrantAdd(cmd *cobra.Command, grantee, item, level string, expires tim
 }
 
 func originGrantList(cmd *cobra.Command) error {
-	tok, err := originHumanToken()
+	tok, err := originHumanTokenLive(cmd.Context())
 	if err != nil {
 		return err
 	}

@@ -17,36 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
-from vortex_pwm.models.owner import Owner
+from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class Item(BaseModel):
+class ImportResponse(BaseModel):
     """
-    Item
+    ImportResponse
     """ # noqa: E501
-    id: StrictStr
-    org_id: StrictStr
-    name: StrictStr
-    kind: StrictStr
-    owner: Owner
-    uris: List[StrictStr]
-    tags: Optional[List[StrictStr]] = None
-    archived: Optional[StrictBool] = None
-    has_totp: Optional[StrictBool] = None
-    has_file: Optional[StrictBool] = None
-    login: Optional[StrictStr] = Field(default=None, description="Fill username. Metadata. Not a secret. Empty if unset.")
-    __properties: ClassVar[List[str]] = ["id", "org_id", "name", "kind", "owner", "uris", "tags", "archived", "has_totp", "has_file", "login"]
-
-    @field_validator('kind')
-    def kind_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['api_key', 'oauth', 'ssh', 'file', 'passkey', 'card', 'identity']):
-            raise ValueError("must be one of enum values ('api_key', 'oauth', 'ssh', 'file', 'passkey', 'card', 'identity')")
-        return value
+    names: List[StrictStr]
+    count: StrictInt
+    __properties: ClassVar[List[str]] = ["names", "count"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -66,7 +49,7 @@ class Item(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of Item from a JSON string"""
+        """Create an instance of ImportResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -87,14 +70,11 @@ class Item(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of owner
-        if self.owner:
-            _dict['owner'] = self.owner.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of Item from a dict"""
+        """Create an instance of ImportResponse from a dict"""
         if obj is None:
             return None
 
@@ -102,17 +82,8 @@ class Item(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "id": obj.get("id"),
-            "org_id": obj.get("org_id"),
-            "name": obj.get("name"),
-            "kind": obj.get("kind"),
-            "owner": Owner.from_dict(obj["owner"]) if obj.get("owner") is not None else None,
-            "uris": obj.get("uris"),
-            "tags": obj.get("tags"),
-            "archived": obj.get("archived"),
-            "has_totp": obj.get("has_totp"),
-            "has_file": obj.get("has_file"),
-            "login": obj.get("login")
+            "names": obj.get("names"),
+            "count": obj.get("count")
         })
         return _obj
 

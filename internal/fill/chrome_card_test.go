@@ -110,7 +110,7 @@ func TestChromeExtensionIdentityFill(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Close() })
 	origin := originAPI(t, a)
-	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "", "", "", "", "+44")
+	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "", "", "", "", "+44", "")
 	if err != nil {
 		t.Fatal(err)
 	}

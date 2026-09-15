@@ -99,7 +99,7 @@ func (h *Host) fillEnvelope(uuid string) (protocol.Item, material.Envelope, bool
 					return item, env, true
 				}
 			case protocol.ItemIdentity:
-				if env.GivenName != "" || env.FamilyName != "" || env.Address != "" || env.Phone != "" {
+				if env.GivenName != "" || env.FamilyName != "" || env.Address != "" || env.Phone != "" || env.Email != "" {
 					return item, env, true
 				}
 			default:

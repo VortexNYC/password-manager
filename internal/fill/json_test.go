@@ -736,7 +736,7 @@ func TestJSONCardMatchFillAndCVVNeverReuses(t *testing.T) {
 }
 
 func TestJSONIdentityFill(t *testing.T) {
-	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "London", "", "SW1", "GB", "+44")
+	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "London", "", "SW1", "GB", "+44", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,7 +768,7 @@ func TestJSONIdentityFill(t *testing.T) {
 }
 
 func TestReplicaFillRejectsIdentityKind(t *testing.T) {
-	blob, err := material.PackIdentity("", "Lovelace", "", "", "", "", "", "+44")
+	blob, err := material.PackIdentity("", "Lovelace", "", "", "", "", "", "+44", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -922,7 +922,7 @@ func TestJSONIdentityFillFromOriginWithoutReplica(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
-	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "London", "", "SW1", "GB", "+44")
+	blob, err := material.PackIdentity("Ada", "Lovelace", "1 Street", "London", "", "SW1", "GB", "+44", "")
 	if err != nil {
 		t.Fatal(err)
 	}

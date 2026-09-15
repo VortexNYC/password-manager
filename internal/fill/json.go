@@ -42,6 +42,7 @@ type jsonFillEntry struct {
 	Postal     string `json:"postal,omitempty"`
 	Country    string `json:"country,omitempty"`
 	Phone      string `json:"phone,omitempty"`
+	Email      string `json:"email,omitempty"`
 }
 
 func (h *Host) handleJSON(raw []byte) []byte {
@@ -220,6 +221,7 @@ func (h *Host) jsonFill(rawURL, uuid string) []jsonFillEntry {
 			Postal:     env.Postal,
 			Country:    env.Country,
 			Phone:      env.Phone,
+			Email:      env.Email,
 		}}
 	default:
 		return empty
