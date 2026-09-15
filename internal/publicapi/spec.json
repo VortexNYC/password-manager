@@ -279,6 +279,51 @@
         }
       }
     },
+    "/v1/sessions": {
+      "get": {
+        "operationId": "listSessions",
+        "tags": ["Owner"],
+        "summary": "Active sandbox sessions. Metadata only. Never the token. Not MCP.",
+        "responses": {
+          "200": {
+            "description": "Sessions",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SessionsResponse" }
+              }
+            }
+          },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "not owner" }
+        }
+      },
+      "post": {
+        "operationId": "createSession",
+        "tags": ["Owner"],
+        "summary": "Mint a short-lived Use lease onto an existing agent. Token is in this response once. Sandbox gets the session file, not the agent JWT. Default 15m, max 1h. Not MCP.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateSessionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session plus token once.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CreateSessionResponse" }
+              }
+            }
+          },
+          "400": { "description": "bad request" },
+          "401": { "description": "missing or invalid Bearer" },
+          "403": { "description": "not owner" }
+        }
+      }
+    },
     "/v1/use": {
       "post": {
         "operationId": "useItem",
@@ -518,6 +563,51 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string" }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "org_id", "agent_id", "expires_at"],
+        "description": "Sandbox Use lease metadata. Never the token.",
+        "properties": {
+          "id": { "type": "string" },
+          "org_id": { "type": "string" },
+          "agent_id": { "type": "string" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SessionsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sessions"],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Session" }
+          }
+        }
+      },
+      "CreateSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent"],
+        "properties": {
+          "agent": { "type": "string" },
+          "ttl": { "type": "string", "description": "Go duration. Default 15m. Max 1h." }
+        }
+      },
+      "CreateSessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "org_id", "agent_id", "expires_at", "token"],
+        "description": "Token is create-only. Never list. Never MCP.",
+        "properties": {
+          "id": { "type": "string" },
+          "org_id": { "type": "string" },
+          "agent_id": { "type": "string" },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "token": { "type": "string" }
         }
       },
       "CardFields": {

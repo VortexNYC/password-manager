@@ -2,10 +2,12 @@ package store
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -545,5 +547,44 @@ func TestSQLiteAllowsDuplicateNames(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("n=%d", len(items))
+	}
+}
+
+func TestSQLiteSessionHashNotPlaintext(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.PutAgent(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "claude", OrgID: "org"}); err != nil {
+		t.Fatal(err)
+	}
+	token := "ses_" + strings.Repeat("ab", 32)
+	sum := sha256.Sum256([]byte(token))
+	sess := protocol.Session{
+		ID:        "s1",
+		OrgID:     "org",
+		AgentID:   "claude",
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}
+	if err := s.PutSession(sess, sum[:]); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(token)) {
+		t.Fatal("session token on disk")
+	}
+	got, err := s.SessionByHash(sum[:])
+	if err != nil || got.AgentID != "claude" || got.ID != "s1" {
+		t.Fatalf("%+v %v", got, err)
 	}
 }

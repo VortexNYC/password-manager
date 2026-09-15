@@ -36,6 +36,8 @@ __all__ = [
     "CreateAgentRequest",
     "CreateGrantRequest",
     "CreateItemRequest",
+    "CreateSessionRequest",
+    "CreateSessionResponse",
     "EventsResponse",
     "Grant",
     "GrantsResponse",
@@ -44,6 +46,8 @@ __all__ = [
     "Item",
     "ItemsResponse",
     "Owner",
+    "Session",
+    "SessionsResponse",
     "UpdateItemRequest",
     "UseRequest",
     "UseResponse",
@@ -72,6 +76,8 @@ from vortex_pwm.models.card_fields import CardFields as CardFields
 from vortex_pwm.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
 from vortex_pwm.models.create_grant_request import CreateGrantRequest as CreateGrantRequest
 from vortex_pwm.models.create_item_request import CreateItemRequest as CreateItemRequest
+from vortex_pwm.models.create_session_request import CreateSessionRequest as CreateSessionRequest
+from vortex_pwm.models.create_session_response import CreateSessionResponse as CreateSessionResponse
 from vortex_pwm.models.events_response import EventsResponse as EventsResponse
 from vortex_pwm.models.grant import Grant as Grant
 from vortex_pwm.models.grants_response import GrantsResponse as GrantsResponse
@@ -80,6 +86,8 @@ from vortex_pwm.models.import_response import ImportResponse as ImportResponse
 from vortex_pwm.models.item import Item as Item
 from vortex_pwm.models.items_response import ItemsResponse as ItemsResponse
 from vortex_pwm.models.owner import Owner as Owner
+from vortex_pwm.models.session import Session as Session
+from vortex_pwm.models.sessions_response import SessionsResponse as SessionsResponse
 from vortex_pwm.models.update_item_request import UpdateItemRequest as UpdateItemRequest
 from vortex_pwm.models.use_request import UseRequest as UseRequest
 from vortex_pwm.models.use_response import UseResponse as UseResponse

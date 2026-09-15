@@ -35,3 +35,16 @@ func NewItem() (string, error) {
 	}
 	return s, nil
 }
+
+// NewSession is a random row id for a sandbox session. Not the bearer token.
+func NewSession() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	s := "s" + hex.EncodeToString(b[:])
+	if !Valid(s) {
+		return "", fmt.Errorf("id: generated invalid session id")
+	}
+	return s, nil
+}

@@ -48,7 +48,7 @@ That list is a 1Password clone roundup. Most of it is a human vault, a file form
 
 ### Backend patterns still missing (this order, nothing else)
 
-1. **Sandbox session mint** (Infisical Agent Vault `sessions.create`). An orchestrator (Flue, Devin, Daytona) mints a short-lived, vault-scoped token and hands the sandbox only `HTTPS_PROXY` + CA. The 1h agent JWT is the long-lived principal. The sandbox does not get that JWT.
+1. **Sandbox session mint** written 2026-09-15. Owner `POST /v1/sessions` (Infisical Agent Vault `sessions.create`). Orchestrator mints a short-lived token onto an existing agent and hands the sandbox only that file plus `HTTPS_PROXY` + CA. The 1h agent JWT stays off the sandbox. Token once; never list; never MCP. Default 15m, max 1h.
 2. **Revoke tree** (Vault). One command: this agent may not Use anything, and every grant it holds is dead. Incident response. We can delete a grant today; we cannot kill the principal’s whole tree.
 3. **Honey item** (Infisical honey tokens). An item whose URI is a tripwire. Use is always deny + alert. No secret worth stealing.
 

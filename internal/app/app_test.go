@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -970,5 +971,53 @@ func TestFillPasskeyHumanOnlyNoListLeak(t *testing.T) {
 	}
 	if len(logins) != 0 {
 		t.Fatalf("password fill returned passkey %+v", logins)
+	}
+}
+
+func TestSessionMapsToAgentAndExpires(t *testing.T) {
+	a, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.AddAgent("claude"); err != nil {
+		t.Fatal(err)
+	}
+	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
+	sess, token, err := a.CreateSession(owner, "claude", 200*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AgentID != "claude" || !IsSessionToken(token) {
+		t.Fatalf("%+v %s", sess, token)
+	}
+	p, err := a.PrincipalFromSession(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != protocol.PrincipalAgent || p.ID != "claude" {
+		t.Fatalf("%+v", p)
+	}
+	agent, err := a.PrincipalFromOIDC(context.Background(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.ID != "claude" {
+		t.Fatalf("%+v", agent)
+	}
+	if _, _, err := a.CreateSession(p, "claude", time.Minute); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("agent minted session: %v", err)
+	}
+	listed, err := a.ListSessions(owner)
+	if err != nil || len(listed) != 1 || listed[0].ID != sess.ID {
+		t.Fatalf("%+v %v", listed, err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if _, err := a.PrincipalFromSession(token); !errors.Is(err, ErrSessionExpired) {
+		t.Fatalf("expired: %v", err)
+	}
+	listed, err = a.ListSessions(owner)
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("expired still listed %+v", listed)
 	}
 }

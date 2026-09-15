@@ -107,6 +107,14 @@ func (s *SQLite) migrate() error {
 			at TEXT NOT NULL,
 			secret BLOB NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS sessions (
+			id TEXT PRIMARY KEY,
+			org_id TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			secret_hash BLOB NOT NULL,
+			expires_at INTEGER NOT NULL,
+			UNIQUE(secret_hash)
+		)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return err
@@ -611,6 +619,47 @@ func (s *SQLite) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) 
 			return nil, err
 		}
 		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) PutSession(sess protocol.Session, secretHash []byte) error {
+	_, err := s.db.Exec(`INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at)
+		VALUES(?,?,?,?,?)`,
+		sess.ID, sess.OrgID, sess.AgentID, secretHash, sess.ExpiresAt.UTC().Unix())
+	return err
+}
+
+func (s *SQLite) SessionByHash(secretHash []byte) (protocol.Session, error) {
+	var sess protocol.Session
+	var exp int64
+	err := s.db.QueryRow(`SELECT id, org_id, agent_id, expires_at FROM sessions WHERE secret_hash=?`, secretHash).
+		Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &exp)
+	if err == sql.ErrNoRows {
+		return protocol.Session{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	sess.ExpiresAt = time.Unix(exp, 0).UTC()
+	return sess, nil
+}
+
+func (s *SQLite) ListSessions() ([]protocol.Session, error) {
+	rows, err := s.db.Query(`SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []protocol.Session
+	for rows.Next() {
+		var sess protocol.Session
+		var exp int64
+		if err := rows.Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &exp); err != nil {
+			return nil, err
+		}
+		sess.ExpiresAt = time.Unix(exp, 0).UTC()
+		out = append(out, sess)
 	}
 	return out, rows.Err()
 }

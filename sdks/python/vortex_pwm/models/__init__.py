@@ -20,6 +20,8 @@ from vortex_pwm.models.card_fields import CardFields
 from vortex_pwm.models.create_agent_request import CreateAgentRequest
 from vortex_pwm.models.create_grant_request import CreateGrantRequest
 from vortex_pwm.models.create_item_request import CreateItemRequest
+from vortex_pwm.models.create_session_request import CreateSessionRequest
+from vortex_pwm.models.create_session_response import CreateSessionResponse
 from vortex_pwm.models.events_response import EventsResponse
 from vortex_pwm.models.grant import Grant
 from vortex_pwm.models.grants_response import GrantsResponse
@@ -28,6 +30,8 @@ from vortex_pwm.models.import_response import ImportResponse
 from vortex_pwm.models.item import Item
 from vortex_pwm.models.items_response import ItemsResponse
 from vortex_pwm.models.owner import Owner
+from vortex_pwm.models.session import Session
+from vortex_pwm.models.sessions_response import SessionsResponse
 from vortex_pwm.models.update_item_request import UpdateItemRequest
 from vortex_pwm.models.use_request import UseRequest
 from vortex_pwm.models.use_response import UseResponse
