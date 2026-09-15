@@ -111,3 +111,66 @@ test("billing cc-number is cc-number", () => {
   const got = pickFields([el({ autocomplete: "billing cc-number", name: "num" })]);
   assert.equal(got.number.name, "num");
 });
+
+test("tiny cc-number loses to the real field", () => {
+  const tiny = el({ autocomplete: "cc-number", name: "honeypot" });
+  tiny.getBoundingClientRect = function () {
+    return { width: 1, height: 1 };
+  };
+  const real = el({ autocomplete: "cc-number", name: "num" });
+  real.getBoundingClientRect = function () {
+    return { width: 400, height: 40 };
+  };
+  const got = pickFields([tiny, real]);
+  assert.equal(got.number.name, "num");
+});
+
+test("writeEntry card is false without a number field", () => {
+  const { writeEntry } = require("./fields.js");
+  const doc = {
+    querySelectorAll: function () {
+      return [];
+    },
+    querySelector: function () {
+      return null;
+    },
+  };
+  assert.equal(writeEntry(doc, { kind: "card", number: "4111111111111111" }), false);
+});
+
+test("writeCard fills hidden cc-number via querySelector", () => {
+  if (typeof HTMLInputElement === "undefined") {
+    global.HTMLInputElement = function HTMLInputElement() {};
+    HTMLInputElement.prototype = {};
+  }
+  if (typeof HTMLTextAreaElement === "undefined") {
+    global.HTMLTextAreaElement = function HTMLTextAreaElement() {};
+    HTMLTextAreaElement.prototype = {};
+  }
+  const { writeEntry } = require("./fields.js");
+  const number = el({ autocomplete: "cc-number", name: "num", hidden: true });
+  number.value = "";
+  number.dispatchEvent = function () {};
+  const month = el({ autocomplete: "cc-exp-month", name: "em", hidden: true });
+  month.value = "";
+  month.dispatchEvent = function () {};
+  const year = el({ autocomplete: "cc-exp-year", name: "ey", hidden: true });
+  year.value = "";
+  year.dispatchEvent = function () {};
+  const cvc = el({ autocomplete: "cc-csc", name: "cvc", hidden: true });
+  cvc.value = "";
+  cvc.dispatchEvent = function () {};
+  const doc = {
+    querySelectorAll: function () {
+      return [number, month, year, cvc];
+    },
+    querySelector: function (sel) {
+      return sel === 'input[autocomplete="cc-number"]' ? number : null;
+    },
+  };
+  assert.equal(
+    writeEntry(doc, { kind: "card", number: "4111111111111111", expMonth: "12", expYear: "2030", cvv: "123" }),
+    true,
+  );
+  assert.equal(number.value.length, 16);
+});

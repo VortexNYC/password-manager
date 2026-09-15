@@ -51,18 +51,41 @@
     if (el.hidden || el.disabled) {
       return false;
     }
-    if (typeof el.offsetParent === "undefined") {
-      return true;
+    if (typeof el.getBoundingClientRect === "function") {
+      const r = el.getBoundingClientRect();
+      if (r.width < 16 || r.height < 8) {
+        if (auto(el).indexOf("cc-") !== 0) {
+          return false;
+        }
+      }
+    } else if (typeof el.offsetParent !== "undefined" && el.offsetParent === null && typ(el) !== "password") {
+      return false;
     }
-    return el.offsetParent !== null || typ(el) === "password";
+    const view = el.ownerDocument && el.ownerDocument.defaultView;
+    if (view && view.getComputedStyle) {
+      const cs = view.getComputedStyle(el);
+      if (cs && (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0")) {
+        return false;
+      }
+    }
+    return true;
   }
 
   function pickFields(els) {
     const live = (els || []).filter(visible);
     const byAuto = function (names) {
-      return live.find(function (el) {
+      const hits = live.filter(function (el) {
         return names.indexOf(auto(el)) !== -1;
       });
+      if (!hits.length) {
+        return undefined;
+      }
+      hits.sort(function (a, b) {
+        const ra = typeof a.getBoundingClientRect === "function" ? a.getBoundingClientRect() : { width: 0, height: 0 };
+        const rb = typeof b.getBoundingClientRect === "function" ? b.getBoundingClientRect() : { width: 0, height: 0 };
+        return rb.width * rb.height - ra.width * ra.height;
+      });
+      return hits[0];
     };
     const username =
       byAuto(["username", "email"]) ||
@@ -134,9 +157,8 @@
     const desc = Object.getOwnPropertyDescriptor(proto, "value");
     if (desc && desc.set) {
       desc.set.call(el, value);
-    } else {
-      el.value = value;
     }
+    el.value = value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }
@@ -163,7 +185,11 @@
 
   function writeCard(doc, entry) {
     const fields = pickFields(Array.prototype.slice.call(doc.querySelectorAll("input, textarea")));
-    writeField(fields.number, entry.number);
+    let number = fields.number;
+    if (!number && doc.querySelector) {
+      number = doc.querySelector('input[autocomplete="cc-number"]');
+    }
+    writeField(number, entry.number);
     writeField(fields.expMonth, entry.expMonth);
     writeField(fields.expYear, entry.expYear);
     if (fields.exp && entry.expMonth && entry.expYear) {
@@ -172,6 +198,7 @@
     writeField(fields.cvv, entry.cvv);
     writeField(fields.given, entry.givenName);
     writeField(fields.name, entry.givenName);
+    return !!(number && number.value);
   }
 
   function writeIdentity(doc, entry) {
@@ -191,17 +218,17 @@
 
   function writeEntry(doc, entry) {
     if (!entry) {
-      return;
+      return false;
     }
     if (entry.kind === "card") {
-      writeCard(doc, entry);
-      return;
+      return writeCard(doc, entry);
     }
     if (entry.kind === "identity") {
       writeIdentity(doc, entry);
-      return;
+      return true;
     }
     writeLogin(doc, entry);
+    return true;
   }
 
   function isFillTarget(el) {

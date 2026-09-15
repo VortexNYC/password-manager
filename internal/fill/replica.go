@@ -92,7 +92,19 @@ func (h *Host) fillEnvelope(uuid string) (protocol.Item, material.Envelope, bool
 					break
 				}
 			}
-			return item, material.Unpack([]byte(raw)), true
+			env := material.Unpack([]byte(raw))
+			switch item.Kind {
+			case protocol.ItemCard:
+				if env.Number != "" {
+					return item, env, true
+				}
+			case protocol.ItemIdentity:
+				if env.GivenName != "" || env.FamilyName != "" || env.Address != "" || env.Phone != "" {
+					return item, env, true
+				}
+			default:
+				return item, env, true
+			}
 		}
 	}
 	if h.App != nil && h.App.Store != nil {
@@ -115,17 +127,24 @@ func (h *Host) originEnvelope(uuid string) (protocol.Item, material.Envelope, bo
 	}
 	raw, err := h.originPOST("/v1/fill/sync", []byte("{}"))
 	if err != nil {
+		fillDebug("origin envelope " + err.Error())
 		return protocol.Item{}, material.Envelope{}, false
 	}
 	var out publicapi.FillSyncResponse
 	if json.Unmarshal(raw, &out) != nil {
+		fillDebug("origin envelope unmarshal")
 		return protocol.Item{}, material.Envelope{}, false
 	}
 	for _, row := range out.Items {
 		if row.Item.ID != uuid {
 			continue
 		}
-		return row.Item, material.Unpack([]byte(row.Material)), true
+		env := material.Unpack([]byte(row.Material))
+		if env.Number == "" && env.GivenName == "" && env.FamilyName == "" && env.Address == "" {
+			fillDebug("origin envelope empty")
+		}
+		return row.Item, env, true
 	}
+	fillDebug("origin envelope miss")
 	return protocol.Item{}, material.Envelope{}, false
 }

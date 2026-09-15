@@ -4,6 +4,14 @@ function show(html) {
   root.innerHTML = html;
 }
 
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
 function suggestButton(got) {
   const b = document.createElement("button");
   const name = document.createElement("div");
@@ -38,8 +46,18 @@ chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
   }
   const entries = (got && got.entries) || [];
   root.textContent = "";
+  const host = hostOf((got && got.url) || "");
+  if (host) {
+    const where = document.createElement("div");
+    where.className = "login";
+    where.textContent = host;
+    root.appendChild(where);
+  }
   if (!entries.length && !(got && got.canGenerate)) {
-    show('<div class="empty">Nothing saved for this site.</div>');
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Nothing saved for this site.";
+    root.appendChild(empty);
     return;
   }
   entries.forEach(function (e) {
@@ -60,16 +78,19 @@ chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
       b.appendChild(kind);
     }
     b.addEventListener("click", function () {
-      chrome.runtime.sendMessage(
-        { type: "popup-fill", tabId: got.tabId, url: got.url, uuid: e.uuid },
-        function (res) {
-          if (res && res.ok) {
-            window.close();
-            return;
-          }
-          show('<div class="err">Fill canceled or failed.</div>');
-        },
-      );
+      chrome.tabs.query({}, function (tabs) {
+        const tab = globalThis.veilTab.tabByURL(tabs, got.url);
+        chrome.runtime.sendMessage(
+          { type: "popup-fill", uuid: e.uuid, url: got.url, tabId: tab && tab.id },
+          function (res) {
+            if (res && res.ok) {
+              window.close();
+              return;
+            }
+            show('<div class="err">Fill canceled or failed.</div>');
+          },
+        );
+      });
     });
     root.appendChild(b);
   });

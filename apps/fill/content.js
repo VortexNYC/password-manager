@@ -19,8 +19,7 @@
     }
     if (msg.type === "write") {
       try {
-        veilFields.writeEntry(document, msg.entry || msg);
-        sendResponse({ ok: true });
+        sendResponse({ ok: !!veilFields.writeEntry(document, msg.entry || msg) });
       } catch {
         sendResponse({ ok: false });
       }

@@ -1,3 +1,5 @@
+importScripts("tab.js");
+
 const HOST = "nyc.veil.fill";
 const LOGIN = "https://login.veil.nyc";
 
@@ -5,9 +7,36 @@ let port = null;
 const waiters = [];
 const matches = new Map();
 let openedLogin = false;
+let lastPage = null;
+
+function rememberTab(tab) {
+  if (tab && tab.id != null && usable(tab.url)) {
+    lastPage = { id: tab.id, url: tab.url };
+    try {
+      chrome.storage.session.set({ lastPage: lastPage });
+    } catch {
+      /* session storage optional */
+    }
+  }
+}
+
+async function loadLastPage() {
+  if (lastPage) {
+    return lastPage;
+  }
+  try {
+    const got = await chrome.storage.session.get("lastPage");
+    if (got && got.lastPage && got.lastPage.id != null) {
+      lastPage = got.lastPage;
+    }
+  } catch {
+    /* session storage optional */
+  }
+  return lastPage;
+}
 
 function usable(url) {
-  return typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"));
+  return globalThis.veilTab.usable(url);
 }
 
 function pageOrigin(url) {
@@ -122,37 +151,79 @@ async function badge(tabId, n) {
   }
 }
 
-async function writeTab(tabId, entry) {
-  const payload = { type: "write", entry: entry || {} };
+function wipeEntry(entry) {
+  if (!entry) {
+    return;
+  }
+  entry.login = "";
+  entry.password = "";
+  entry.totp = "";
+  entry.number = "";
+  entry.cvv = "";
+  entry.givenName = "";
+  entry.familyName = "";
+  entry.address = "";
+  entry.phone = "";
+}
+
+async function injectWrite(tabId, copy, world) {
+  const file = { target: { tabId: tabId }, files: ["fields.js"] };
+  const run = {
+    target: { tabId: tabId },
+    args: [copy],
+    func: function (got) {
+      return { ok: globalThis.veilFields.writeEntry(document, got) };
+    },
+  };
+  if (world) {
+    file.world = world;
+    run.world = world;
+  }
   try {
-    try {
-      await chrome.tabs.sendMessage(tabId, payload);
-    } catch {
-      await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ["fields.js"] });
-      await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        args: [entry || {}],
-        func: function (got) {
-          globalThis.veilFields.writeEntry(document, got);
-        },
-      });
-    }
-  } finally {
-    if (entry) {
-      entry.login = "";
-      entry.password = "";
-      entry.totp = "";
-      entry.number = "";
-      entry.cvv = "";
-      entry.givenName = "";
-      entry.familyName = "";
-      entry.address = "";
-      entry.phone = "";
-    }
+    await chrome.scripting.executeScript(file);
+    const inj = await chrome.scripting.executeScript(run);
+    return !!(inj && inj[0] && inj[0].result && inj[0].result.ok);
+  } catch {
+    return false;
   }
 }
 
+async function primeWrite(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ["fields.js", "content.js"],
+    });
+  } catch {
+    /* tab gone */
+  }
+}
+
+async function writeTab(tabId, entry) {
+  const copy = JSON.parse(JSON.stringify(entry || {}));
+  let wrote = false;
+  try {
+    try {
+      const res = await chrome.tabs.sendMessage(tabId, { type: "write", entry: copy });
+      wrote = !!(res && res.ok);
+    } catch {
+      wrote = false;
+    }
+    if (!wrote) {
+      wrote = await injectWrite(tabId, copy);
+    }
+    if (!wrote && copy.kind === "card") {
+      wrote = await injectWrite(tabId, copy, "MAIN");
+    }
+  } finally {
+    wipeEntry(copy);
+    wipeEntry(entry);
+  }
+  return wrote;
+}
+
 async function fillTab(tabId, url, uuid) {
+  await primeWrite(tabId);
   const body = { action: "fill", url: url };
   if (uuid) {
     body.uuid = uuid;
@@ -166,8 +237,8 @@ async function fillTab(tabId, url, uuid) {
   if (!entries.length) {
     return { ok: false, error: "empty" };
   }
-  await writeTab(tabId, entries[0]);
-  return { ok: true };
+  const wrote = await writeTab(tabId, entries[0]);
+  return { ok: wrote };
 }
 
 async function generateTab(tabId, url, login, passwordRules) {
@@ -225,29 +296,50 @@ async function probeTab(tabId) {
 }
 
 async function activeTab() {
+  const focused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (focused[0] && usable(focused[0].url)) {
+    return focused[0];
+  }
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs[0] || null;
 }
 
+async function tabByURL(url) {
+  const tabs = await chrome.tabs.query({});
+  return globalThis.veilTab.tabByURL(tabs, url);
+}
+
 async function fillTargetTab() {
-  const active = await activeTab();
-  if (active && usable(active.url)) {
-    return active;
+  await loadLastPage();
+  if (lastPage) {
+    try {
+      const tab = await chrome.tabs.get(lastPage.id);
+      if (tab && usable(tab.url)) {
+        return tab;
+      }
+    } catch {
+      lastPage = null;
+    }
+  }
+  const focused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (focused[0] && usable(focused[0].url)) {
+    rememberTab(focused[0]);
+    return focused[0];
   }
   const tabs = await chrome.tabs.query({});
-  let http = null;
   for (let i = 0; i < tabs.length; i++) {
-    if (!usable(tabs[i].url)) {
-      continue;
-    }
-    if (tabs[i].active) {
+    if (usable(tabs[i].url) && tabs[i].active) {
+      rememberTab(tabs[i]);
       return tabs[i];
     }
-    if (!http) {
-      http = tabs[i];
+  }
+  for (let i = 0; i < tabs.length; i++) {
+    if (usable(tabs[i].url)) {
+      rememberTab(tabs[i]);
+      return tabs[i];
     }
   }
-  return http;
+  return null;
 }
 
 chrome.runtime.onInstalled.addListener(function () {
@@ -262,6 +354,9 @@ chrome.tabs.onUpdated.addListener(function (tabId, info, tab) {
   if (info.status !== "complete" || !usable(url)) {
     return;
   }
+  if (tab.active) {
+    rememberTab(tab);
+  }
   matchTab(tabId, url).catch(function () {});
 });
 
@@ -271,6 +366,7 @@ chrome.tabs.onActivated.addListener(function (info) {
     if (chrome.runtime.lastError || !usable(url)) {
       return;
     }
+    rememberTab(tab);
     matchTab(tab.id, url).catch(function () {});
   });
 });
@@ -287,6 +383,7 @@ chrome.commands.onCommand.addListener(function (command) {
     if (!tab || !usable(tab.url)) {
       return;
     }
+    rememberTab(tab);
     probeTab(tab.id).then(function (ctx) {
       return executeTab(tab.id, tab.url, {
         generate: !!(ctx && ctx.generate),
@@ -311,6 +408,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!tab || !usable(url)) {
       return;
     }
+    rememberTab(tab);
     executeTab(tab.id, url, {
       generate: !!msg.generate,
       login: msg.login,
@@ -323,7 +421,15 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return;
   }
   if (msg.type === "popup-list") {
-    fillTargetTab().then(function (tab) {
+    const listed =
+      msg.tabId != null
+        ? chrome.tabs.get(msg.tabId).then(function (tab) {
+            return tab && usable(tab.url) ? tab : fillTargetTab();
+          }, function () {
+            return fillTargetTab();
+          })
+        : fillTargetTab();
+    listed.then(function (tab) {
       if (!tab || !usable(tab.url)) {
         sendResponse({ entries: [], url: "" });
         return;
@@ -344,8 +450,21 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return true;
   }
   if (msg.type === "popup-fill") {
-    fillTab(msg.tabId, msg.url, msg.uuid).then(function (got) {
-      sendResponse(got);
+    const listed = usable(msg.url) ? tabByURL(msg.url) : Promise.resolve(null);
+    listed.then(function (byURL) {
+      return byURL ? byURL : fillTargetTab();
+    }).then(function (tab) {
+      const url = usable(msg.url) ? msg.url : tab && tab.url;
+      const id = tab && tab.id;
+      if (!id || !usable(url)) {
+        sendResponse({ ok: false, error: "empty" });
+        return;
+      }
+      fillTab(id, url, msg.uuid).then(function (got) {
+        sendResponse(got);
+      }, function () {
+        sendResponse({ ok: false, error: "host" });
+      });
     });
     return true;
   }

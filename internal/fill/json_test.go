@@ -824,6 +824,98 @@ func TestJSONCardFillFromOriginWithoutReplica(t *testing.T) {
 	}
 }
 
+func TestJSONCardFillReplicaEmptyFallsBackToOrigin(t *testing.T) {
+	const pan = "4111111111111111"
+	a, err := app.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	blob, err := material.PackCard(pan, "12", "2030", "123", "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PutItem(app.ItemOpts{Name: "amex", Kind: protocol.ItemCard, Token: blob}); err != nil {
+		t.Fatal(err)
+	}
+	srv := originAPI(t, a)
+	dir := t.TempDir()
+	key, err := replica.Unlock(replica.Mem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := replica.Open(replica.Path(dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := box.Put(protocol.Item{ID: "amex", Name: "amex", Kind: protocol.ItemCard}, []byte(`{"v":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	h := allowConfirm(NewOrigin(dir, srv.URL, "human"))
+	h.Replica = box
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://www.amazon.com/checkout", "uuid": "amex"})
+	var out struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil || len(out.Entries) != 1 {
+		t.Fatalf("fallback %s", got)
+	}
+	if out.Entries[0].Kind != "card" || out.Entries[0].Number != pan {
+		t.Fatalf("fallback entry %+v", out.Entries[0])
+	}
+}
+
+func TestJSONFillEmptyURLDoesNotConfirm(t *testing.T) {
+	var n atomic.Int32
+	h := NewOrigin(t.TempDir(), "http://127.0.0.1:1", "human")
+	h.Confirm = func(string) error {
+		n.Add(1)
+		return nil
+	}
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "uuid": "amex"})
+	var out struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil || len(out.Entries) != 0 {
+		t.Fatalf("empty url fill %s", got)
+	}
+	if n.Load() != 0 {
+		t.Fatal("empty url prompted")
+	}
+}
+
+func TestJSONCardFillReplicaEmptyOriginDownDoesNotConfirm(t *testing.T) {
+	dir := t.TempDir()
+	key, err := replica.Unlock(replica.Mem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := replica.Open(replica.Path(dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := box.Put(protocol.Item{ID: "amex", Name: "amex", Kind: protocol.ItemCard}, []byte(`{"v":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	var n atomic.Int32
+	h := NewOrigin(dir, "http://127.0.0.1:1", "human")
+	h.Replica = box
+	h.Confirm = func(string) error {
+		n.Add(1)
+		return nil
+	}
+	got := jsonHandle(t, h, map[string]string{"action": "fill", "url": "https://www.amazon.com/checkout", "uuid": "amex"})
+	var out struct {
+		Entries []jsonFillEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil || len(out.Entries) != 0 {
+		t.Fatalf("empty card fill %s", got)
+	}
+	if n.Load() != 0 {
+		t.Fatal("empty card prompted")
+	}
+}
+
 func TestJSONIdentityFillFromOriginWithoutReplica(t *testing.T) {
 	a, err := app.Init(t.TempDir())
 	if err != nil {

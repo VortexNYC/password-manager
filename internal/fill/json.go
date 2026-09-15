@@ -3,6 +3,7 @@ package fill
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/vortexnyc/password-manager/internal/app"
@@ -128,6 +129,11 @@ func (h *Host) jsonMatch(rawURL string) []jsonMatchEntry {
 
 func (h *Host) jsonFill(rawURL, uuid string) []jsonFillEntry {
 	empty := []jsonFillEntry{}
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		fillDebug("fill empty url")
+		return empty
+	}
 	matches := h.jsonMatch(rawURL)
 	uuid = strings.TrimSpace(uuid)
 	var hit *jsonMatchEntry
@@ -144,6 +150,7 @@ func (h *Host) jsonFill(rawURL, uuid string) []jsonFillEntry {
 			}
 		}
 		if hit == nil {
+			fillDebug("fill miss n=" + strconv.Itoa(len(matches)) + " url=" + rawURL)
 			return empty
 		}
 	}
@@ -172,8 +179,12 @@ func (h *Host) jsonFill(rawURL, uuid string) []jsonFillEntry {
 			Name:     got.Name,
 		}}
 	case "card":
-		item, env, ok := h.fillEnvelope(hit.UUID)
+		item, env, ok := h.originEnvelope(hit.UUID)
 		if !ok || env.Number == "" {
+			item, env, ok = h.fillEnvelope(hit.UUID)
+		}
+		if !ok || env.Number == "" {
+			fillDebug("fill empty card")
 			return empty
 		}
 		if err := h.confirm("Veil wants to fill a card", scope, env.CVV == ""); err != nil {
