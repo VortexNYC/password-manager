@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/veilnyc/password-manager/internal/crypto"
 	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/store/sqlc"
 )
 
 // pgConn is the surface we need from a pgx connection or transaction.
@@ -26,6 +27,7 @@ type pgConn interface {
 type Postgres struct {
 	pool *pgxpool.Pool
 	km   *keyManager
+	sqlc *sqlc.Queries
 }
 
 // OpenPostgres opens a Postgres-backed store. The supplied key is the master
@@ -56,7 +58,7 @@ func OpenPostgres(connString string, key []byte) (*Postgres, error) {
 		pool.Close()
 		return nil, err
 	}
-	p := &Postgres{pool: pool, km: newKeyManager(key)}
+	p := &Postgres{pool: pool, km: newKeyManager(key), sqlc: sqlc.New(pool)}
 	if err := p.migrate(); err != nil {
 		p.pool.Close()
 		return nil, err
@@ -651,88 +653,6 @@ func useAuthFromRow(r *useAuthRow) (UseAuth, error) {
 		}
 	}
 	return out, nil
-}
-
-func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
-	ctx := context.Background()
-	row := p.pool.QueryRow(ctx, `SELECT
-		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
-		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
-		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
-		ap.id, ap.grant_id, ap.human_id, ap.expires_at
-	FROM (SELECT $1::text AS agent_id, $2::text AS item_id, $3::timestamptz AS now) AS v
-	LEFT JOIN agents a ON a.id = v.agent_id
-	LEFT JOIN items i ON i.id = v.item_id
-	LEFT JOIN grants g ON g.agent_id = v.agent_id AND g.item_id = i.id
-	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
-		agentID, itemID, now.UTC())
-
-	var r useAuthRow
-	if err := row.Scan(
-		&r.aID, &r.aOrgID, &r.aOwnerKind, &r.aOwnerID, &r.aRevoked,
-		&r.iID, &r.iOrgID, &r.iName, &r.iKind, &r.iOwnerKind, &r.iOwnerID, &r.iURIs, &r.iHasTOTP, &r.iTags, &r.iArchived, &r.iHasFile, &r.iLogin,
-		&r.gID, &r.gOrgID, &r.gAgentID, &r.gItemID, &r.gLevel, &r.gActions, &r.gExpires,
-		&r.apID, &r.apGrantID, &r.apHumanID, &r.apExpires,
-	); err != nil {
-		return UseAuth{}, err
-	}
-	return useAuthFromRow(&r)
-}
-
-func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
-	ctx := context.Background()
-	row := p.pool.QueryRow(ctx, `SELECT
-		s.id,
-		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
-		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
-		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
-		ap.id, ap.grant_id, ap.human_id, ap.expires_at
-	FROM (SELECT $1::bytea AS session_hash, $2::text AS item_id, $3::timestamptz AS now) AS v
-	LEFT JOIN sessions s ON s.secret_hash = v.session_hash AND s.expires_at > v.now AND s.revoked_at IS NULL AND (s.max_uses = 0 OR s.uses < s.max_uses)
-	LEFT JOIN agents a ON a.id = s.agent_id
-	LEFT JOIN items i ON i.id = v.item_id
-	LEFT JOIN grants g ON g.agent_id = s.agent_id AND g.item_id = i.id
-	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
-		sessionHash, itemID, now.UTC())
-
-	var sID sql.NullString
-	var r useAuthRow
-	if err := row.Scan(
-		&sID,
-		&r.aID, &r.aOrgID, &r.aOwnerKind, &r.aOwnerID, &r.aRevoked,
-		&r.iID, &r.iOrgID, &r.iName, &r.iKind, &r.iOwnerKind, &r.iOwnerID, &r.iURIs, &r.iHasTOTP, &r.iTags, &r.iArchived, &r.iHasFile, &r.iLogin,
-		&r.gID, &r.gOrgID, &r.gAgentID, &r.gItemID, &r.gLevel, &r.gActions, &r.gExpires,
-		&r.apID, &r.apGrantID, &r.apHumanID, &r.apExpires,
-	); err != nil {
-		return UseAuth{}, err
-	}
-	if !sID.Valid || sID.String == "" || !r.aID.Valid || r.aID.String == "" {
-		return UseAuth{}, ErrNotFound
-	}
-	return useAuthFromRow(&r)
-}
-
-func (p *Postgres) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
-	ctx := context.Background()
-	row := p.pool.QueryRow(ctx, `UPDATE sessions s
-		SET uses = uses + 1
-		FROM agents a
-		WHERE s.secret_hash = $1 AND s.agent_id = a.id AND a.revoked_at IS NULL
-		  AND s.expires_at > $2 AND s.revoked_at IS NULL AND (s.max_uses = 0 OR s.uses < s.max_uses)
-		RETURNING a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at`,
-		sessionHash, now.UTC())
-
-	var a protocol.Principal
-	a.Kind = protocol.PrincipalAgent
-	err := row.Scan(&a.ID, &a.OrgID, &a.Owner.Kind, &a.Owner.ID, &a.RevokedAt)
-	if err == pgx.ErrNoRows {
-		return protocol.Principal{}, ErrNotFound
-	}
-	if err != nil {
-		return protocol.Principal{}, err
-	}
-	a.Owner.Kind = protocol.OwnerKind(a.Owner.Kind)
-	return a, nil
 }
 
 func (p *Postgres) PutGrant(g protocol.Grant) error {
