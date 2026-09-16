@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/veilnyc/password-manager/internal/crypto"
 	"github.com/veilnyc/password-manager/internal/protocol"
 	"github.com/veilnyc/password-manager/internal/store/sqlc"
 )
@@ -276,4 +278,242 @@ func (p *Postgres) RenewSession(id string, at time.Time) (protocol.Session, erro
 		return protocol.Session{}, err
 	}
 	return sess, nil
+}
+
+func itemByNameToRow(r sqlc.ItemByNameRow) sqlc.ItemByIDRow {
+	return sqlc.ItemByIDRow{
+		ID: r.ID, OrgID: r.OrgID, Name: r.Name, Kind: r.Kind,
+		OwnerKind: r.OwnerKind, OwnerID: r.OwnerID, Uris: r.Uris,
+		HasTotp: r.HasTotp, Tags: r.Tags, Archived: r.Archived,
+		HasFile: r.HasFile, Login: r.Login,
+	}
+}
+
+func listItemsToRow(r sqlc.ListItemsRow) sqlc.ItemByIDRow {
+	return sqlc.ItemByIDRow{
+		ID: r.ID, OrgID: r.OrgID, Name: r.Name, Kind: r.Kind,
+		OwnerKind: r.OwnerKind, OwnerID: r.OwnerID, Uris: r.Uris,
+		HasTotp: r.HasTotp, Tags: r.Tags, Archived: r.Archived,
+		HasFile: r.HasFile, Login: r.Login,
+	}
+}
+
+func itemFromSqlc(r *sqlc.ItemByIDRow) protocol.Item {
+	item := protocol.Item{
+		ID:   r.ID,
+		OrgID: r.OrgID,
+		Name:  r.Name,
+		Kind:  protocol.ItemKind(r.Kind),
+		Owner: protocol.Owner{Kind: protocol.OwnerKind(r.OwnerKind), ID: r.OwnerID},
+	}
+	if len(r.Uris) > 0 {
+		_ = json.Unmarshal([]byte(r.Uris), &item.URIs)
+	}
+	if len(r.Tags) > 0 {
+		_ = json.Unmarshal([]byte(r.Tags), &item.Tags)
+	}
+	item.HasTOTP = r.HasTotp
+	item.Archived = r.Archived
+	item.HasFile = r.HasFile
+	item.Login = r.Login
+	return item
+}
+
+func (p *Postgres) PutItem(item protocol.Item, secret Secret) error {
+	uris, err := json.Marshal(item.URIs)
+	if err != nil {
+		return err
+	}
+	if item.URIs == nil {
+		uris = []byte("[]")
+	}
+	tags, err := json.Marshal(item.Tags)
+	if err != nil {
+		return err
+	}
+	if item.Tags == nil {
+		tags = []byte("[]")
+	}
+	dek, err := p.ownerDEK(item.Owner)
+	if err != nil {
+		return err
+	}
+	blob, err := crypto.Seal(dek, secret)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := p.sqlc.WithTx(tx)
+
+	owner, err := qtx.ItemOwner(ctx, item.ID)
+	if err == nil {
+		if owner.OwnerKind != string(item.Owner.Kind) || owner.OwnerID != item.Owner.ID {
+			return fmt.Errorf("store: cannot change item owner")
+		}
+	} else if err != pgx.ErrNoRows {
+		return err
+	}
+
+	if err := qtx.SnapshotItem(ctx, sqlc.SnapshotItemParams{ItemID: item.ID, At: time.Now().UTC()}); err != nil {
+		return err
+	}
+	err = qtx.PutItem(ctx, sqlc.PutItemParams{
+		ID: item.ID, OrgID: item.OrgID, Name: item.Name, Kind: string(item.Kind),
+		OwnerKind: string(item.Owner.Kind), OwnerID: item.Owner.ID,
+		Uris: string(uris), Secret: blob, HasTotp: item.HasTOTP,
+		Tags: string(tags), Archived: item.Archived, HasFile: item.HasFile,
+		Login: item.Login,
+	})
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func (p *Postgres) Item(id string) (protocol.Item, error) {
+	r, err := p.sqlc.ItemByID(context.Background(), id)
+	if err == pgx.ErrNoRows {
+		return protocol.Item{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Item{}, err
+	}
+	return itemFromSqlc(&r), nil
+}
+
+func (p *Postgres) ItemByName(orgID, name string) (protocol.Item, error) {
+	r, err := p.sqlc.ItemByName(context.Background(), sqlc.ItemByNameParams{OrgID: orgID, Name: name})
+	if err == pgx.ErrNoRows {
+		return protocol.Item{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Item{}, err
+	}
+	row := itemByNameToRow(r)
+	return itemFromSqlc(&row), nil
+}
+
+func (p *Postgres) ListItems() ([]protocol.Item, error) {
+	rows, err := p.sqlc.ListItems(context.Background(), maxListResults)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.Item, 0, len(rows))
+	for i := range rows {
+		r := listItemsToRow(rows[i])
+		out = append(out, itemFromSqlc(&r))
+	}
+	return out, nil
+}
+
+func (p *Postgres) ArchiveItem(id string) error {
+	n, err := p.sqlc.ArchiveItem(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *Postgres) DeleteItem(id string) error {
+	ctx := context.Background()
+	if err := p.sqlc.DeleteItemVersions(ctx, id); err != nil {
+		return err
+	}
+	if err := p.sqlc.DeleteItemGrants(ctx, id); err != nil {
+		return err
+	}
+	n, err := p.sqlc.DeleteItem(ctx, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *Postgres) Versions(itemID string) ([]protocol.ItemVersion, error) {
+	rows, err := p.sqlc.ItemVersions(context.Background(), sqlc.ItemVersionsParams{ItemID: itemID, MaxResults: maxListResults})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.ItemVersion, 0, len(rows))
+	for i := range rows {
+		out = append(out, protocol.ItemVersion{ID: rows[i].ID, ItemID: rows[i].ItemID, Time: rows[i].At.UTC()})
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+func (p *Postgres) RestoreVersion(itemID string, versionID int64) error {
+	ctx := context.Background()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := p.sqlc.WithTx(tx)
+
+	if err := qtx.SnapshotItem(ctx, sqlc.SnapshotItemParams{ItemID: itemID, At: time.Now().UTC()}); err != nil {
+		return err
+	}
+	blob, err := qtx.ItemVersionSecret(ctx, sqlc.ItemVersionSecretParams{ID: versionID, ItemID: itemID})
+	if err == pgx.ErrNoRows {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := qtx.RestoreItemSecret(ctx, sqlc.RestoreItemSecretParams{Secret: blob, ID: itemID}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func (p *Postgres) Secret(id string) (Secret, error) {
+	r, err := p.sqlc.ItemSecretOwner(context.Background(), id)
+	if err == pgx.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	dek, err := p.ownerDEK(protocol.Owner{Kind: protocol.OwnerKind(r.OwnerKind), ID: r.OwnerID})
+	if err != nil {
+		return nil, err
+	}
+	plain, err := crypto.Open(dek, r.Secret)
+	if err != nil {
+		return nil, err
+	}
+	return Secret(plain), nil
 }

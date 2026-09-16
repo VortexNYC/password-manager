@@ -117,3 +117,56 @@ UPDATE sessions SET revoked_at = COALESCE(revoked_at, @at::timestamptz) WHERE id
 
 -- name: RenewSession :exec
 UPDATE sessions SET expires_at = @expires_at::timestamptz, renewed_at = @renewed_at::timestamptz WHERE id = @id::text;
+
+-- name: ItemOwner :one
+SELECT owner_kind, owner_id FROM items WHERE id = @id::text;
+
+-- name: SnapshotItem :exec
+INSERT INTO item_versions(item_id, at, secret)
+SELECT @item_id::text, @at::timestamptz, secret FROM items WHERE id = @item_id::text;
+
+-- name: PutItem :exec
+INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+VALUES(@id::text, @org_id::text, @name::text, @kind::text, @owner_kind::text, @owner_id::text, @uris::text, @secret::bytea, @has_totp::bool, @tags::text, @archived::bool, @has_file::bool, @login::text)
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
+    owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
+    uris=excluded.uris, secret=excluded.secret, has_totp=excluded.has_totp,
+    tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file,
+    login=excluded.login;
+
+-- name: ItemByID :one
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE id = @id::text;
+
+-- name: ItemByName :one
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE org_id = @org_id::text AND name = @name::text;
+
+-- name: ListItems :many
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE archived = FALSE ORDER BY name LIMIT @max_results::bigint;
+
+-- name: ArchiveItem :execrows
+UPDATE items SET archived = TRUE WHERE id = @id::text;
+
+-- name: DeleteItemVersions :exec
+DELETE FROM item_versions WHERE item_id = @item_id::text;
+
+-- name: DeleteItemGrants :exec
+DELETE FROM grants WHERE item_id = @item_id::text;
+
+-- name: DeleteItem :execrows
+DELETE FROM items WHERE id = @id::text;
+
+-- name: ItemVersions :many
+SELECT id, item_id, at FROM item_versions WHERE item_id = @item_id::text ORDER BY id DESC LIMIT @max_results::bigint;
+
+-- name: ItemVersionSecret :one
+SELECT secret FROM item_versions WHERE id = @id::bigint AND item_id = @item_id::text;
+
+-- name: RestoreItemSecret :exec
+UPDATE items SET secret = @secret::bytea WHERE id = @id::text;
+
+-- name: ItemSecretOwner :one
+SELECT secret, owner_kind, owner_id FROM items WHERE id = @id::text;
