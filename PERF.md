@@ -32,10 +32,16 @@ final pgbot snapshot, so `pg_stat_statements` includes every audit `COPY`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PG_TEST_DSN` | required | Postgres DSN for the harness |
+| `LOADTEST_ORIGIN_MODE` | `goroutine` | `goroutine` (in-process), `process` (child `password-manager mcp` replicas), or `external` (URLs in `LOADTEST_ORIGINS`) |
+| `LOADTEST_ORIGIN_BINARY` | auto | path to the `password-manager` binary for `process` mode; auto-built if unset |
+| `LOADTEST_ORIGINS` | `""` | comma-separated external origin URLs for `external` mode |
+| `LOADTEST_PROXY` | `1` for `goroutine`, `0` otherwise | use the local round-robin `httputil.ReverseProxy` |
+| `LOADTEST_UPSTREAM_URL` | `""` | externally reachable upstream; a local `/ok` server is started if unset |
+| `LOADTEST_RESET_DB` | `0` | when `1`, truncates load-test tables before seeding (destructive; test DB only) |
 | `LOADTEST_REPLICAS` | 1 | origin replica count |
 | `VEIL_VUS` | 50 | k6 virtual users |
 | `VEIL_AUDIT_FLUSH_INTERVAL` | 5ms | max delay before an audit batch is flushed |
-| `VEIL_MASTER_KEY` | generated if unset | 64-hex master key for the origin; generated when empty |
+| `VEIL_MASTER_KEY` | generated if unset | 64-hex master key for the origin; generated when empty. Required for `external` mode and must match the key used by the external origins. |
 | `VEIL_LOG_LEVEL` | warn | suppress per-request INFO logs during benchmarks |
 | `LOADTEST_OUT` | `tests/load/k6/out` | artifact directory for k6, pgbot, and pprof output |
 | `VEIL_MAX_IN_FLIGHT_USE` | 0 (unlimited) | per-origin in-flight `Use` limit; 0 disables admission control |
@@ -286,24 +292,86 @@ plus an async audit `COPY`.
 | Add pprof to harness | **Kept** | Confirms the remaining time is network/runtime, not DB. |
 | Bypass `httputil.ReverseProxy` in load-test geometry | **Kept** | Separates proxy overhead from origin capacity; shows a meaningful gain in this harness. |
 | `UseAuthSession` join for session-token `/v1/use` | **Kept** | Removes the standalone `sessions` lookup and the intermediate `AgentFromSession` step; fail-closed revocation race guard is preserved. |
+| `mcp` command respects `VEIL_LOG_LEVEL` | **Kept** | Prevents child-process origins from emitting per-request `slog.Info("use")` logs that become the measured limiter. |
+
+### 7. Multi-process origin mode
+
+Code changes:
+
+- `cmd/loadtest` supports `LOADTEST_ORIGIN_MODE=process` to start the Veil
+  binary as child `mcp` processes on ephemeral ports, simulating separate
+  Railway-like origin replicas against the same Postgres.
+- `LOADTEST_ORIGIN_BINARY` lets the harness use a pre-built binary; otherwise it
+  builds a temporary `password-manager` binary.
+- `internal/cli/cli.go` (`mcp` command) now honors `VEIL_LOG_LEVEL`, so child
+  origins can suppress per-request INFO logs during benchmarks.
+- The harness seeds from a short-lived Postgres app, truncates load-test tables
+  when `LOADTEST_RESET_DB=1`, and passes the seeded token/item to `k6`.
+
+With 3 child-process replicas, 150 VUs,
+`VEIL_AUDIT_FLUSH_INTERVAL=20ms`, `LOADTEST_PROXY=0` (direct origin), and
+`VEIL_MAX_IN_FLIGHT_USE=300`:
+
+| Metric | Value |
+|---|---|
+| Requests | 52,200 |
+| Throughput | 434.99 req/s |
+| Latency avg / med / p95 / max | 155.83 ms / 25.76 ms / 810.41 ms / 4,475.12 ms |
+| Errors | 0% |
+| Cache hit ratio | 1.0 |
+| Deadlocks / waiting connections | 0 |
+
+Hot-path DB queries (`pgbot-after`):
+
+| Query | Calls | Mean (ms) | Total (ms) |
+|---|---|---|---|
+| `ConsumeSession` (`UPDATE sessions SET uses = uses + 1 FROM agents ...`) | 52,200 | **91.70** | **4,786,852.11** |
+| `UseAuthSession` (LEFT JOIN `sessions → agents → items → grants → approvals`) | 52,200 | 0.0574 | 2,998.57 |
+| `audit` COPY | 7,317 | 0.1429 | 1,045.68 |
+| `items` secret lookup | 52,200 | 0.0102 | 534.18 |
+| `agents` final reload | 52,200 | omitted | small |
+
+Interpretation of this run:
+
+- The **single shared session across all VUs creates a row-lock hot spot**.
+  Every `Use` updates the same `sessions` row (`uses = uses + 1`), so the
+  session row serializes 150 concurrent VUs. The `ConsumeSession` query averages
+  91.7 ms and accounts for almost all DB time. This is a load-test artifact,
+  not a realistic production pattern: real agents/sessions are distributed
+  across many rows and lock contention is per-session, not global.
+- `UseAuthSession` itself is still fast (~0.06 ms) and the hot path remains 3
+  synchronous DB round trips plus an async audit `COPY`.
+- Process overhead is visible but secondary to the session-row lock: the
+  in-process `UseAuthSession` run achieved 11,603 req/s on the same workload,
+  while the child-process run achieved 435 req/s because every origin process
+  contends for the same session row.
 
 ## Next optimization
 
 The hot path is now 3 synchronous DB round trips per `Use` (`UseAuthSession`,
-final `agents`, `items` secret) plus an async audit `COPY`. pprof still shows the
-majority of time in local network/runtime wait states on a single Mac. Before
-adding a fail-closed cache or distributed rate limiting, the next moves are:
+final `agents`, `items` secret) plus an async audit `COPY`. The `UseAuthSession`
+read itself is fast (~0.06 ms), and fail-closed revocation is preserved by the
+final `agents` reload before secret access.
 
-1. **Move the final `agents` reload into `UseAuthSession` if it can be done
+Before adding a fail-closed cache or distributed rate limiting:
+
+1. **Get a true multi-process capacity number.** The first `process`-mode run
+   was dominated by a single shared session row: `ConsumeSession` averaged 91.7
+   ms because 150 VUs were all updating the same `sessions` row. The harness
+   should seed multiple sessions and distribute tokens across VUs, or use
+   `max_uses` and renew logic, so the measurement reflects per-session lock
+   contention rather than a single-row hot spot.
+2. **Move the final `agents` reload into `UseAuthSession` if it can be done
    safely.** The final reload is the revocation race guard. If we can express
-   `UseAuthSession` as a single snapshot that is still authoritative at the moment
-   we read the secret, we could remove the extra `agents` call and cut the hot
-   path to 2 round trips. This is the highest DB-side win remaining.
-2. **Run a multi-host / multi-process load test.** Single-Mac loopback variance
-   is high. A `k6` runner on a separate core or host with the origin and Postgres
-   on another machine will separate test-stack overhead from real origin
-   capacity.
-3. **Only after the hot path is flat and measured away from loopback, consider a
+   `UseAuthSession` as a single snapshot that is still authoritative at the
+   moment we read the secret, we could remove the extra `agents` call and cut
+   the hot path to 2 round trips. This is the highest remaining DB-side win once
+   the session-row artifact is removed from the measurement.
+3. **Run a multi-host load test.** Single-Mac loopback variance and child-process
+   scheduling noise are still clouding the numbers. A `k6` runner on a separate
+   core or host with the origin and Postgres on other machines will separate
+   test-stack overhead from real origin capacity.
+4. **Only after the hot path is flat and measured away from loopback, consider a
    short-lived, fail-closed cache** for session/grant metadata with explicit
    invalidation and distributed rate limiting.
 

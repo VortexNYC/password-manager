@@ -110,6 +110,21 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+func logLevel() slog.Leveler {
+	switch strings.ToLower(envOr("VEIL_LOG_LEVEL", "info")) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
 func glueFromEnv() (*glue.Glue, error) {
 	return glue.New(glue.Config{
 		KratosPublic: envOr("PWM_KRATOS_PUBLIC", "http://127.0.0.1:4433"),
@@ -1579,6 +1594,7 @@ func mcpCmd(home *string) *cobra.Command {
 			publicURL = mcpPublicURL(publicURL, listen)
 			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
 			slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+				Level: logLevel(),
 				ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 					if a.Key == slog.LevelKey {
 						a.Value = slog.StringValue(strings.ToLower(a.Value.String()))
