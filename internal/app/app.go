@@ -162,7 +162,7 @@ func OpenPostgres(dsn string) (*App, error) {
 		_ = s.Close()
 		return nil, err
 	}
-	return finish("", cfg, s, audit.NewAsync(s, auditBufferCapacity()))
+	return finish("", cfg, s, audit.NewAsyncWithInterval(s, auditBufferCapacity(), auditFlushInterval()))
 }
 
 func loadMasterFromEnv() ([]byte, error) {
@@ -183,6 +183,18 @@ func auditBufferCapacity() int {
 		return 1024
 	}
 	return n
+}
+
+func auditFlushInterval() time.Duration {
+	env := os.Getenv("VEIL_AUDIT_FLUSH_INTERVAL")
+	if env == "" {
+		return 5 * time.Millisecond
+	}
+	d, err := time.ParseDuration(env)
+	if err != nil || d <= 0 {
+		return 5 * time.Millisecond
+	}
+	return d
 }
 
 func finish(dir string, cfg config, s store.Store, auditor audit.Auditor) (*App, error) {
@@ -1080,11 +1092,23 @@ func (a *App) Use(ctx context.Context, agentID, itemID, method, rawURL string) (
 }
 
 func (a *App) UseFetch(ctx context.Context, agentID, itemID string, fetch protocol.Fetch) (protocol.UseResult, error) {
-	agent, err := a.Store.Agent(agentID)
-	if err != nil {
-		return protocol.UseResult{}, err
-	}
-	return a.Broker.Use(ctx, agent, protocol.UseRequest{
+	// Broker.Use loads the agent through UseAuth and reloads it before secret
+	// access; an extra Store.Agent call here is redundant and adds a hot-path
+	// round trip.
+	return a.Broker.Use(ctx, protocol.Principal{ID: agentID}, protocol.UseRequest{
+		ItemID: itemID,
+		Action: protocol.ActionFetch,
+		Fetch:  &fetch,
+	})
+}
+
+func (a *App) UseSession(ctx context.Context, rawToken, itemID, method, rawURL string) (protocol.UseResult, error) {
+	return a.UseFetchSession(ctx, rawToken, itemID, protocol.Fetch{Method: method, URL: rawURL})
+}
+
+func (a *App) UseFetchSession(ctx context.Context, rawToken, itemID string, fetch protocol.Fetch) (protocol.UseResult, error) {
+	hash := sessionHash(rawToken)
+	return a.Broker.UseSession(ctx, hash, protocol.UseRequest{
 		ItemID: itemID,
 		Action: protocol.ActionFetch,
 		Fetch:  &fetch,

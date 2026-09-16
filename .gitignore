@@ -21,4 +21,5 @@ apps/vault/dist/
 apps/vault/.wrangler/
 .blume/
 .tmp/
+tests/load/k6/out/
 

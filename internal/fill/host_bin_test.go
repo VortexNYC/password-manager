@@ -219,6 +219,7 @@ func TestCompiledBinaryAddListMatchFill(t *testing.T) {
 }
 
 func TestCompiledBinaryAgainstOriginHTTP(t *testing.T) {
+	t.Setenv("PWM_REPLICA_KEYSTORE", "mem")
 	const login = "stripe@example.com"
 	a, err := app.Init(t.TempDir())
 	if err != nil {
@@ -306,6 +307,7 @@ func TestCompiledBinaryAgainstOriginHTTP(t *testing.T) {
 }
 
 func TestCompiledBinaryJSONPingMatchFill(t *testing.T) {
+	t.Setenv("PWM_REPLICA_KEYSTORE", "mem")
 	const login = "stripe@example.com"
 	a, err := app.Init(t.TempDir())
 	if err != nil {

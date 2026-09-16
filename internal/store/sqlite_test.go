@@ -812,3 +812,35 @@ func TestSQLiteRevokeAgentIsIdempotentAndSurvivesReload(t *testing.T) {
 		t.Fatalf("revoked_at was overwritten to %+v", p.RevokedAt)
 	}
 }
+
+func TestSQLiteAppendAudits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	events := []protocol.AuditEvent{
+		{Time: time.Unix(1, 0), OrgID: "o", AgentID: "a1", Action: protocol.ActionFetch, Decision: protocol.DecisionAllow},
+		{Time: time.Unix(2, 0), OrgID: "o", AgentID: "a2", Action: protocol.ActionFetch, Decision: protocol.DecisionAllow},
+	}
+	if err := s.AppendAudits(events); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(events) {
+		t.Fatalf("got %d events", len(got))
+	}
+	if got[0].AgentID != "a1" || got[1].AgentID != "a2" {
+		t.Fatalf("order wrong: %+v", got)
+	}
+}

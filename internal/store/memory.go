@@ -294,6 +294,41 @@ func (m *Memory) Grant(id string) (*protocol.Grant, error) {
 	return nil, ErrNotFound
 }
 
+func (m *Memory) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.useAuthLocked(agentID, itemID, now), nil
+}
+
+func (m *Memory) useAuthLocked(agentID, itemID string, now time.Time) UseAuth {
+	var r UseAuth
+	if a, ok := m.agents[agentID]; ok {
+		r.Agent = a
+	}
+	if item, ok := m.items[itemID]; ok {
+		r.Item = item
+	}
+	if g, ok := m.grants[grantKey(agentID, itemID)]; ok {
+		cp := g
+		r.Grant = &cp
+		if a, ok := m.approvals[g.ID]; ok && now.Before(a.ExpiresAt) {
+			ap := a
+			r.Approval = &ap
+		}
+	}
+	return r
+}
+
+func (m *Memory) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sess, ok := m.sessions[sessionHashKey(sessionHash)]
+	if !ok || !now.Before(sess.ExpiresAt) {
+		return UseAuth{}, ErrNotFound
+	}
+	return m.useAuthLocked(sess.AgentID, itemID, now), nil
+}
+
 func (m *Memory) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -343,6 +378,13 @@ func (m *Memory) AppendAudit(e protocol.AuditEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.audit = append(m.audit, e)
+	return nil
+}
+
+func (m *Memory) AppendAudits(events []protocol.AuditEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.audit = append(m.audit, events...)
 	return nil
 }
 

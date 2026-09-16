@@ -533,10 +533,6 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.requireAgent(w, r)
-	if !ok {
-		return
-	}
 	var in UseRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -550,15 +546,34 @@ func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 	for k, v := range in.Headers {
 		h.Add(k, v)
 	}
-	got, err := s.App.UseFetch(r.Context(), p.ID, in.Item, protocol.Fetch{
+	fetch := protocol.Fetch{
 		Method: in.Method,
 		URL:    in.URL,
 		Header: h,
 		Body:   []byte(in.Body),
-	})
+	}
+	raw := bearer(r.Header.Get("Authorization"))
+
+	var got protocol.UseResult
+	var err error
+	if app.IsSessionToken(raw) {
+		got, err = s.App.UseFetchSession(r.Context(), raw, in.Item, fetch)
+	} else {
+		var agentID string
+		agentID, err = s.resolveAgentID(r)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		got, err = s.App.UseFetch(r.Context(), agentID, in.Item, fetch)
+	}
 	if err != nil {
 		if errors.Is(err, broker.ErrOverloaded) {
 			http.Error(w, "origin overloaded", http.StatusServiceUnavailable)
+			return
+		}
+		if errors.Is(err, broker.ErrUnauthorized) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		http.Error(w, "use failed", http.StatusBadRequest)
@@ -747,6 +762,24 @@ func (s *Server) resolve(r *http.Request) (protocol.Principal, error) {
 		return s.Identity(r.Context(), raw)
 	}
 	return s.App.PrincipalFromOIDC(r.Context(), raw)
+}
+
+func (s *Server) resolveAgentID(r *http.Request) (string, error) {
+	raw := bearer(r.Header.Get("Authorization"))
+	var p protocol.Principal
+	var err error
+	if s.Identity != nil {
+		p, err = s.Identity(r.Context(), raw)
+	} else {
+		p, err = s.App.PrincipalFromOIDC(r.Context(), raw)
+	}
+	if err != nil {
+		return "", err
+	}
+	if p.Kind != protocol.PrincipalAgent {
+		return "", errors.New("not an agent")
+	}
+	return p.ID, nil
 }
 
 func (s *Server) requirePrincipal(w http.ResponseWriter, r *http.Request) (protocol.Principal, bool) {

@@ -31,7 +31,10 @@ import (
 	"github.com/vortexnyc/password-manager/internal/store"
 )
 
-var ErrOverloaded = errors.New("broker: origin overloaded")
+var (
+	ErrOverloaded  = errors.New("broker: origin overloaded")
+	ErrUnauthorized = errors.New("broker: unauthorized")
+)
 
 const defaultAuditTimeout = 500 * time.Millisecond
 
@@ -141,19 +144,48 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		defer b.useLimit.Release(1)
 	}
 
-	// Second authorization check: the agent may have been revoked between the
-	// initial resolution and this Use. Tests may pass a bare principal with no
-	// store entry; do not fail those. Unknown agents fall through to grant
-	// evaluation, which will deny as no_grant. A real store error fails closed.
-	current, err := b.Store.Agent(agent.ID)
-	if err == nil {
-		agent = current
-	} else if !errors.Is(err, store.ErrNotFound) {
+	auth, err := b.Store.UseAuth(agent.ID, req.ItemID, now)
+	if err != nil {
 		return protocol.UseResult{}, err
 	}
+	return b.useAuthorized(ctx, span, agent, req, auth, now)
+}
 
-	item, err := b.Store.Item(req.ItemID)
+func (b *Broker) UseSession(ctx context.Context, sessionHash []byte, req protocol.UseRequest) (protocol.UseResult, error) {
+	ctx, span := otel.Tracer("veil").Start(ctx, "use")
+	defer span.End()
+	now := b.now()
+
+	if b.useLimit != nil {
+		if !b.useLimit.TryAcquire(1) {
+			span.SetStatus(codes.Error, "origin_overload")
+			return protocol.UseResult{}, ErrOverloaded
+		}
+		defer b.useLimit.Release(1)
+	}
+
+	auth, err := b.Store.UseAuthSession(sessionHash, req.ItemID, now)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return protocol.UseResult{}, ErrUnauthorized
+		}
+		return protocol.UseResult{}, err
+	}
+	if auth.Agent.ID == "" {
+		return protocol.UseResult{}, ErrUnauthorized
+	}
+	return b.useAuthorized(ctx, span, auth.Agent, req, auth, now)
+}
+
+func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent protocol.Principal, req protocol.UseRequest, auth store.UseAuth, now time.Time) (protocol.UseResult, error) {
+	// Tests may pass a bare principal with no store entry; do not fail those.
+	// A real store error fails closed above. Unknown agents fall through to
+	// grant evaluation, which will deny as no_grant.
+	if auth.Agent.ID != "" {
+		agent = auth.Agent
+	}
+
+	if auth.Item.ID == "" {
 		dec := protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "item_not_found"}
 		evt := protocol.AuditEvent{
 			Time: now, OrgID: agent.OrgID, AgentID: agent.ID, ItemID: req.ItemID,
@@ -164,28 +196,19 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		spanUse(span, agent.ID, req.ItemID, dec, 0, "")
 		return dec, nil
 	}
-	g, err := b.Store.GrantFor(agent.ID, req.ItemID)
-	if err != nil {
-		return protocol.UseResult{}, err
-	}
+
+	item := auth.Item
 	target := ""
 	if req.Fetch != nil {
 		target = req.Fetch.URL
 	}
-	var appr *protocol.Approval
-	if g != nil {
-		appr, err = b.Store.LiveApproval(g.ID, now)
-		if err != nil {
-			return protocol.UseResult{}, err
-		}
-	}
 	dec := grant.Evaluate(grant.Input{
 		Principal: agent,
 		Item:      item,
-		Grant:     g,
+		Grant:     auth.Grant,
 		Action:    req.Action,
 		TargetURL: target,
-		Approval:  appr,
+		Approval:  auth.Approval,
 		Now:       now,
 	})
 
