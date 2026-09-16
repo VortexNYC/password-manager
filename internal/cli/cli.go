@@ -1556,9 +1556,15 @@ func mcpCmd(home *string) *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			if n, _ := strconv.Atoi(envOr("VEIL_MAX_IN_FLIGHT_USE", "100")); n > 0 {
-				a.Broker = broker.NewWithInFlight(a.Store, n)
+			maxInFlight := 100
+			if raw := envOr("VEIL_MAX_IN_FLIGHT_USE", "100"); raw != "" {
+				if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+					maxInFlight = n
+				} else if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: invalid VEIL_MAX_IN_FLIGHT_USE %q, using default %d\n", raw, maxInFlight)
+				}
 			}
+			a.Broker = broker.NewWithInFlight(a.Store, maxInFlight)
 			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			publicURL = mcpPublicURL(publicURL, listen)
 			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
