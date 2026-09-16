@@ -7,8 +7,8 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+	"time"
 )
 
 const consumeSession = `-- name: ConsumeSession :one
@@ -26,7 +26,7 @@ RETURNING a.id AS agent_id, a.org_id AS agent_org_id, a.owner_kind AS agent_owne
 
 type ConsumeSessionParams struct {
 	SessionHash []byte
-	Now         pgtype.Timestamptz
+	Now         time.Time
 }
 
 type ConsumeSessionRow struct {
@@ -34,7 +34,7 @@ type ConsumeSessionRow struct {
 	AgentOrgID     string
 	AgentOwnerKind string
 	AgentOwnerID   string
-	AgentRevokedAt pgtype.Timestamptz
+	AgentRevokedAt sql.NullTime
 }
 
 func (q *Queries) ConsumeSession(ctx context.Context, arg ConsumeSessionParams) (ConsumeSessionRow, error) {
@@ -90,38 +90,38 @@ LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now
 type UseAuthParams struct {
 	AgentID string
 	ItemID  string
-	Now     pgtype.Timestamptz
+	Now     time.Time
 }
 
 type UseAuthRow struct {
-	AgentID           pgtype.Text
-	AgentOrgID        pgtype.Text
-	AgentOwnerKind    pgtype.Text
-	AgentOwnerID      pgtype.Text
-	AgentRevokedAt    pgtype.Timestamptz
-	ItemID            pgtype.Text
-	ItemOrgID         pgtype.Text
-	ItemName          pgtype.Text
-	ItemKind          pgtype.Text
-	ItemOwnerKind     pgtype.Text
-	ItemOwnerID       pgtype.Text
-	ItemUris          pgtype.Text
-	ItemHasTotp       pgtype.Bool
-	ItemTags          pgtype.Text
-	ItemArchived      pgtype.Bool
-	ItemHasFile       pgtype.Bool
-	ItemLogin         pgtype.Text
-	GrantID           pgtype.Text
-	GrantOrgID        pgtype.Text
-	GrantAgentID      pgtype.Text
-	GrantItemID       pgtype.Text
-	GrantLevel        pgtype.Text
-	GrantActions      pgtype.Text
-	GrantExpiresAt    pgtype.Timestamptz
-	ApprovalID        pgtype.Text
-	ApprovalGrantID   pgtype.Text
-	ApprovalHumanID   pgtype.Text
-	ApprovalExpiresAt pgtype.Timestamptz
+	AgentID           sql.NullString
+	AgentOrgID        sql.NullString
+	AgentOwnerKind    sql.NullString
+	AgentOwnerID      sql.NullString
+	AgentRevokedAt    sql.NullTime
+	ItemID            sql.NullString
+	ItemOrgID         sql.NullString
+	ItemName          sql.NullString
+	ItemKind          sql.NullString
+	ItemOwnerKind     sql.NullString
+	ItemOwnerID       sql.NullString
+	ItemUris          sql.NullString
+	ItemHasTotp       sql.NullBool
+	ItemTags          sql.NullString
+	ItemArchived      sql.NullBool
+	ItemHasFile       sql.NullBool
+	ItemLogin         sql.NullString
+	GrantID           sql.NullString
+	GrantOrgID        sql.NullString
+	GrantAgentID      sql.NullString
+	GrantItemID       sql.NullString
+	GrantLevel        sql.NullString
+	GrantActions      sql.NullString
+	GrantExpiresAt    sql.NullTime
+	ApprovalID        sql.NullString
+	ApprovalGrantID   sql.NullString
+	ApprovalHumanID   sql.NullString
+	ApprovalExpiresAt sql.NullTime
 }
 
 func (q *Queries) UseAuth(ctx context.Context, arg UseAuthParams) (UseAuthRow, error) {
@@ -202,39 +202,39 @@ LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now
 type UseAuthSessionParams struct {
 	SessionHash []byte
 	ItemID      string
-	Now         pgtype.Timestamptz
+	Now         time.Time
 }
 
 type UseAuthSessionRow struct {
-	SessionID         pgtype.Text
-	AgentID           pgtype.Text
-	AgentOrgID        pgtype.Text
-	AgentOwnerKind    pgtype.Text
-	AgentOwnerID      pgtype.Text
-	AgentRevokedAt    pgtype.Timestamptz
-	ItemID            pgtype.Text
-	ItemOrgID         pgtype.Text
-	ItemName          pgtype.Text
-	ItemKind          pgtype.Text
-	ItemOwnerKind     pgtype.Text
-	ItemOwnerID       pgtype.Text
-	ItemUris          pgtype.Text
-	ItemHasTotp       pgtype.Bool
-	ItemTags          pgtype.Text
-	ItemArchived      pgtype.Bool
-	ItemHasFile       pgtype.Bool
-	ItemLogin         pgtype.Text
-	GrantID           pgtype.Text
-	GrantOrgID        pgtype.Text
-	GrantAgentID      pgtype.Text
-	GrantItemID       pgtype.Text
-	GrantLevel        pgtype.Text
-	GrantActions      pgtype.Text
-	GrantExpiresAt    pgtype.Timestamptz
-	ApprovalID        pgtype.Text
-	ApprovalGrantID   pgtype.Text
-	ApprovalHumanID   pgtype.Text
-	ApprovalExpiresAt pgtype.Timestamptz
+	SessionID         sql.NullString
+	AgentID           sql.NullString
+	AgentOrgID        sql.NullString
+	AgentOwnerKind    sql.NullString
+	AgentOwnerID      sql.NullString
+	AgentRevokedAt    sql.NullTime
+	ItemID            sql.NullString
+	ItemOrgID         sql.NullString
+	ItemName          sql.NullString
+	ItemKind          sql.NullString
+	ItemOwnerKind     sql.NullString
+	ItemOwnerID       sql.NullString
+	ItemUris          sql.NullString
+	ItemHasTotp       sql.NullBool
+	ItemTags          sql.NullString
+	ItemArchived      sql.NullBool
+	ItemHasFile       sql.NullBool
+	ItemLogin         sql.NullString
+	GrantID           sql.NullString
+	GrantOrgID        sql.NullString
+	GrantAgentID      sql.NullString
+	GrantItemID       sql.NullString
+	GrantLevel        sql.NullString
+	GrantActions      sql.NullString
+	GrantExpiresAt    sql.NullTime
+	ApprovalID        sql.NullString
+	ApprovalGrantID   sql.NullString
+	ApprovalHumanID   sql.NullString
+	ApprovalExpiresAt sql.NullTime
 }
 
 func (q *Queries) UseAuthSession(ctx context.Context, arg UseAuthSessionParams) (UseAuthSessionRow, error) {

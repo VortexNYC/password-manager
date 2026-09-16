@@ -2,79 +2,90 @@ package store
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/veilnyc/password-manager/internal/protocol"
 	"github.com/veilnyc/password-manager/internal/store/sqlc"
 )
 
-func useAuthRowFromSqlc(row sqlc.UseAuthRow) useAuthRow {
-	return useAuthRow{
-		aID:        sql.NullString{String: row.AgentID.String, Valid: row.AgentID.Valid},
-		aOrgID:     sql.NullString{String: row.AgentOrgID.String, Valid: row.AgentOrgID.Valid},
-		aOwnerKind: sql.NullString{String: row.AgentOwnerKind.String, Valid: row.AgentOwnerKind.Valid},
-		aOwnerID:   sql.NullString{String: row.AgentOwnerID.String, Valid: row.AgentOwnerID.Valid},
-		aRevoked:   sql.NullTime{Time: row.AgentRevokedAt.Time, Valid: row.AgentRevokedAt.Valid},
-		iID:        sql.NullString{String: row.ItemID.String, Valid: row.ItemID.Valid},
-		iOrgID:     sql.NullString{String: row.ItemOrgID.String, Valid: row.ItemOrgID.Valid},
-		iName:      sql.NullString{String: row.ItemName.String, Valid: row.ItemName.Valid},
-		iKind:      sql.NullString{String: row.ItemKind.String, Valid: row.ItemKind.Valid},
-		iOwnerKind: sql.NullString{String: row.ItemOwnerKind.String, Valid: row.ItemOwnerKind.Valid},
-		iOwnerID:   sql.NullString{String: row.ItemOwnerID.String, Valid: row.ItemOwnerID.Valid},
-		iURIs:      sql.NullString{String: row.ItemUris.String, Valid: row.ItemUris.Valid},
-		iHasTOTP:   sql.NullBool{Bool: row.ItemHasTotp.Bool, Valid: row.ItemHasTotp.Valid},
-		iTags:      sql.NullString{String: row.ItemTags.String, Valid: row.ItemTags.Valid},
-		iArchived:  sql.NullBool{Bool: row.ItemArchived.Bool, Valid: row.ItemArchived.Valid},
-		iHasFile:   sql.NullBool{Bool: row.ItemHasFile.Bool, Valid: row.ItemHasFile.Valid},
-		iLogin:     sql.NullString{String: row.ItemLogin.String, Valid: row.ItemLogin.Valid},
-		gID:        sql.NullString{String: row.GrantID.String, Valid: row.GrantID.Valid},
-		gOrgID:     sql.NullString{String: row.GrantOrgID.String, Valid: row.GrantOrgID.Valid},
-		gAgentID:   sql.NullString{String: row.GrantAgentID.String, Valid: row.GrantAgentID.Valid},
-		gItemID:    sql.NullString{String: row.GrantItemID.String, Valid: row.GrantItemID.Valid},
-		gLevel:     sql.NullString{String: row.GrantLevel.String, Valid: row.GrantLevel.Valid},
-		gActions:   sql.NullString{String: row.GrantActions.String, Valid: row.GrantActions.Valid},
-		gExpires:   sql.NullTime{Time: row.GrantExpiresAt.Time, Valid: row.GrantExpiresAt.Valid},
-		apID:       sql.NullString{String: row.ApprovalID.String, Valid: row.ApprovalID.Valid},
-		apGrantID:  sql.NullString{String: row.ApprovalGrantID.String, Valid: row.ApprovalGrantID.Valid},
-		apHumanID:  sql.NullString{String: row.ApprovalHumanID.String, Valid: row.ApprovalHumanID.Valid},
-		apExpires:  sql.NullTime{Time: row.ApprovalExpiresAt.Time, Valid: row.ApprovalExpiresAt.Valid},
+func useAuthSessionToUseAuthRow(row sqlc.UseAuthSessionRow) sqlc.UseAuthRow {
+	return sqlc.UseAuthRow{
+		AgentID:           row.AgentID,
+		AgentOrgID:        row.AgentOrgID,
+		AgentOwnerKind:    row.AgentOwnerKind,
+		AgentOwnerID:      row.AgentOwnerID,
+		AgentRevokedAt:    row.AgentRevokedAt,
+		ItemID:            row.ItemID,
+		ItemOrgID:         row.ItemOrgID,
+		ItemName:          row.ItemName,
+		ItemKind:          row.ItemKind,
+		ItemOwnerKind:     row.ItemOwnerKind,
+		ItemOwnerID:       row.ItemOwnerID,
+		ItemUris:          row.ItemUris,
+		ItemHasTotp:       row.ItemHasTotp,
+		ItemTags:          row.ItemTags,
+		ItemArchived:      row.ItemArchived,
+		ItemHasFile:       row.ItemHasFile,
+		ItemLogin:         row.ItemLogin,
+		GrantID:           row.GrantID,
+		GrantOrgID:        row.GrantOrgID,
+		GrantAgentID:      row.GrantAgentID,
+		GrantItemID:       row.GrantItemID,
+		GrantLevel:        row.GrantLevel,
+		GrantActions:      row.GrantActions,
+		GrantExpiresAt:    row.GrantExpiresAt,
+		ApprovalID:        row.ApprovalID,
+		ApprovalGrantID:   row.ApprovalGrantID,
+		ApprovalHumanID:   row.ApprovalHumanID,
+		ApprovalExpiresAt: row.ApprovalExpiresAt,
 	}
 }
 
-func useAuthRowFromSqlcSession(row sqlc.UseAuthSessionRow) useAuthRow {
-	return useAuthRow{
-		aID:        sql.NullString{String: row.AgentID.String, Valid: row.AgentID.Valid},
-		aOrgID:     sql.NullString{String: row.AgentOrgID.String, Valid: row.AgentOrgID.Valid},
-		aOwnerKind: sql.NullString{String: row.AgentOwnerKind.String, Valid: row.AgentOwnerKind.Valid},
-		aOwnerID:   sql.NullString{String: row.AgentOwnerID.String, Valid: row.AgentOwnerID.Valid},
-		aRevoked:   sql.NullTime{Time: row.AgentRevokedAt.Time, Valid: row.AgentRevokedAt.Valid},
-		iID:        sql.NullString{String: row.ItemID.String, Valid: row.ItemID.Valid},
-		iOrgID:     sql.NullString{String: row.ItemOrgID.String, Valid: row.ItemOrgID.Valid},
-		iName:      sql.NullString{String: row.ItemName.String, Valid: row.ItemName.Valid},
-		iKind:      sql.NullString{String: row.ItemKind.String, Valid: row.ItemKind.Valid},
-		iOwnerKind: sql.NullString{String: row.ItemOwnerKind.String, Valid: row.ItemOwnerKind.Valid},
-		iOwnerID:   sql.NullString{String: row.ItemOwnerID.String, Valid: row.ItemOwnerID.Valid},
-		iURIs:      sql.NullString{String: row.ItemUris.String, Valid: row.ItemUris.Valid},
-		iHasTOTP:   sql.NullBool{Bool: row.ItemHasTotp.Bool, Valid: row.ItemHasTotp.Valid},
-		iTags:      sql.NullString{String: row.ItemTags.String, Valid: row.ItemTags.Valid},
-		iArchived:  sql.NullBool{Bool: row.ItemArchived.Bool, Valid: row.ItemArchived.Valid},
-		iHasFile:   sql.NullBool{Bool: row.ItemHasFile.Bool, Valid: row.ItemHasFile.Valid},
-		iLogin:     sql.NullString{String: row.ItemLogin.String, Valid: row.ItemLogin.Valid},
-		gID:        sql.NullString{String: row.GrantID.String, Valid: row.GrantID.Valid},
-		gOrgID:     sql.NullString{String: row.GrantOrgID.String, Valid: row.GrantOrgID.Valid},
-		gAgentID:   sql.NullString{String: row.GrantAgentID.String, Valid: row.GrantAgentID.Valid},
-		gItemID:    sql.NullString{String: row.GrantItemID.String, Valid: row.GrantItemID.Valid},
-		gLevel:     sql.NullString{String: row.GrantLevel.String, Valid: row.GrantLevel.Valid},
-		gActions:   sql.NullString{String: row.GrantActions.String, Valid: row.GrantActions.Valid},
-		gExpires:   sql.NullTime{Time: row.GrantExpiresAt.Time, Valid: row.GrantExpiresAt.Valid},
-		apID:       sql.NullString{String: row.ApprovalID.String, Valid: row.ApprovalID.Valid},
-		apGrantID:  sql.NullString{String: row.ApprovalGrantID.String, Valid: row.ApprovalGrantID.Valid},
-		apHumanID:  sql.NullString{String: row.ApprovalHumanID.String, Valid: row.ApprovalHumanID.Valid},
-		apExpires:  sql.NullTime{Time: row.ApprovalExpiresAt.Time, Valid: row.ApprovalExpiresAt.Valid},
+func useAuthFromSqlcRow(r *sqlc.UseAuthRow) (UseAuth, error) {
+	var out UseAuth
+	if r.AgentID.Valid && r.AgentID.String != "" {
+		out.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: r.AgentID.String, OrgID: r.AgentOrgID.String}
+		out.Agent.Owner.Kind = protocol.OwnerKind(r.AgentOwnerKind.String)
+		out.Agent.Owner.ID = r.AgentOwnerID.String
+		if r.AgentRevokedAt.Valid {
+			t := r.AgentRevokedAt.Time.UTC()
+			out.Agent.RevokedAt = &t
+		}
 	}
+	if r.ItemID.Valid && r.ItemID.String != "" {
+		out.Item = protocol.Item{ID: r.ItemID.String, OrgID: r.ItemOrgID.String, Name: r.ItemName.String, Kind: protocol.ItemKind(r.ItemKind.String)}
+		out.Item.Owner.Kind = protocol.OwnerKind(r.ItemOwnerKind.String)
+		out.Item.Owner.ID = r.ItemOwnerID.String
+		if r.ItemUris.Valid && r.ItemUris.String != "" {
+			_ = json.Unmarshal([]byte(r.ItemUris.String), &out.Item.URIs)
+		}
+		if r.ItemTags.Valid && r.ItemTags.String != "" {
+			_ = json.Unmarshal([]byte(r.ItemTags.String), &out.Item.Tags)
+		}
+		out.Item.HasTOTP = r.ItemHasTotp.Bool
+		out.Item.Archived = r.ItemArchived.Bool
+		out.Item.HasFile = r.ItemHasFile.Bool
+		out.Item.Login = r.ItemLogin.String
+	}
+	if r.GrantID.Valid && r.GrantID.String != "" {
+		g := &protocol.Grant{ID: r.GrantID.String, OrgID: r.GrantOrgID.String, AgentID: r.GrantAgentID.String, ItemID: r.GrantItemID.String, Level: protocol.GrantLevel(r.GrantLevel.String)}
+		if r.GrantActions.Valid && r.GrantActions.String != "" {
+			_ = json.Unmarshal([]byte(r.GrantActions.String), &g.Actions)
+		}
+		if r.GrantExpiresAt.Valid {
+			t := r.GrantExpiresAt.Time.UTC()
+			g.ExpiresAt = &t
+		}
+		out.Grant = g
+	}
+	if r.ApprovalID.Valid && r.ApprovalID.String != "" {
+		if r.ApprovalExpiresAt.Valid {
+			out.Approval = &protocol.Approval{ID: r.ApprovalID.String, GrantID: r.ApprovalGrantID.String, HumanID: r.ApprovalHumanID.String, ExpiresAt: r.ApprovalExpiresAt.Time.UTC()}
+		}
+	}
+	return out, nil
 }
 
 func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
@@ -82,13 +93,12 @@ func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, erro
 	row, err := p.sqlc.UseAuth(ctx, sqlc.UseAuthParams{
 		AgentID: agentID,
 		ItemID:  itemID,
-		Now:     pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+		Now:     now.UTC(),
 	})
 	if err != nil {
 		return UseAuth{}, err
 	}
-	r := useAuthRowFromSqlc(row)
-	return useAuthFromRow(&r)
+	return useAuthFromSqlcRow(&row)
 }
 
 func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
@@ -96,7 +106,7 @@ func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Ti
 	row, err := p.sqlc.UseAuthSession(ctx, sqlc.UseAuthSessionParams{
 		SessionHash: sessionHash,
 		ItemID:      itemID,
-		Now:         pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+		Now:         now.UTC(),
 	})
 	if err != nil {
 		return UseAuth{}, err
@@ -104,15 +114,15 @@ func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Ti
 	if !row.SessionID.Valid || row.SessionID.String == "" || !row.AgentID.Valid || row.AgentID.String == "" {
 		return UseAuth{}, ErrNotFound
 	}
-	r := useAuthRowFromSqlcSession(row)
-	return useAuthFromRow(&r)
+	r := useAuthSessionToUseAuthRow(row)
+	return useAuthFromSqlcRow(&r)
 }
 
 func (p *Postgres) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
 	ctx := context.Background()
 	row, err := p.sqlc.ConsumeSession(ctx, sqlc.ConsumeSessionParams{
 		SessionHash: sessionHash,
-		Now:         pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+		Now:         now.UTC(),
 	})
 	if err != nil {
 		if err == pgx.ErrNoRows {

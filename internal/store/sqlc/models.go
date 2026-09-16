@@ -5,7 +5,8 @@
 package sqlc
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+	"time"
 )
 
 type Agent struct {
@@ -13,19 +14,19 @@ type Agent struct {
 	OrgID     string
 	OwnerKind string
 	OwnerID   string
-	RevokedAt pgtype.Timestamptz
+	RevokedAt sql.NullTime
 }
 
 type Approval struct {
 	GrantID   string
 	ID        string
 	HumanID   string
-	ExpiresAt pgtype.Timestamptz
+	ExpiresAt time.Time
 }
 
 type Audit struct {
 	ID         int64
-	At         pgtype.Timestamptz
+	At         time.Time
 	OrgID      string
 	AgentID    string
 	ItemID     string
@@ -42,7 +43,7 @@ type Grant struct {
 	ItemID    string
 	Level     string
 	Actions   string
-	ExpiresAt pgtype.Timestamptz
+	ExpiresAt sql.NullTime
 }
 
 type Human struct {
@@ -69,7 +70,7 @@ type Item struct {
 type ItemVersion struct {
 	ID     int64
 	ItemID string
-	At     pgtype.Timestamptz
+	At     time.Time
 	Secret []byte
 }
 
@@ -84,10 +85,10 @@ type Session struct {
 	OrgID      string
 	AgentID    string
 	SecretHash []byte
-	ExpiresAt  pgtype.Timestamptz
-	CreatedAt  pgtype.Timestamptz
-	RevokedAt  pgtype.Timestamptz
-	RenewedAt  pgtype.Timestamptz
+	ExpiresAt  time.Time
+	CreatedAt  time.Time
+	RevokedAt  sql.NullTime
+	RenewedAt  sql.NullTime
 	Ttl        int64
 	MaxTtl     int64
 	MaxUses    int32

@@ -597,64 +597,6 @@ func (p *Postgres) Secret(id string) (Secret, error) {
 	return Secret(plain), nil
 }
 
-type useAuthRow struct {
-	aID, aOrgID, aOwnerKind, aOwnerID                                 sql.NullString
-	aRevoked                                                          sql.NullTime
-	iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID                   sql.NullString
-	iURIs, iTags                                                      sql.NullString
-	iHasTOTP, iArchived, iHasFile                                     sql.NullBool
-	iLogin                                                            sql.NullString
-	gID, gOrgID, gAgentID, gItemID, gLevel, gActions                  sql.NullString
-	gExpires                                                          sql.NullTime
-	apID, apGrantID, apHumanID                                        sql.NullString
-	apExpires                                                         sql.NullTime
-}
-
-func useAuthFromRow(r *useAuthRow) (UseAuth, error) {
-	var out UseAuth
-	if r.aID.Valid && r.aID.String != "" {
-		out.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: r.aID.String, OrgID: r.aOrgID.String}
-		out.Agent.Owner.Kind = protocol.OwnerKind(r.aOwnerKind.String)
-		out.Agent.Owner.ID = r.aOwnerID.String
-		if r.aRevoked.Valid {
-			t := r.aRevoked.Time.UTC()
-			out.Agent.RevokedAt = &t
-		}
-	}
-	if r.iID.Valid && r.iID.String != "" {
-		out.Item = protocol.Item{ID: r.iID.String, OrgID: r.iOrgID.String, Name: r.iName.String, Kind: protocol.ItemKind(r.iKind.String)}
-		out.Item.Owner.Kind = protocol.OwnerKind(r.iOwnerKind.String)
-		out.Item.Owner.ID = r.iOwnerID.String
-		if r.iURIs.Valid && r.iURIs.String != "" {
-			_ = json.Unmarshal([]byte(r.iURIs.String), &out.Item.URIs)
-		}
-		if r.iTags.Valid && r.iTags.String != "" {
-			_ = json.Unmarshal([]byte(r.iTags.String), &out.Item.Tags)
-		}
-		out.Item.HasTOTP = r.iHasTOTP.Bool
-		out.Item.Archived = r.iArchived.Bool
-		out.Item.HasFile = r.iHasFile.Bool
-		out.Item.Login = r.iLogin.String
-	}
-	if r.gID.Valid && r.gID.String != "" {
-		g := &protocol.Grant{ID: r.gID.String, OrgID: r.gOrgID.String, AgentID: r.gAgentID.String, ItemID: r.gItemID.String, Level: protocol.GrantLevel(r.gLevel.String)}
-		if r.gActions.Valid && r.gActions.String != "" {
-			_ = json.Unmarshal([]byte(r.gActions.String), &g.Actions)
-		}
-		if r.gExpires.Valid {
-			t := r.gExpires.Time.UTC()
-			g.ExpiresAt = &t
-		}
-		out.Grant = g
-	}
-	if r.apID.Valid && r.apID.String != "" {
-		if r.apExpires.Valid {
-			out.Approval = &protocol.Approval{ID: r.apID.String, GrantID: r.apGrantID.String, HumanID: r.apHumanID.String, ExpiresAt: r.apExpires.Time.UTC()}
-		}
-	}
-	return out, nil
-}
-
 func (p *Postgres) PutGrant(g protocol.Grant) error {
 	ctx := context.Background()
 	actions, err := json.Marshal(g.Actions)
