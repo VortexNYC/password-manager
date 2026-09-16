@@ -149,6 +149,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if dump := os.Getenv("LOADTEST_DUMP_TOKENS"); dump != "" {
+		if err := os.WriteFile(dump, []byte(strings.Join(tokens, "\n")+"\n"), 0o600); err != nil {
+			return fmt.Errorf("dump tokens: %w", err)
+		}
+	}
 
 	useProxyDefault := "1"
 	if mode == "process" || mode == "external" {
@@ -210,11 +215,7 @@ func run() error {
 	)
 	k6Cmd.Stdout = os.Stdout
 	k6Cmd.Stderr = os.Stderr
-	if err := k6Cmd.Run(); err != nil {
-		pprof.StopCPUProfile()
-		_ = cpuF.Close()
-		return fmt.Errorf("k6 run: %w", err)
-	}
+	k6Err := k6Cmd.Run()
 
 	pprof.StopCPUProfile()
 	_ = cpuF.Close()
@@ -242,6 +243,9 @@ func run() error {
 
 	_ = agent
 	_ = sessions
+	if k6Err != nil {
+		return fmt.Errorf("k6 run: %w", k6Err)
+	}
 	return nil
 }
 
@@ -365,9 +369,9 @@ func originBinary() (string, error) {
 	if p := os.Getenv("LOADTEST_ORIGIN_BINARY"); p != "" {
 		return p, nil
 	}
-	if p, err := exec.LookPath("password-manager"); err == nil {
-		return p, nil
-	}
+	// Build from the working tree, never exec.LookPath: a stale installed
+	// binary silently skews the measurement (observed: 100% 401s from a
+	// day-old build with a different session path).
 	root, err := repoRoot()
 	if err != nil {
 		return "", fmt.Errorf("find repo root: %w", err)
@@ -470,22 +474,37 @@ func seed(a *app.App, upstreamURL string, n int) (protocol.Principal, protocol.I
 	agentName := envOr("LOADTEST_AGENT", "loadtest-agent")
 	itemName := envOr("LOADTEST_ITEM", "loadtest-item")
 	secret := []byte(envOr("LOADTEST_SECRET", "sk_live_loadtest_secret"))
+	numAgents := envOrInt("LOADTEST_AGENTS", 1)
+	if numAgents < 1 {
+		numAgents = 1
+	}
 
-	agent, err := a.AddAgent(agentName)
-	if err != nil {
-		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add agent: %w", err)
+	agents := make([]protocol.Principal, 0, numAgents)
+	for i := 0; i < numAgents; i++ {
+		name := agentName
+		if numAgents > 1 {
+			name = fmt.Sprintf("%s-%d", agentName, i)
+		}
+		agent, err := a.AddAgent(name)
+		if err != nil {
+			return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add agent %d: %w", i, err)
+		}
+		agents = append(agents, agent)
 	}
 	item, err := a.AddItem(itemName, upstreamURL, secret)
 	if err != nil {
 		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add item: %w", err)
 	}
-	if _, err := a.AddGrant(agent.ID, item.ID, protocol.Level2); err != nil {
-		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add grant: %w", err)
+	for _, agent := range agents {
+		if _, err := a.AddGrant(agent.ID, item.ID, protocol.Level2); err != nil {
+			return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add grant: %w", err)
+		}
 	}
 	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
 	sessions := make([]protocol.Session, 0, n)
 	tokens := make([]string, 0, n)
 	for i := 0; i < n; i++ {
+		agent := agents[i%len(agents)]
 		session, token, err := a.CreateSession(human, agent.ID, time.Hour, 0)
 		if err != nil {
 			return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("create session %d: %w", i, err)
@@ -493,8 +512,8 @@ func seed(a *app.App, upstreamURL string, n int) (protocol.Principal, protocol.I
 		sessions = append(sessions, session)
 		tokens = append(tokens, token)
 	}
-	slog.Warn("seeded", "agent", agent.ID, "item", item.ID, "sessions", len(sessions))
-	return agent, item, sessions, tokens, nil
+	slog.Warn("seeded", "agents", len(agents), "item", item.ID, "sessions", len(sessions))
+	return agents[0], item, sessions, tokens, nil
 }
 
 func startProxy(origins []*origin) (string, error) {
