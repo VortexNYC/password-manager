@@ -189,7 +189,7 @@ export type Session = {
      */
     max_uses: number;
     /**
-     * Successful Use calls consumed.
+     * Use calls that passed authorization and reached upstream consumption.
      */
     uses: number;
 };
@@ -224,6 +224,9 @@ export type CreateSessionResponse = {
     ttl: number;
     max_ttl: number;
     max_uses: number;
+    /**
+     * Use calls that passed authorization and reached upstream consumption.
+     */
     uses: number;
     token: string;
 };

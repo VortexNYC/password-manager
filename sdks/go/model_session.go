@@ -35,7 +35,7 @@ type Session struct {
 	MaxTtl int32 `json:"max_ttl"`
 	// Maximum successful Use calls. 0 = unlimited.
 	MaxUses int32 `json:"max_uses"`
-	// Successful Use calls consumed.
+	// Use calls that passed authorization and reached upstream consumption.
 	Uses int32 `json:"uses"`
 }
 

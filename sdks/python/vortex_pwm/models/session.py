@@ -38,7 +38,7 @@ class Session(BaseModel):
     ttl: StrictInt = Field(description="Initial lease duration in seconds.")
     max_ttl: StrictInt = Field(description="Maximum cumulative lifetime in seconds.")
     max_uses: StrictInt = Field(description="Maximum successful Use calls. 0 = unlimited.")
-    uses: StrictInt = Field(description="Successful Use calls consumed.")
+    uses: StrictInt = Field(description="Use calls that passed authorization and reached upstream consumption.")
     __properties: ClassVar[List[str]] = ["id", "org_id", "agent_id", "expires_at", "created_at", "revoked_at", "renewed_at", "ttl", "max_ttl", "max_uses", "uses"]
 
     model_config = ConfigDict(

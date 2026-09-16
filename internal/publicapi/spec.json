@@ -610,7 +610,7 @@
           "ttl": { "type": "integer", "description": "Initial lease duration in seconds." },
           "max_ttl": { "type": "integer", "description": "Maximum cumulative lifetime in seconds." },
           "max_uses": { "type": "integer", "description": "Maximum successful Use calls. 0 = unlimited." },
-          "uses": { "type": "integer", "description": "Successful Use calls consumed." }
+          "uses": { "type": "integer", "description": "Use calls that passed authorization and reached upstream consumption." }
         }
       },
       "SessionsResponse": {
@@ -650,7 +650,7 @@
           "ttl": { "type": "integer" },
           "max_ttl": { "type": "integer" },
           "max_uses": { "type": "integer" },
-          "uses": { "type": "integer" },
+          "uses": { "type": "integer", "description": "Use calls that passed authorization and reached upstream consumption." },
           "token": { "type": "string" }
         }
       },

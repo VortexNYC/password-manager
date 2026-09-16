@@ -207,5 +207,5 @@ type Session struct {
 	TTL       int64      `json:"ttl"`      // seconds
 	MaxTTL    int64      `json:"max_ttl"`  // seconds
 	MaxUses   int        `json:"max_uses"` // 0 = unlimited
-	Uses      int        `json:"uses"`     // successful Use calls consumed
+	Uses      int        `json:"uses"`     // Use calls that passed authorization and reached upstream consumption
 }

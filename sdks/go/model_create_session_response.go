@@ -32,6 +32,7 @@ type CreateSessionResponse struct {
 	Ttl int32 `json:"ttl"`
 	MaxTtl int32 `json:"max_ttl"`
 	MaxUses int32 `json:"max_uses"`
+	// Use calls that passed authorization and reached upstream consumption.
 	Uses int32 `json:"uses"`
 	Token string `json:"token"`
 }

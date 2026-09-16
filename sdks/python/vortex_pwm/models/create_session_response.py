@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -38,7 +38,7 @@ class CreateSessionResponse(BaseModel):
     ttl: StrictInt
     max_ttl: StrictInt
     max_uses: StrictInt
-    uses: StrictInt
+    uses: StrictInt = Field(description="Use calls that passed authorization and reached upstream consumption.")
     token: StrictStr
     __properties: ClassVar[List[str]] = ["id", "org_id", "agent_id", "expires_at", "created_at", "revoked_at", "renewed_at", "ttl", "max_ttl", "max_uses", "uses", "token"]
 

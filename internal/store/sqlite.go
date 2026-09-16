@@ -182,6 +182,11 @@ func (s *SQLite) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN max_ttl INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN uses INTEGER NOT NULL DEFAULT 0`)
+	// Legacy rows predate the lifecycle columns. Give them usable
+	// created_at/ttl/max_ttl so RenewSession can extend them.
+	_, _ = s.db.Exec(`UPDATE sessions SET created_at = expires_at WHERE created_at = 0`)
+	_, _ = s.db.Exec(`UPDATE sessions SET ttl = 900 WHERE ttl = 0`)
+	_, _ = s.db.Exec(`UPDATE sessions SET max_ttl = 3600 WHERE max_ttl = 0`)
 	if err := s.dropItemsNameUnique(); err != nil {
 		return err
 	}
