@@ -59,6 +59,9 @@ func (m *Memory) ListAgents() ([]protocol.Principal, error) {
 	for _, p := range m.agents {
 		out = append(out, p)
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -112,6 +115,9 @@ func (m *Memory) ListHumans() ([]protocol.Principal, error) {
 	for _, p := range m.humans {
 		out = append(out, p)
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -162,6 +168,9 @@ func (m *Memory) ListItems() ([]protocol.Item, error) {
 		}
 		out = append(out, item)
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -210,6 +219,10 @@ func (m *Memory) Versions(itemID string) ([]protocol.ItemVersion, error) {
 		if v.ItemID == itemID {
 			out = append(out, v)
 		}
+	}
+	// Bound to the newest maxListResults and keep chronological order.
+	if len(out) > maxListResults {
+		out = out[len(out)-maxListResults:]
 	}
 	return out, nil
 }
@@ -299,6 +312,9 @@ func (m *Memory) ListGrants() ([]protocol.Grant, error) {
 	for _, g := range m.grants {
 		out = append(out, g)
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -333,8 +349,12 @@ func (m *Memory) AppendAudit(e protocol.AuditEvent) error {
 func (m *Memory) Audit() ([]protocol.AuditEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]protocol.AuditEvent, len(m.audit))
-	copy(out, m.audit)
+	n := len(m.audit)
+	if n > maxListResults {
+		n = maxListResults
+	}
+	out := make([]protocol.AuditEvent, n)
+	copy(out, m.audit[len(m.audit)-n:])
 	return out, nil
 }
 
@@ -367,6 +387,9 @@ func (m *Memory) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) 
 			out = append(out, w)
 		}
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -395,6 +418,9 @@ func (m *Memory) ListSessions() ([]protocol.Session, error) {
 	out := make([]protocol.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
 		out = append(out, s)
+	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
 	}
 	return out, nil
 }

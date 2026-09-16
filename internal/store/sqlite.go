@@ -1,11 +1,12 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/crypto"
@@ -15,26 +16,61 @@ import (
 )
 
 type SQLite struct {
-	db   *sql.DB
-	key  []byte
-	mu   sync.Mutex
-	deks map[string][]byte
+	db *sql.DB
+	km *keyManager
 }
 
 func OpenSQLite(path string, key []byte) (*SQLite, error) {
 	if len(key) != crypto.KeySize {
 		return nil, fmt.Errorf("store: key must be %d bytes", crypto.KeySize)
 	}
-	db, err := sql.Open("sqlite", path)
+
+	dsn := sqliteDSN(path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	s := &SQLite{db: db, key: append([]byte(nil), key...), deks: map[string][]byte{}}
+
+	// In-memory databases are per-connection; keep the pool to one so a test
+	// cannot open a second empty database. File-backed vaults can use a few
+	// connections with busy-timeout queuing.
+	if path == ":memory:" || strings.HasPrefix(path, "file::memory:") {
+		db.SetMaxOpenConns(1)
+	} else {
+		db.SetMaxOpenConns(4)
+	}
+	db.SetConnMaxLifetime(time.Hour)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
+	s := &SQLite{db: db, km: newKeyManager(key)}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+func sqliteDSN(path string) string {
+	// The modernc driver accepts either a bare filename or a file: URI. Build
+	// the DSN so connection-level pragmas are set on every pooled connection.
+	u, err := url.Parse(path)
+	if err == nil && (u.Scheme == "file" || u.Scheme == "") && path != ":memory:" && !strings.HasPrefix(path, "file::memory:") {
+		q := u.Query()
+		q.Set("_busy_timeout", "5000")
+		q.Set("_journal_mode", "wal")
+		q.Set("_fk", "1")
+		q.Set("_txlock", "immediate")
+		u.RawQuery = q.Encode()
+		return u.String()
+	}
+
+	// For paths that do not parse as a simple URL (including :memory:),
+	// append query parameters directly.
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_busy_timeout=5000&_journal_mode=wal&_fk=1&_txlock=immediate"
 }
 
 func (s *SQLite) migrate() error {
@@ -115,6 +151,10 @@ func (s *SQLite) migrate() error {
 			expires_at INTEGER NOT NULL,
 			UNIQUE(secret_hash)
 		)`,
+		`CREATE TABLE IF NOT EXISTS schema_version (
+			name TEXT PRIMARY KEY,
+			version INTEGER NOT NULL
+		)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return err
@@ -131,7 +171,24 @@ func (s *SQLite) migrate() error {
 	if err := s.dropItemsNameUnique(); err != nil {
 		return err
 	}
-	return s.rewrapLegacy()
+	if err := s.rewrapLegacy(); err != nil {
+		return err
+	}
+	for _, q := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_items_org_name ON items(org_id, name)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_org_archived_name ON items(org_id, archived, name)`,
+		`CREATE INDEX IF NOT EXISTS idx_grants_item ON grants(item_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_agent_at ON audit(agent_id, at)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_item_versions_item ON item_versions(item_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_workloads_issuer ON workloads(issuer)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SQLite) dropItemsNameUnique() error {
@@ -228,7 +285,7 @@ func (s *SQLite) Agent(id string) (protocol.Principal, error) {
 }
 
 func (s *SQLite) ListAgents() ([]protocol.Principal, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +374,7 @@ func (s *SQLite) Human(id string) (protocol.Principal, error) {
 }
 
 func (s *SQLite) ListHumans() ([]protocol.Principal, error) {
-	rows, err := s.db.Query(`SELECT id, org_id FROM humans ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id FROM humans ORDER BY id LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -334,24 +391,26 @@ func (s *SQLite) ListHumans() ([]protocol.Principal, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) snapshot(id string) error {
+type sqlExecer interface {
+	QueryRow(string, ...interface{}) *sql.Row
+	Exec(string, ...interface{}) (sql.Result, error)
+}
+
+func (s *SQLite) snapshot(c sqlExecer, id string) error {
 	var blob []byte
-	err := s.db.QueryRow(`SELECT secret FROM items WHERE id=?`, id).Scan(&blob)
+	err := c.QueryRow(`SELECT secret FROM items WHERE id=?`, id).Scan(&blob)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO item_versions(item_id, at, secret) VALUES(?,?,?)`,
+	_, err = c.Exec(`INSERT INTO item_versions(item_id, at, secret) VALUES(?,?,?)`,
 		id, time.Now().UTC().Format(time.RFC3339Nano), blob)
 	return err
 }
 
 func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
-	if err := s.snapshot(item.ID); err != nil {
-		return err
-	}
 	uris, err := json.Marshal(item.URIs)
 	if err != nil {
 		return err
@@ -386,7 +445,32 @@ func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
 	if item.HasFile {
 		hf = 1
 	}
-	_, err = s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var existingOwner protocol.Owner
+	err = tx.QueryRow(`SELECT owner_kind, owner_id FROM items WHERE id=?`, item.ID).Scan(&existingOwner.Kind, &existingOwner.ID)
+	if err == nil {
+		if existingOwner != item.Owner {
+			return fmt.Errorf("store: cannot change item owner")
+		}
+	} else if err != sql.ErrNoRows {
+		return err
+	}
+
+	if err := s.snapshot(tx, item.ID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
@@ -395,7 +479,14 @@ func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
 			tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file,
 			login=excluded.login`,
 		item.ID, item.OrgID, item.Name, item.Kind, item.Owner.Kind, item.Owner.ID, uris, blob, has, tags, arch, hf, item.Login)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (s *SQLite) scanItem(scan func(dest ...any) error) (protocol.Item, error) {
@@ -432,7 +523,7 @@ func (s *SQLite) ItemByName(orgID, name string) (protocol.Item, error) {
 }
 
 func (s *SQLite) ListItems() ([]protocol.Item, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE archived=0 ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE archived=0 ORDER BY name LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +576,9 @@ func (s *SQLite) DeleteItem(id string) error {
 }
 
 func (s *SQLite) Versions(itemID string) ([]protocol.ItemVersion, error) {
-	rows, err := s.db.Query(`SELECT id, item_id, at FROM item_versions WHERE item_id=? ORDER BY id`, itemID)
+	// Keep the newest maxListResults snapshots, then return them in
+	// chronological order (oldest first) so callers can restore by index.
+	rows, err := s.db.Query(`SELECT id, item_id, at FROM item_versions WHERE item_id=? ORDER BY id DESC LIMIT ?`, itemID, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -500,23 +593,47 @@ func (s *SQLite) Versions(itemID string) ([]protocol.ItemVersion, error) {
 		v.Time, _ = time.Parse(time.RFC3339Nano, at)
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
 }
 
 func (s *SQLite) RestoreVersion(itemID string, versionID int64) error {
-	if err := s.snapshot(itemID); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err := s.snapshot(tx, itemID); err != nil {
 		return err
 	}
 	var blob []byte
-	err := s.db.QueryRow(`SELECT secret FROM item_versions WHERE id=? AND item_id=?`, versionID, itemID).Scan(&blob)
+	err = tx.QueryRow(`SELECT secret FROM item_versions WHERE id=? AND item_id=?`, versionID, itemID).Scan(&blob)
 	if err == sql.ErrNoRows {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, itemID)
-	return err
+	_, err = tx.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, itemID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (s *SQLite) Secret(id string) (Secret, error) {
@@ -594,7 +711,7 @@ func (s *SQLite) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
 }
 
 func (s *SQLite) ListGrants() ([]protocol.Grant, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants ORDER BY id LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -643,12 +760,12 @@ func (s *SQLite) AppendAudit(e protocol.AuditEvent) error {
 }
 
 func (s *SQLite) Audit() ([]protocol.AuditEvent, error) {
-	rows, err := s.db.Query(`SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY rowid`)
+	rows, err := s.db.Query(`SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY rowid DESC LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []protocol.AuditEvent
+	var rev []protocol.AuditEvent
 	for rows.Next() {
 		var e protocol.AuditEvent
 		var at string
@@ -656,9 +773,16 @@ func (s *SQLite) Audit() ([]protocol.AuditEvent, error) {
 			return nil, err
 		}
 		e.Time, _ = time.Parse(time.RFC3339Nano, at)
-		out = append(out, e)
+		rev = append(rev, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]protocol.AuditEvent, len(rev))
+	for i := range rev {
+		out[i] = rev[len(rev)-1-i]
+	}
+	return out, nil
 }
 
 func (s *SQLite) PutWorkload(w protocol.Workload) error {
@@ -684,7 +808,7 @@ func (s *SQLite) Workload(issuer, subject string) (*protocol.Workload, error) {
 }
 
 func (s *SQLite) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) {
-	rows, err := s.db.Query(`SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=?`, issuer)
+	rows, err := s.db.Query(`SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=? ORDER BY subject LIMIT ?`, issuer, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -723,7 +847,7 @@ func (s *SQLite) SessionByHash(secretHash []byte) (protocol.Session, error) {
 }
 
 func (s *SQLite) ListSessions() ([]protocol.Session, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at`)
+	rows, err := s.db.Query(`SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -739,4 +863,194 @@ func (s *SQLite) ListSessions() ([]protocol.Session, error) {
 		out = append(out, sess)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLite) ownerDEK(o protocol.Owner) ([]byte, error) {
+	return s.km.ownerDEK(context.Background(), s, o)
+}
+
+func (s *SQLite) loadOwnerWrapped(ctx context.Context, o protocol.Owner) ([]byte, error) {
+	var wrapped []byte
+	err := s.db.QueryRow(`SELECT wrapped FROM owner_keys WHERE owner_kind=? AND owner_id=?`, o.Kind, o.ID).Scan(&wrapped)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return wrapped, err
+}
+
+func (s *SQLite) storeOwnerWrapped(ctx context.Context, o protocol.Owner, wrapped []byte) error {
+	_, err := s.db.Exec(`INSERT INTO owner_keys(owner_kind, owner_id, wrapped) VALUES(?,?,?)
+		ON CONFLICT(owner_kind, owner_id) DO NOTHING`, o.Kind, o.ID, wrapped)
+	return err
+}
+
+type sqliteTxSource struct {
+	tx *sql.Tx
+}
+
+func (ts sqliteTxSource) loadOwnerWrapped(ctx context.Context, o protocol.Owner) ([]byte, error) {
+	var wrapped []byte
+	err := ts.tx.QueryRowContext(ctx, `SELECT wrapped FROM owner_keys WHERE owner_kind=? AND owner_id=?`, o.Kind, o.ID).Scan(&wrapped)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return wrapped, err
+}
+
+func (ts sqliteTxSource) storeOwnerWrapped(ctx context.Context, o protocol.Owner, wrapped []byte) error {
+	_, err := ts.tx.ExecContext(ctx, `INSERT INTO owner_keys(owner_kind, owner_id, wrapped) VALUES(?,?,?)
+		ON CONFLICT(owner_kind, owner_id) DO NOTHING`, o.Kind, o.ID, wrapped)
+	return err
+}
+
+// rewrapLegacy moves secrets sealed with master onto the owner DEK.
+// Existing vaults stay readable. The grant still does not get a key.
+// It is idempotent and tracks completion in schema_version.
+func (s *SQLite) rewrapLegacy() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	var committed bool
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+			s.km.mu.Lock()
+			s.km.deks = map[string][]byte{}
+			s.km.mu.Unlock()
+		}
+	}()
+
+	var version int
+	err = tx.QueryRow(`SELECT version FROM schema_version WHERE name='rewrap_legacy'`).Scan(&version)
+	if err == nil && version >= 1 {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	} else if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	ts := sqliteTxSource{tx: tx}
+
+	// Rewrap current item secrets.
+	items, err := tx.Query(`SELECT id, owner_kind, owner_id, secret FROM items`)
+	if err != nil {
+		return err
+	}
+	_, resolvedItems, totalItems, err := s.rewrapRows(items, ts, func(id string, blob []byte) error {
+		_, err := tx.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	// Rewrap historical item versions with their item's owner.
+	vers, err := tx.Query(`SELECT v.id, i.owner_kind, i.owner_id, v.secret FROM item_versions v JOIN items i ON v.item_id = i.id`)
+	if err != nil {
+		return err
+	}
+	_, resolvedVersions, totalVersions, err := s.rewrapRows(vers, ts, func(id string, blob []byte) error {
+		_, err := tx.Exec(`UPDATE item_versions SET secret=? WHERE id=?`, blob, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	// Mark complete only once the vault has at least one item/version and every
+	// row in this transaction has been verified owner-sealed or rewrapped. Empty
+	// vaults are not marked so a legacy secret copied into the file before the
+	// next open will still be rewrapped.
+	if totalItems+totalVersions > 0 && resolvedItems == totalItems && resolvedVersions == totalVersions {
+		if _, err := tx.Exec(`INSERT INTO schema_version(name, version) VALUES('rewrap_legacy', 1) ON CONFLICT(name) DO UPDATE SET version=excluded.version`); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func (s *SQLite) rewrapRows(rows *sql.Rows, ts sqliteTxSource, update func(id string, blob []byte) error) (bool, int, int, error) {
+	defer rows.Close()
+	type row struct {
+		id    string
+		owner protocol.Owner
+		blob  []byte
+	}
+	var list []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.owner.Kind, &r.owner.ID, &r.blob); err != nil {
+			return false, 0, 0, err
+		}
+		list = append(list, r)
+	}
+	if err := rows.Err(); err != nil {
+		return false, 0, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return false, 0, 0, err
+	}
+
+	rewrapped := 0
+	resolved := 0
+	for _, r := range list {
+		plain, err := crypto.Open(s.km.key, r.blob)
+		if err == nil {
+			// Master-sealed and key is correct. Create or load the owner DEK and
+			// rewrap. ownerDEK only creates when the master key can decrypt,
+			// which we just proved.
+			dek, err := s.km.ownerDEK(context.Background(), ts, r.owner)
+			if err != nil {
+				return false, 0, 0, err
+			}
+			blob, err := crypto.Seal(dek, plain)
+			if err != nil {
+				return false, 0, 0, err
+			}
+			if err := update(r.id, blob); err != nil {
+				return false, 0, 0, err
+			}
+			rewrapped++
+			resolved++
+			continue
+		}
+		if err != crypto.ErrAuth {
+			return false, 0, 0, err
+		}
+
+		// Master failed. It may be owner-sealed, or the master key may be wrong.
+		// Load the wrapped owner key without creating one, and only trust the
+		// row if the master key can unwrap it.
+		wrapped, err := ts.loadOwnerWrapped(context.Background(), r.owner)
+		if err == ErrNotFound {
+			// No owner key and master cannot open; the key is likely wrong or the
+			// row is corrupt. Skip without failing so opening with a wrong key
+			// still succeeds.
+			continue
+		}
+		if err != nil {
+			return false, 0, 0, err
+		}
+		dek, err := crypto.Open(s.km.key, wrapped)
+		if err == crypto.ErrAuth {
+			// Wrong master key. Skip this row.
+			continue
+		}
+		if err != nil {
+			return false, 0, 0, err
+		}
+		if _, err := crypto.Open(dek, r.blob); err != nil {
+			return false, 0, 0, fmt.Errorf("store: %s secret is neither master nor owner sealed: %w", r.id, err)
+		}
+		resolved++
+	}
+	return rewrapped > 0, resolved, len(list), nil
 }

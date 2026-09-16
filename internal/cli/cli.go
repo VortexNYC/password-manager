@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/identity/glue"
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/broker"
 	"github.com/vortexnyc/password-manager/internal/confirm"
 	"github.com/vortexnyc/password-manager/internal/device"
 	"github.com/vortexnyc/password-manager/internal/fill"
@@ -144,6 +146,13 @@ func openApp(home string) (*app.App, error) {
 
 func openOrInitApp(home string) (*app.App, error) {
 	return loadApp(home, true)
+}
+
+func openOriginApp(home string) (*app.App, error) {
+	if dsn := os.Getenv("VEIL_POSTGRES_DSN"); dsn != "" {
+		return app.OpenPostgres(dsn)
+	}
+	return openOrInitApp(home)
 }
 
 func loadApp(home string, initEmpty bool) (*app.App, error) {
@@ -1549,11 +1558,21 @@ func mcpCmd(home *string) *cobra.Command {
 		Use:   "mcp",
 		Short: "Serve Streamable HTTP MCP. Bearer is the agent. Tools cannot return secrets.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := openOrInitApp(*home)
+			a, err := openOriginApp(*home)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
+			maxInFlight := 100
+			if raw := envOr("VEIL_MAX_IN_FLIGHT_USE", "100"); raw != "" {
+				if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+					maxInFlight = n
+				} else if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: invalid VEIL_MAX_IN_FLIGHT_USE %q, using default %d\n", raw, maxInFlight)
+				}
+			}
+			a.Broker = broker.NewWithInFlight(a.Store, maxInFlight)
+			a.Broker.Auditor = a.Auditor
 			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			publicURL = mcpPublicURL(publicURL, listen)
 			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
@@ -1570,7 +1589,14 @@ func mcpCmd(home *string) *cobra.Command {
 				return err
 			}
 			defer func() { _ = otelStop(context.Background()) }()
-			srv := &http.Server{Addr: listen, Handler: mcpserver.Mux(a, publicURL, issuer)}
+			srv := &http.Server{
+				Addr:              listen,
+				Handler:           mcpserver.Mux(a, publicURL, issuer),
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       30 * time.Second,
+				IdleTimeout:       120 * time.Second,
+				MaxHeaderBytes:    1 << 20,
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), publicURL)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()

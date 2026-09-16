@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/vortexnyc/password-manager/internal/crypto"
 	"github.com/vortexnyc/password-manager/internal/device"
 )
 
@@ -42,12 +43,26 @@ func wrapMaster(dir string, master, priv []byte) error {
 	return persistWrap(dir, pub, blob)
 }
 
+func decodeMasterEnv(env string) ([]byte, error) {
+	key, err := hex.DecodeString(env)
+	if err != nil {
+		return nil, fmt.Errorf("app: VEIL_MASTER_KEY is not valid hex: %w", err)
+	}
+	if len(key) != crypto.KeySize {
+		return nil, fmt.Errorf("app: VEIL_MASTER_KEY must be %d bytes (got %d)", crypto.KeySize, len(key))
+	}
+	return key, nil
+}
+
 func hasWraps(dir string) bool {
 	entries, err := os.ReadDir(filepath.Join(dir, wrapsDir))
 	return err == nil && len(entries) > 0
 }
 
 func loadMaster(dir string) ([]byte, error) {
+	if env := os.Getenv("VEIL_MASTER_KEY"); env != "" {
+		return decodeMasterEnv(env)
+	}
 	if hasWraps(dir) {
 		return unwrapLocal(dir)
 	}

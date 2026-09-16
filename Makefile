@@ -1,4 +1,4 @@
-.PHONY: test vet fmt tidy sdk-fresh ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live prove-fill
+.PHONY: test vet fmt tidy sdk-fresh ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live prove-fill loadtest
 
 test:
 	env -u PWM_HYDRA_ISSUER -u PWM_HYDRA_ADMIN -u PWM_HOME -u PWM_OIDC_TOKEN -u PWM_ORIGIN -u PWM_OIDC_TOKEN_FILE -u PWM_HYDRA_SECRET_FILE -u PWM_AGENT PWM_FILL_TOUCHID=0 go test -race -shuffle=on -timeout 15m ./...
@@ -69,3 +69,12 @@ login:
 
 glue:
 	go run ./cmd/identity-glue
+
+loadtest:
+	@if ! command -v k6 >/dev/null 2>&1; then \
+		echo "k6 not installed. Install from https://grafana.com/docs/k6/latest/set-up/install-k6/"; \
+		exit 1; \
+	fi
+	@test -n "$$VEIL_AGENT_TOKEN" || { echo "VEIL_AGENT_TOKEN is required"; exit 1; }
+	@test -n "$$VEIL_ITEM_ID" || { echo "VEIL_ITEM_ID is required"; exit 1; }
+	k6 run tests/load/k6/use.js

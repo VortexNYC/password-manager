@@ -7,8 +7,6 @@ import { defineRailway, image, postgres, preserve, project, service, volume } fr
 export default defineRailway(() => {
   const Postgres = postgres("Postgres", { region: "sfo" });
   Postgres.networking = { privateNetworkEndpoint: "postgres" };
-  const brokerVolume = volume("broker-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
-  const pwmVolume = volume("pwm-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
   const postgresVolume = volume("postgres-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
   const kratos = service("kratos", {
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "identity/kratos/Dockerfile" },
@@ -32,8 +30,7 @@ export default defineRailway(() => {
     healthcheckTimeout: 300,
     replicas: { "sfo": 1 },
     domains: [{ domain: "veil.nyc", port: 4461 }],
-    volumeMounts: { "/data": pwmVolume },
-    env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: preserve(), OTEL_EXPORTER_OTLP_TRACES_HEADERS: preserve(), OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: preserve(), OTEL_RESOURCE_ATTRIBUTES: preserve(), OTEL_SERVICE_NAME: preserve(), PORT: preserve(), PWM_HOME: preserve(), PWM_HYDRA_ADMIN: preserve(), PWM_HYDRA_CLIENT_ID: preserve(), PWM_HYDRA_ISSUER: preserve(), PWM_KETO_READ: preserve(), PWM_KETO_WRITE: preserve(), PWM_KRATOS_ADMIN: preserve(), PWM_KRATOS_PUBLIC: preserve(), PWM_MCP_URL: preserve() },
+    env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: preserve(), OTEL_EXPORTER_OTLP_TRACES_HEADERS: preserve(), OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: preserve(), OTEL_RESOURCE_ATTRIBUTES: preserve(), OTEL_SERVICE_NAME: preserve(), PORT: preserve(), PWM_HYDRA_ADMIN: preserve(), PWM_HYDRA_CLIENT_ID: preserve(), PWM_HYDRA_ISSUER: preserve(), PWM_KETO_READ: preserve(), PWM_KETO_WRITE: preserve(), PWM_KRATOS_ADMIN: preserve(), PWM_KRATOS_PUBLIC: preserve(), PWM_MCP_URL: preserve(), VEIL_MASTER_KEY: preserve(), VEIL_POSTGRES_DSN: Postgres.env.DATABASE_URL },
   });
   const glue = service("glue", {
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
@@ -52,6 +49,6 @@ export default defineRailway(() => {
   });
 
   return project("password-manager", {
-    resources: [kratos, keto, pwm, Postgres, glue, hydra, brokerVolume, pwmVolume, postgresVolume],
+    resources: [kratos, keto, pwm, Postgres, glue, hydra, postgresVolume],
   });
 });

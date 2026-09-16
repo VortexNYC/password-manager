@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/protocol"
@@ -52,7 +53,12 @@ func Listen(a *app.App, path string) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /use", s.handle(s.use))
 	mux.HandleFunc("GET /items", s.handle(s.items))
-	s.srv = &http.Server{Handler: mux}
+	s.srv = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	go func() { _ = s.srv.Serve(ln) }()
 	return s, nil
 }

@@ -383,6 +383,184 @@ func TestSQLiteLegacyMasterSealedSecretsRewrap(t *testing.T) {
 	}
 }
 
+func TestSQLiteLegacyVersionRewrapAndRestore(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := protocol.Item{
+		ID:    "stripe",
+		OrgID: "org",
+		Name:  "stripe",
+		Kind:  protocol.ItemAPIKey,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org"},
+	}
+	if err := s.PutItem(item, Secret("v1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutItem(item, Secret("v2")); err != nil {
+		t.Fatal(err)
+	}
+	vers, err := s.Versions("stripe")
+	if err != nil || len(vers) != 1 {
+		t.Fatalf("versions=%+v err=%v", vers, err)
+	}
+	// Reset the migration marker so the next open re-scans. Then inject a
+	// master-sealed historical version behind the store's back.
+	if _, err := s.db.Exec(`DELETE FROM schema_version WHERE name='rewrap_legacy'`); err != nil {
+		t.Fatal(err)
+	}
+	v0 := Secret("v0")
+	blob, err := crypto.Seal(key, v0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.db.Exec(`INSERT INTO item_versions(item_id, at, secret) VALUES(?,?,?)`, "stripe", time.Now().UTC().Format(time.RFC3339Nano), blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v0ID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+
+	// The legacy version should have been re-encrypted with the owner DEK and
+	// must be restorable.
+	if err := s2.RestoreVersion("stripe", v0ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s2.Secret("stripe")
+	if err != nil || string(got) != string(v0) {
+		t.Fatalf("secret=%q err=%v", got, err)
+	}
+	// After a successful rewrap the migration should be marked complete.
+	var version int
+	if err := s2.db.QueryRow(`SELECT version FROM schema_version WHERE name='rewrap_legacy'`).Scan(&version); err != nil || version != 1 {
+		t.Fatalf("schema_version=%d err=%v", version, err)
+	}
+}
+
+func TestSQLiteLegacyMixedMigration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modern := protocol.Item{
+		ID:    "modern",
+		OrgID: "org",
+		Name:  "modern",
+		Kind:  protocol.ItemAPIKey,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org"},
+	}
+	if err := s.PutItem(modern, Secret("sk_modern")); err != nil {
+		t.Fatal(err)
+	}
+	// Reset marker and inject a legacy master-sealed item for a different owner.
+	if _, err := s.db.Exec(`DELETE FROM schema_version WHERE name='rewrap_legacy'`); err != nil {
+		t.Fatal(err)
+	}
+	legacy := Secret("sk_legacy")
+	blob, err := crypto.Seal(key, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
+		"legacy", "org2", "legacy", protocol.ItemAPIKey, protocol.OwnerUser, "self2", "[]", blob, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+
+	got, err := s2.Secret("modern")
+	if err != nil || string(got) != "sk_modern" {
+		t.Fatalf("modern=%q err=%v", got, err)
+	}
+	got, err = s2.Secret("legacy")
+	if err != nil || string(got) != string(legacy) {
+		t.Fatalf("legacy=%q err=%v", got, err)
+	}
+	// Both owner keys should now exist.
+	var n int
+	if err := s2.db.QueryRow(`SELECT COUNT(*) FROM owner_keys`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("owner_keys=%d err=%v", n, err)
+	}
+}
+
+func TestSQLiteWrongKeyDoesNotCrashWithLegacyItem(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.db")
+	key, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenSQLite(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := Secret("sk_legacy")
+	blob, err := crypto.Seal(key, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
+		"legacy", "org", "legacy", protocol.ItemAPIKey, protocol.OwnerOrg, "org", "[]", blob, 0); err != nil {
+		t.Fatal(err)
+	}
+	// Reset the marker so the next open attempts the legacy rewrap with the
+	// wrong key and proves it does not crash.
+	if _, err := s.db.Exec(`DELETE FROM schema_version WHERE name='rewrap_legacy'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	other, err := crypto.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2, err := OpenSQLite(path, other)
+	if err != nil {
+		t.Fatalf("open with wrong key failed: %v", err)
+	}
+	defer s2.Close()
+	if _, err := s2.Secret("legacy"); err == nil {
+		t.Fatal("wrong key opened legacy secret")
+	}
+}
+
 func TestSQLiteArchiveHistoryFileNoPlaintext(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vault.db")
