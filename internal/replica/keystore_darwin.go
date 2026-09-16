@@ -4,6 +4,7 @@ package replica
 
 import (
 	"fmt"
+	"os"
 	"unsafe"
 
 	"github.com/vortexnyc/password-manager/internal/crypto"
@@ -78,7 +79,12 @@ import "C"
 
 type keychain struct{}
 
-func Platform() KeyStore { return keychain{} }
+func Platform() KeyStore {
+	if os.Getenv("PWM_REPLICA_KEYSTORE") == "mem" {
+		return Mem()
+	}
+	return keychain{}
+}
 
 func (keychain) Get() ([]byte, error) {
 	buf := make([]byte, crypto.KeySize)
