@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -38,6 +37,7 @@ type origin struct {
 	srv *http.Server
 	ln  net.Listener
 	url string
+	cmd *exec.Cmd
 }
 
 func main() {
@@ -45,7 +45,8 @@ func main() {
 		Level: logLevel(),
 	})))
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("loadtest failed", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -68,8 +69,6 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	useProxy := envOr("LOADTEST_PROXY", "1") != "0"
-
 	dsn := os.Getenv("PG_TEST_DSN")
 	if dsn == "" {
 		return errors.New("PG_TEST_DSN is required")
@@ -80,8 +79,34 @@ func run() error {
 		return fmt.Errorf("set DATABASE_URL: %w", err)
 	}
 
+	mode := envOr("LOADTEST_ORIGIN_MODE", "goroutine")
+	replicas := envOrInt("LOADTEST_REPLICAS", 1)
+	if replicas < 1 {
+		replicas = 1
+	}
+
+	// The upstream may be supplied externally so that processes on other hosts
+	// can reach it. If not, start a local one and bind it to 127.0.0.1:0.
+	upstreamURL := os.Getenv("LOADTEST_UPSTREAM_URL")
+	if mode == "external" && upstreamURL == "" {
+		return errors.New("LOADTEST_UPSTREAM_URL is required for external origin mode")
+	}
+	if upstreamURL == "" {
+		upstreamLn, u, err := startUpstream()
+		if err != nil {
+			return fmt.Errorf("start upstream: %w", err)
+		}
+		upstreamURL = u
+		upstreamSrv := &http.Server{Handler: upstreamHandler(), ReadHeaderTimeout: 2 * time.Second}
+		defer func() { _ = upstreamSrv.Close() }()
+		go func() { _ = upstreamSrv.Serve(upstreamLn) }()
+	}
+
 	masterKey := os.Getenv("VEIL_MASTER_KEY")
 	if masterKey == "" {
+		if mode == "external" {
+			return errors.New("VEIL_MASTER_KEY is required for external origin mode (must match the external origins' key)")
+		}
 		key, err := crypto.NewKey()
 		if err != nil {
 			return fmt.Errorf("generate master key: %w", err)
@@ -92,53 +117,61 @@ func run() error {
 		}
 	}
 
-	replicas := envOrInt("LOADTEST_REPLICAS", 1)
-	if replicas < 1 {
-		replicas = 1
-	}
-
-	// Start the upstream server first so we know its URL when creating the item.
-	upstreamLn, upstreamURL, err := startUpstream()
-	if err != nil {
-		return fmt.Errorf("start upstream: %w", err)
-	}
-	upstreamSrv := &http.Server{Handler: upstreamHandler(), ReadHeaderTimeout: 2 * time.Second}
-	defer func() { _ = upstreamSrv.Close() }()
-	go func() { _ = upstreamSrv.Serve(upstreamLn) }()
-
-	// Start N stateless origin replicas. Each has its own Store pool and auditor
-	// worker, just like separate Railway containers behind a load balancer.
 	origins, err := startOrigins(dsn, masterKey, replicas)
 	if err != nil {
 		return err
 	}
 	defer closeOrigins(origins)
 
-	agent, item, session, token, err := seed(origins[0].app, upstreamURL)
+	if envOr("LOADTEST_RESET_DB", "0") == "1" {
+		if err := resetTestTables(ctx, dsn); err != nil {
+			return fmt.Errorf("reset test tables: %w", err)
+		}
+		slog.Warn("reset test tables")
+	}
+
+	vus := envOrInt("VEIL_VUS", 50)
+	var agent protocol.Principal
+	var item protocol.Item
+	var sessions []protocol.Session
+	var tokens []string
+	if mode == "goroutine" {
+		agent, item, sessions, tokens, err = seed(origins[0].app, upstreamURL, vus)
+	} else {
+		var seedApp *app.App
+		seedApp, err = app.OpenPostgres(dsn)
+		if err != nil {
+			return fmt.Errorf("open seed app: %w", err)
+		}
+		agent, item, sessions, tokens, err = seed(seedApp, upstreamURL, vus)
+		_ = seedApp.Close()
+	}
 	if err != nil {
 		return err
 	}
 
+	useProxyDefault := "1"
+	if mode == "process" || mode == "external" {
+		useProxyDefault = "0"
+	}
+	useProxy := envOr("LOADTEST_PROXY", useProxyDefault) != "0"
+
 	var k6Origins []string
 	var proxyURL string
 	if useProxy {
-		var proxySrv *http.Server
-		var proxyLn net.Listener
-		proxyURL, proxySrv, proxyLn, err = startProxy(origins)
+		proxyURL, err = startProxy(origins)
 		if err != nil {
 			return fmt.Errorf("start proxy: %w", err)
 		}
-		defer func() { _ = proxySrv.Close() }()
-		go func() { _ = proxySrv.Serve(proxyLn) }()
 		k6Origins = []string{proxyURL}
-		log.Printf("origin replicas=%d proxy=%s upstream=%s", len(origins), proxyURL, upstreamURL)
+		slog.Warn("running load test", "replicas", len(origins), "mode", mode, "proxy", proxyURL, "upstream", upstreamURL)
 	} else {
 		proxyURL = origins[0].url
 		k6Origins = make([]string, len(origins))
 		for i, o := range origins {
 			k6Origins[i] = o.url
 		}
-		log.Printf("origin replicas=%d direct upstream=%s", len(origins), upstreamURL)
+		slog.Warn("running load test", "replicas", len(origins), "mode", mode, "upstream", upstreamURL)
 	}
 
 	outDir := envOr("LOADTEST_OUT", "tests/load/k6/out")
@@ -147,11 +180,11 @@ func run() error {
 	}
 
 	if err := resetPGSS(ctx, dsn); err != nil {
-		log.Printf("pg_stat_statements reset: %v", err)
+		slog.Warn("pg_stat_statements reset failed", "err", err)
 	}
 
 	if err := pgbotInspect(ctx, filepath.Join(outDir, "pgbot-before.json")); err != nil {
-		log.Printf("pgbot before: %v", err)
+		slog.Warn("pgbot before failed", "err", err)
 	}
 
 	cpuPath := filepath.Join(outDir, "cpu.pprof")
@@ -171,7 +204,7 @@ func run() error {
 	k6Cmd.Env = append(os.Environ(),
 		"VEIL_ORIGINS="+strings.Join(k6Origins, ","),
 		"VEIL_ORIGIN="+proxyURL,
-		"VEIL_AGENT_TOKEN="+token,
+		"VEIL_TOKENS="+strings.Join(tokens, ","),
 		"VEIL_ITEM_ID="+item.ID,
 		"VEIL_UPSTREAM_URL="+upstreamURL,
 	)
@@ -202,23 +235,54 @@ func run() error {
 	closeOrigins(origins)
 
 	if err := pgbotInspect(ctx, filepath.Join(outDir, "pgbot-after.json")); err != nil {
-		log.Printf("pgbot after: %v", err)
+		slog.Warn("pgbot after failed", "err", err)
 	}
 
-	log.Printf("load test complete. replicas=%d summary=%s", len(origins), k6Out)
+	slog.Warn("load test complete", "replicas", len(origins), "mode", mode, "summary", k6Out)
 
 	_ = agent
-	_ = session
+	_ = sessions
 	return nil
 }
 
 func startOrigins(dsn, masterKey string, n int) ([]*origin, error) {
+	mode := envOr("LOADTEST_ORIGIN_MODE", "goroutine")
+	switch mode {
+	case "goroutine":
+		return startGoroutineOrigins(dsn, masterKey, n)
+	case "process":
+		return startProcessOrigins(dsn, masterKey, n)
+	case "external":
+		raw := os.Getenv("LOADTEST_ORIGINS")
+		if raw == "" {
+			return nil, errors.New("LOADTEST_ORIGINS is required for external origin mode")
+		}
+		urls := strings.Split(raw, ",")
+		origins := make([]*origin, 0, len(urls))
+		for _, u := range urls {
+			u = strings.TrimSpace(u)
+			if u == "" {
+				continue
+			}
+			origins = append(origins, &origin{url: u})
+		}
+		if len(origins) == 0 {
+			return nil, errors.New("LOADTEST_ORIGINS contains no valid URLs")
+		}
+		return origins, nil
+	default:
+		return nil, fmt.Errorf("unknown LOADTEST_ORIGIN_MODE=%q", mode)
+	}
+}
+
+func startGoroutineOrigins(dsn, masterKey string, n int) ([]*origin, error) {
+	_ = masterKey
 	maxInFlight := 0
 	if raw := os.Getenv("VEIL_MAX_IN_FLIGHT_USE"); raw != "" {
 		if m, err := strconv.Atoi(raw); err == nil && m > 0 {
 			maxInFlight = m
 		} else if err != nil {
-			log.Printf("warning: invalid VEIL_MAX_IN_FLIGHT_USE %q, ignored", raw)
+			slog.Warn("invalid VEIL_MAX_IN_FLIGHT_USE, ignored", "value", raw)
 		}
 	}
 
@@ -257,17 +321,144 @@ func startOrigins(dsn, masterKey string, n int) ([]*origin, error) {
 	return origins, nil
 }
 
+var builtOriginBinary string
+
+func startProcessOrigins(dsn, masterKey string, n int) ([]*origin, error) {
+	bin, err := originBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	origins := make([]*origin, n)
+	for i := 0; i < n; i++ {
+		port, err := freePort()
+		if err != nil {
+			closeOrigins(origins[:i])
+			return nil, fmt.Errorf("allocate port for origin %d: %w", i, err)
+		}
+		url := "http://127.0.0.1:" + port
+		cmd := exec.Command(bin, "mcp", "--listen", "127.0.0.1:"+port)
+		cmd.Env = append(os.Environ(),
+			"VEIL_POSTGRES_DSN="+dsn,
+			"VEIL_MASTER_KEY="+masterKey,
+			"VEIL_LOG_LEVEL=warn",
+		)
+		cmd.Stdout = io.Discard
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			closeOrigins(origins[:i])
+			return nil, fmt.Errorf("start origin %d: %w", i, err)
+		}
+		origins[i] = &origin{url: url, cmd: cmd}
+		if err := waitReady(url); err != nil {
+			closeOrigins(origins[:i+1])
+			return nil, fmt.Errorf("origin %d not ready: %w", i, err)
+		}
+	}
+	return origins, nil
+}
+
+func originBinary() (string, error) {
+	if builtOriginBinary != "" {
+		return builtOriginBinary, nil
+	}
+	if p := os.Getenv("LOADTEST_ORIGIN_BINARY"); p != "" {
+		return p, nil
+	}
+	if p, err := exec.LookPath("password-manager"); err == nil {
+		return p, nil
+	}
+	root, err := repoRoot()
+	if err != nil {
+		return "", fmt.Errorf("find repo root: %w", err)
+	}
+	f, err := os.CreateTemp("", "password-manager-loadtest-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp binary: %w", err)
+	}
+	_ = f.Close()
+	path := f.Name()
+	cmd := exec.Command("go", "build", "-o", path, "./cmd/password-manager")
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("build origin binary: %w\n%s", err, out)
+	}
+	builtOriginBinary = path
+	return path, nil
+}
+
+func repoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("go.mod not found")
+		}
+		dir = parent
+	}
+}
+
+func freePort() (string, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return strconv.Itoa(port), nil
+}
+
+func waitReady(url string) error {
+	client := &http.Client{Timeout: 1 * time.Second}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url + "/health")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			_ = resp.Body.Close()
+			return nil
+		}
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("origin %s not ready", url)
+}
+
 func closeOrigins(origins []*origin) {
 	var wg sync.WaitGroup
 	for _, o := range origins {
-		if o == nil || o.app == nil {
+		if o == nil {
 			continue
 		}
 		wg.Add(1)
 		go func(o *origin) {
 			defer wg.Done()
-			_ = o.srv.Close()
-			_ = o.app.Close()
+			if o.cmd != nil && o.cmd.Process != nil {
+				_ = o.cmd.Process.Signal(os.Interrupt)
+				done := make(chan error, 1)
+				go func() { done <- o.cmd.Wait() }()
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					_ = o.cmd.Process.Kill()
+					_ = o.cmd.Wait()
+				}
+			}
+			if o.srv != nil {
+				_ = o.srv.Close()
+			}
+			if o.app != nil {
+				_ = o.app.Close()
+			}
 			o.srv = nil
 			o.app = nil
 		}(o)
@@ -275,39 +466,48 @@ func closeOrigins(origins []*origin) {
 	wg.Wait()
 }
 
-func seed(a *app.App, upstreamURL string) (protocol.Principal, protocol.Item, protocol.Session, string, error) {
+func seed(a *app.App, upstreamURL string, n int) (protocol.Principal, protocol.Item, []protocol.Session, []string, error) {
 	agentName := envOr("LOADTEST_AGENT", "loadtest-agent")
 	itemName := envOr("LOADTEST_ITEM", "loadtest-item")
 	secret := []byte(envOr("LOADTEST_SECRET", "sk_live_loadtest_secret"))
 
 	agent, err := a.AddAgent(agentName)
 	if err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add agent: %w", err)
+		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add agent: %w", err)
 	}
 	item, err := a.AddItem(itemName, upstreamURL, secret)
 	if err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add item: %w", err)
+		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add item: %w", err)
 	}
 	if _, err := a.AddGrant(agent.ID, item.ID, protocol.Level2); err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add grant: %w", err)
+		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add grant: %w", err)
 	}
 	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
-	session, token, err := a.CreateSession(human, agent.ID, time.Hour, 0)
-	if err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("create session: %w", err)
+	sessions := make([]protocol.Session, 0, n)
+	tokens := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		session, token, err := a.CreateSession(human, agent.ID, time.Hour, 0)
+		if err != nil {
+			return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("create session %d: %w", i, err)
+		}
+		sessions = append(sessions, session)
+		tokens = append(tokens, token)
 	}
-	log.Printf("seeded: agent=%s item=%s session=%s", agent.ID, item.ID, session.ID)
-	return agent, item, session, token, nil
+	slog.Warn("seeded", "agent", agent.ID, "item", item.ID, "sessions", len(sessions))
+	return agent, item, sessions, tokens, nil
 }
 
-func startProxy(origins []*origin) (string, *http.Server, net.Listener, error) {
-	urls := make([]*url.URL, len(origins))
-	for i, o := range origins {
+func startProxy(origins []*origin) (string, error) {
+	urls := make([]*url.URL, 0, len(origins))
+	for _, o := range origins {
 		u, err := url.Parse(o.url)
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("parse origin url %q: %w", o.url, err)
+			return "", fmt.Errorf("parse origin url %q: %w", o.url, err)
 		}
-		urls[i] = u
+		urls = append(urls, u)
+	}
+	if len(urls) == 0 {
+		return "", errors.New("no origins for proxy")
 	}
 
 	var counter uint64
@@ -327,7 +527,7 @@ func startProxy(origins []*origin) (string, *http.Server, net.Listener, error) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("listen proxy: %w", err)
+		return "", fmt.Errorf("listen proxy: %w", err)
 	}
 	srv := &http.Server{
 		Handler:           proxy,
@@ -336,7 +536,8 @@ func startProxy(origins []*origin) (string, *http.Server, net.Listener, error) {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	return "http://" + ln.Addr().String(), srv, ln, nil
+	go func() { _ = srv.Serve(ln) }()
+	return "http://" + ln.Addr().String(), nil
 }
 
 func startUpstream() (net.Listener, string, error) {
@@ -381,6 +582,19 @@ func resetPGSS(ctx context.Context, dsn string) error {
 	return nil
 }
 
+func resetTestTables(ctx context.Context, dsn string) error {
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("connect to reset test tables: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	_, err = conn.Exec(ctx, `TRUNCATE TABLE agents, items, grants, approvals, audit, workloads, owner_keys, item_versions, sessions`)
+	if err != nil {
+		return fmt.Errorf("truncate test tables: %w", err)
+	}
+	return nil
+}
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -395,7 +609,7 @@ func envOrInt(key string, fallback int) int {
 	}
 	n, err := strconv.Atoi(raw)
 	if err != nil {
-		log.Printf("warning: invalid %s %q, using fallback %d", key, raw, fallback)
+		slog.Warn("invalid env var, using fallback", "key", key, "value", raw, "fallback", fallback)
 		return fallback
 	}
 	return n
