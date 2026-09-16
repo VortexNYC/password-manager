@@ -14,7 +14,7 @@ export default defineConfig({
     href: "/",
   },
   github: {
-    owner: "VortexNYC",
+    owner: "VeilNYC",
     repo: "password-manager",
     branch: "main",
     dir: "apps/docs",
@@ -76,7 +76,7 @@ export default defineConfig({
   deployment: {
     output: "server",
     adapter: "cloudflare",
-    site: "https://vortex.nyc",
+    site: "https://veil.nyc",
     base: "/pwm/docs",
   },
 });

@@ -26,11 +26,11 @@ from urllib.parse import quote
 from typing import Tuple, Optional, List, Dict, Union
 from pydantic import SecretStr
 
-from vortex_pwm.configuration import Configuration
-from vortex_pwm.api_response import ApiResponse, T as ApiResponseT
-import vortex_pwm.models
-from vortex_pwm import rest
-from vortex_pwm.exceptions import (
+from veil_pwm.configuration import Configuration
+from veil_pwm.api_response import ApiResponse, T as ApiResponseT
+import veil_pwm.models
+from veil_pwm import rest
+from veil_pwm.exceptions import (
     ApiValueError,
     ApiException,
     BadRequestException,
@@ -452,7 +452,7 @@ class ApiClient:
             if klass in self.NATIVE_TYPES_MAPPING:
                 klass = self.NATIVE_TYPES_MAPPING[klass]
             else:
-                klass = getattr(vortex_pwm.models, klass)
+                klass = getattr(veil_pwm.models, klass)
 
         if klass in self.PRIMITIVE_TYPES:
             return self.__deserialize_primitive(data, klass)

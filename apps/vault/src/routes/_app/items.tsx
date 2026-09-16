@@ -11,7 +11,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { PageChrome } from "../../page-chrome";
 import { addItem, importItems, items } from "../../origin";
-import type { Item } from "@vortex-api/pwm-sdk";
+import type { Item } from "@veilnyc/pwm-sdk";
 
 export const Route = createFileRoute("/_app/items")({
   component: Items,

@@ -13,7 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/vortexnyc/password-manager/internal/mcpserver"
+	"github.com/veilnyc/password-manager/internal/mcpserver"
 )
 
 func TestOriginStdio(t *testing.T) {

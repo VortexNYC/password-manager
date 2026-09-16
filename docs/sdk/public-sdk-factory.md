@@ -7,15 +7,15 @@ Same shape as Payments. Do not handwrite language clients.
 - OpenAPI contract: `docs/openapi/password-manager.openapi.json`
 - Embedded copy served at `GET /openapi.json`: `internal/publicapi/spec.json`
 - Generator: `pnpm run sdk:generate`
-- Docs site: `pnpm --filter @vortexnyc/pwm-docs dev` — Blume `/reference` consumes the spec
+- Docs site: `pnpm --filter @veilnyc/pwm-docs dev` — Blume `/reference` consumes the spec
 
 ## SDK outputs
 
 | Language   | Output            | Generator         | Package                    |
 | ---------- | ----------------- | ----------------- | -------------------------- |
-| TypeScript | `sdks/typescript`  | `@hey-api/openapi-ts` | `@vortex-api/pwm-sdk`   |
-| Python     | `sdks/python`     | OpenAPI Generator | `vortex-pwm-sdk`           |
-| Go         | `sdks/go`         | OpenAPI Generator | `github.com/vortexnyc/pwm-go` |
+| TypeScript | `sdks/typescript`  | `@hey-api/openapi-ts` | `@veilnyc/pwm-sdk`   |
+| Python     | `sdks/python`     | OpenAPI Generator | `veil-pwm-sdk`           |
+| Go         | `sdks/go`         | OpenAPI Generator | `github.com/veilnyc/pwm-go` |
 
 ## Rules
 

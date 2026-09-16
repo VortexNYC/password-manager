@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/scrub"
 )
 
 func TestExpandGrantedNameDoesNotLeakOnUnknown(t *testing.T) {

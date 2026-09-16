@@ -19,11 +19,11 @@ const typeScriptOutput = resolve(repoRoot, "sdks/typescript");
 const pythonOutput = resolve(repoRoot, "sdks/python");
 const goOutput = resolve(repoRoot, "sdks/go");
 const tempRoot = resolve(repoRoot, ".tmp/sdk-generate");
-const GO_MODULE_PATH = "github.com/vortexnyc/pwm-go";
+const GO_MODULE_PATH = "github.com/veilnyc/pwm-go";
 
 const MIT = `MIT License
 
-Copyright (c) 2026 Vortex NYC, Inc.
+Copyright (c) 2026 Veil NYC, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -98,15 +98,15 @@ function generatorArgs(kind: "python" | "go", input: string, output: string, ver
     kind === "python"
       ? [
           "--additional-properties",
-          `packageName=vortex_pwm,projectName=vortex-pwm-sdk,packageVersion=${version},generateSourceCodeOnly=true,hideGenerationTimestamp=true`,
+          `packageName=veil_pwm,projectName=veil-pwm-sdk,packageVersion=${version},generateSourceCodeOnly=true,hideGenerationTimestamp=true`,
         ]
       : [
           "--git-user-id",
-          "vortexnyc",
+          "veilnyc",
           "--git-repo-id",
           "pwm-go",
           "--additional-properties",
-          `packageName=vortexpwm,packageVersion=${version},hideGenerationTimestamp=true,structPrefix=true,withGoMod=true`,
+          `packageName=veilpwm,packageVersion=${version},hideGenerationTimestamp=true,structPrefix=true,withGoMod=true`,
         ];
   return [
     "generate",
@@ -163,9 +163,9 @@ function pruneGeneratedSdkOutputs(): void {
   const noise = [
     resolve(pythonOutput, ".openapi-generator"),
     resolve(pythonOutput, ".openapi-generator-ignore"),
-    resolve(pythonOutput, "vortex_pwm", "docs"),
-    resolve(pythonOutput, "vortex_pwm", "test"),
-    resolve(pythonOutput, "vortex_pwm_README.md"),
+    resolve(pythonOutput, "veil_pwm", "docs"),
+    resolve(pythonOutput, "veil_pwm", "test"),
+    resolve(pythonOutput, "veil_pwm_README.md"),
     resolve(goOutput, ".openapi-generator"),
     resolve(goOutput, ".openapi-generator-ignore"),
     resolve(goOutput, ".gitignore"),
@@ -210,7 +210,7 @@ function writePackageMetadata(version: string): void {
     resolve(typeScriptOutput, "package.json"),
     `${JSON.stringify(
       {
-        name: "@vortex-api/pwm-sdk",
+        name: "@veilnyc/pwm-sdk",
         version,
         description: "Generated TypeScript SDK for Veil. Use injects. Never GetSecret.",
         license: "MIT",
@@ -220,7 +220,7 @@ function writePackageMetadata(version: string): void {
         types: "./index.ts",
         repository: {
           type: "git",
-          url: "git+https://github.com/VortexNYC/password-manager.git",
+          url: "git+https://github.com/VeilNYC/password-manager.git",
           directory: "sdks/typescript",
         },
       },
@@ -235,7 +235,7 @@ function writePackageMetadata(version: string): void {
 Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite clients.
 
 \`\`\`ts
-import { createClient, listItems, useItem } from "@vortex-api/pwm-sdk";
+import { createClient, listItems, useItem } from "@veilnyc/pwm-sdk";
 
 const client = createClient({
   baseUrl: "https://veil.nyc",
@@ -257,7 +257,7 @@ The vault secret is never in the response.
   writeFileSync(
     resolve(pythonOutput, "pyproject.toml"),
     `[project]
-name = "vortex-pwm-sdk"
+name = "veil-pwm-sdk"
 version = "${version}"
 description = "Generated Python SDK for Veil. Use injects. Never GetSecret."
 readme = "README.md"
@@ -275,29 +275,29 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["vortex_pwm*"]
+include = ["veil_pwm*"]
 `
   );
   writeFileSync(
     resolve(pythonOutput, "README.md"),
-    `# vortex-pwm-sdk
+    `# veil-pwm-sdk
 
 Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite clients.
 
 \`\`\`bash
-pip install vortex-pwm-sdk
+pip install veil-pwm-sdk
 \`\`\`
 
 \`\`\`py
 import os
-import vortex_pwm
+import veil_pwm
 
-configuration = vortex_pwm.Configuration(host="https://veil.nyc")
+configuration = veil_pwm.Configuration(host="https://veil.nyc")
 configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
-client = vortex_pwm.ApiClient(configuration)
-api = vortex_pwm.AgentApi(client)
+client = veil_pwm.ApiClient(configuration)
+api = veil_pwm.AgentApi(client)
 items = api.list_items()
-api.use_item(vortex_pwm.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers"))
+api.use_item(veil_pwm.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers"))
 \`\`\`
 
 The vault secret is never in the response.
@@ -324,15 +324,15 @@ import (
 	"context"
 	"os"
 
-	vortexpwm "${GO_MODULE_PATH}"
+	veilpwm "${GO_MODULE_PATH}"
 )
 
 func main() {
-	cfg := vortexpwm.NewConfiguration()
+	cfg := veilpwm.NewConfiguration()
 	cfg.Host = "veil.nyc"
 	cfg.Scheme = "https"
 	cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
-	client := vortexpwm.NewAPIClient(cfg)
+	client := veilpwm.NewAPIClient(cfg)
 	_, _, _ = client.AgentAPI.ListItems(context.Background()).Execute()
 }
 \`\`\`

@@ -10,8 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/vortexnyc/password-manager/internal/crypto"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/store/sqlc"
 )
 
 // pgConn is the surface we need from a pgx connection or transaction.
@@ -26,6 +27,7 @@ type pgConn interface {
 type Postgres struct {
 	pool *pgxpool.Pool
 	km   *keyManager
+	sqlc *sqlc.Queries
 }
 
 // OpenPostgres opens a Postgres-backed store. The supplied key is the master
@@ -56,7 +58,7 @@ func OpenPostgres(connString string, key []byte) (*Postgres, error) {
 		pool.Close()
 		return nil, err
 	}
-	p := &Postgres{pool: pool, km: newKeyManager(key)}
+	p := &Postgres{pool: pool, km: newKeyManager(key), sqlc: sqlc.New(pool)}
 	if err := p.migrate(); err != nil {
 		p.pool.Close()
 		return nil, err
@@ -595,146 +597,6 @@ func (p *Postgres) Secret(id string) (Secret, error) {
 	return Secret(plain), nil
 }
 
-type useAuthRow struct {
-	aID, aOrgID, aOwnerKind, aOwnerID                                 sql.NullString
-	aRevoked                                                          sql.NullTime
-	iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID                   sql.NullString
-	iURIs, iTags                                                      sql.NullString
-	iHasTOTP, iArchived, iHasFile                                     sql.NullBool
-	iLogin                                                            sql.NullString
-	gID, gOrgID, gAgentID, gItemID, gLevel, gActions                  sql.NullString
-	gExpires                                                          sql.NullTime
-	apID, apGrantID, apHumanID                                        sql.NullString
-	apExpires                                                         sql.NullTime
-}
-
-func useAuthFromRow(r *useAuthRow) (UseAuth, error) {
-	var out UseAuth
-	if r.aID.Valid && r.aID.String != "" {
-		out.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: r.aID.String, OrgID: r.aOrgID.String}
-		out.Agent.Owner.Kind = protocol.OwnerKind(r.aOwnerKind.String)
-		out.Agent.Owner.ID = r.aOwnerID.String
-		if r.aRevoked.Valid {
-			t := r.aRevoked.Time.UTC()
-			out.Agent.RevokedAt = &t
-		}
-	}
-	if r.iID.Valid && r.iID.String != "" {
-		out.Item = protocol.Item{ID: r.iID.String, OrgID: r.iOrgID.String, Name: r.iName.String, Kind: protocol.ItemKind(r.iKind.String)}
-		out.Item.Owner.Kind = protocol.OwnerKind(r.iOwnerKind.String)
-		out.Item.Owner.ID = r.iOwnerID.String
-		if r.iURIs.Valid && r.iURIs.String != "" {
-			_ = json.Unmarshal([]byte(r.iURIs.String), &out.Item.URIs)
-		}
-		if r.iTags.Valid && r.iTags.String != "" {
-			_ = json.Unmarshal([]byte(r.iTags.String), &out.Item.Tags)
-		}
-		out.Item.HasTOTP = r.iHasTOTP.Bool
-		out.Item.Archived = r.iArchived.Bool
-		out.Item.HasFile = r.iHasFile.Bool
-		out.Item.Login = r.iLogin.String
-	}
-	if r.gID.Valid && r.gID.String != "" {
-		g := &protocol.Grant{ID: r.gID.String, OrgID: r.gOrgID.String, AgentID: r.gAgentID.String, ItemID: r.gItemID.String, Level: protocol.GrantLevel(r.gLevel.String)}
-		if r.gActions.Valid && r.gActions.String != "" {
-			_ = json.Unmarshal([]byte(r.gActions.String), &g.Actions)
-		}
-		if r.gExpires.Valid {
-			t := r.gExpires.Time.UTC()
-			g.ExpiresAt = &t
-		}
-		out.Grant = g
-	}
-	if r.apID.Valid && r.apID.String != "" {
-		if r.apExpires.Valid {
-			out.Approval = &protocol.Approval{ID: r.apID.String, GrantID: r.apGrantID.String, HumanID: r.apHumanID.String, ExpiresAt: r.apExpires.Time.UTC()}
-		}
-	}
-	return out, nil
-}
-
-func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
-	ctx := context.Background()
-	row := p.pool.QueryRow(ctx, `SELECT
-		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
-		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
-		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
-		ap.id, ap.grant_id, ap.human_id, ap.expires_at
-	FROM (SELECT $1::text AS agent_id, $2::text AS item_id, $3::timestamptz AS now) AS v
-	LEFT JOIN agents a ON a.id = v.agent_id
-	LEFT JOIN items i ON i.id = v.item_id
-	LEFT JOIN grants g ON g.agent_id = v.agent_id AND g.item_id = i.id
-	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
-		agentID, itemID, now.UTC())
-
-	var r useAuthRow
-	if err := row.Scan(
-		&r.aID, &r.aOrgID, &r.aOwnerKind, &r.aOwnerID, &r.aRevoked,
-		&r.iID, &r.iOrgID, &r.iName, &r.iKind, &r.iOwnerKind, &r.iOwnerID, &r.iURIs, &r.iHasTOTP, &r.iTags, &r.iArchived, &r.iHasFile, &r.iLogin,
-		&r.gID, &r.gOrgID, &r.gAgentID, &r.gItemID, &r.gLevel, &r.gActions, &r.gExpires,
-		&r.apID, &r.apGrantID, &r.apHumanID, &r.apExpires,
-	); err != nil {
-		return UseAuth{}, err
-	}
-	return useAuthFromRow(&r)
-}
-
-func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
-	ctx := context.Background()
-	row := p.pool.QueryRow(ctx, `SELECT
-		s.id,
-		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
-		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
-		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
-		ap.id, ap.grant_id, ap.human_id, ap.expires_at
-	FROM (SELECT $1::bytea AS session_hash, $2::text AS item_id, $3::timestamptz AS now) AS v
-	LEFT JOIN sessions s ON s.secret_hash = v.session_hash AND s.expires_at > v.now AND s.revoked_at IS NULL AND (s.max_uses = 0 OR s.uses < s.max_uses)
-	LEFT JOIN agents a ON a.id = s.agent_id
-	LEFT JOIN items i ON i.id = v.item_id
-	LEFT JOIN grants g ON g.agent_id = s.agent_id AND g.item_id = i.id
-	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
-		sessionHash, itemID, now.UTC())
-
-	var sID sql.NullString
-	var r useAuthRow
-	if err := row.Scan(
-		&sID,
-		&r.aID, &r.aOrgID, &r.aOwnerKind, &r.aOwnerID, &r.aRevoked,
-		&r.iID, &r.iOrgID, &r.iName, &r.iKind, &r.iOwnerKind, &r.iOwnerID, &r.iURIs, &r.iHasTOTP, &r.iTags, &r.iArchived, &r.iHasFile, &r.iLogin,
-		&r.gID, &r.gOrgID, &r.gAgentID, &r.gItemID, &r.gLevel, &r.gActions, &r.gExpires,
-		&r.apID, &r.apGrantID, &r.apHumanID, &r.apExpires,
-	); err != nil {
-		return UseAuth{}, err
-	}
-	if !sID.Valid || sID.String == "" || !r.aID.Valid || r.aID.String == "" {
-		return UseAuth{}, ErrNotFound
-	}
-	return useAuthFromRow(&r)
-}
-
-func (p *Postgres) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
-	ctx := context.Background()
-	row := p.pool.QueryRow(ctx, `UPDATE sessions s
-		SET uses = uses + 1
-		FROM agents a
-		WHERE s.secret_hash = $1 AND s.agent_id = a.id AND a.revoked_at IS NULL
-		  AND s.expires_at > $2 AND s.revoked_at IS NULL AND (s.max_uses = 0 OR s.uses < s.max_uses)
-		RETURNING a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at`,
-		sessionHash, now.UTC())
-
-	var a protocol.Principal
-	a.Kind = protocol.PrincipalAgent
-	err := row.Scan(&a.ID, &a.OrgID, &a.Owner.Kind, &a.Owner.ID, &a.RevokedAt)
-	if err == pgx.ErrNoRows {
-		return protocol.Principal{}, ErrNotFound
-	}
-	if err != nil {
-		return protocol.Principal{}, err
-	}
-	a.Owner.Kind = protocol.OwnerKind(a.Owner.Kind)
-	return a, nil
-}
-
 func (p *Postgres) PutGrant(g protocol.Grant) error {
 	ctx := context.Background()
 	actions, err := json.Marshal(g.Actions)
@@ -868,127 +730,6 @@ func (p *Postgres) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error
 		out = append(out, w)
 	}
 	return out, rows.Err()
-}
-
-func scanPostgresSession(row pgx.Row) (protocol.Session, error) {
-	var sess protocol.Session
-	var created, revoked, renewed sql.NullTime
-	err := row.Scan(
-		&sess.ID, &sess.OrgID, &sess.AgentID, &sess.ExpiresAt, &created,
-		&revoked, &renewed, &sess.TTL, &sess.MaxTTL, &sess.MaxUses, &sess.Uses,
-	)
-	if err == pgx.ErrNoRows {
-		return protocol.Session{}, ErrNotFound
-	}
-	if err != nil {
-		return protocol.Session{}, err
-	}
-	sess.ExpiresAt = sess.ExpiresAt.UTC()
-	sess.CreatedAt = created.Time.UTC()
-	if revoked.Valid {
-		t := revoked.Time.UTC()
-		sess.RevokedAt = &t
-	}
-	if renewed.Valid {
-		t := renewed.Time.UTC()
-		sess.RenewedAt = &t
-	}
-	return sess, nil
-}
-
-func (p *Postgres) PutSession(sess protocol.Session, secretHash []byte) error {
-	ctx := context.Background()
-	_, err := p.pool.Exec(ctx, `INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-		ON CONFLICT(id) DO UPDATE SET
-			org_id=excluded.org_id,
-			agent_id=excluded.agent_id,
-			secret_hash=excluded.secret_hash,
-			expires_at=excluded.expires_at,
-			created_at=excluded.created_at,
-			revoked_at=excluded.revoked_at,
-			renewed_at=excluded.renewed_at,
-			ttl=excluded.ttl,
-			max_ttl=excluded.max_ttl,
-			max_uses=excluded.max_uses,
-			uses=excluded.uses`,
-		sess.ID, sess.OrgID, sess.AgentID, secretHash, sess.ExpiresAt.UTC(), sess.CreatedAt.UTC(),
-		sess.RevokedAt, sess.RenewedAt, sess.TTL, sess.MaxTTL, sess.MaxUses, sess.Uses)
-	return err
-}
-
-func (p *Postgres) SessionByHash(secretHash []byte) (protocol.Session, error) {
-	ctx := context.Background()
-	return scanPostgresSession(p.pool.QueryRow(ctx, `SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
-		FROM sessions WHERE secret_hash=$1`, secretHash))
-}
-
-func (p *Postgres) ListSessions() ([]protocol.Session, error) {
-	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
-		FROM sessions ORDER BY expires_at LIMIT $1`, maxListResults)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []protocol.Session
-	for rows.Next() {
-		sess, err := scanPostgresSession(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sess)
-	}
-	return out, rows.Err()
-}
-
-func (p *Postgres) SessionByID(id string) (protocol.Session, error) {
-	ctx := context.Background()
-	return scanPostgresSession(p.pool.QueryRow(ctx, `SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
-		FROM sessions WHERE id=$1`, id))
-}
-
-func (p *Postgres) RevokeSession(id string, at time.Time) error {
-	ctx := context.Background()
-	res, err := p.pool.Exec(ctx, `UPDATE sessions SET revoked_at = COALESCE(revoked_at, $1) WHERE id = $2`, at.UTC(), id)
-	if err != nil {
-		return err
-	}
-	if res.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (p *Postgres) RenewSession(id string, at time.Time) (protocol.Session, error) {
-	ctx := context.Background()
-	sess, err := p.SessionByID(id)
-	if err != nil {
-		return protocol.Session{}, err
-	}
-	if sess.RevokedAt != nil {
-		return protocol.Session{}, ErrSessionRevoked
-	}
-	if !sess.ExpiresAt.After(at) {
-		return protocol.Session{}, ErrSessionExpired
-	}
-	maxExpires := sess.CreatedAt.Add(time.Duration(sess.MaxTTL) * time.Second)
-	newExpires := sess.ExpiresAt.Add(time.Duration(sess.TTL) * time.Second)
-	if newExpires.After(maxExpires) {
-		newExpires = maxExpires
-	}
-	if !newExpires.After(sess.ExpiresAt) {
-		newExpires = sess.ExpiresAt
-	}
-	rn := at.UTC()
-	sess.ExpiresAt = newExpires.UTC()
-	sess.RenewedAt = &rn
-	_, err = p.pool.Exec(ctx, `UPDATE sessions SET expires_at = $1, renewed_at = $2 WHERE id = $3`,
-		sess.ExpiresAt.UTC(), sess.RenewedAt.UTC(), id)
-	if err != nil {
-		return protocol.Session{}, err
-	}
-	return sess, nil
 }
 
 func (p *Postgres) AppendAudit(e protocol.AuditEvent) error {

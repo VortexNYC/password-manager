@@ -19,7 +19,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict
 from typing import Any, ClassVar, Dict, List
-from vortex_pwm.models.item import Item
+from veil_pwm.models.item import Item
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python

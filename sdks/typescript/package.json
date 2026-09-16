@@ -1,11 +1,11 @@
 {
-  "name": "@vortex-api/pwm-sdk",
+  "name": "@veilnyc/pwm-sdk",
   "version": "0.1.0",
   "description": "Generated TypeScript SDK for Veil. Use injects. Never GetSecret.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/VortexNYC/password-manager.git",
+    "url": "git+https://github.com/VeilNYC/password-manager.git",
     "directory": "sdks/typescript"
   },
   "type": "module",

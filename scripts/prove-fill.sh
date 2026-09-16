@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ORIGIN="${PWM_ORIGIN:-https://veil.nyc}"
-TOKEN_FILE="${PWM_HUMAN_TOKEN_FILE:-$HOME/.config/vortex/pwm-human.jwt}"
+TOKEN_FILE="${PWM_HUMAN_TOKEN_FILE:-$HOME/.config/veil/pwm-human.jwt}"
 URL="${PWM_FILL_URL:-https://example.com/}"
 
 if [[ ! -s "$TOKEN_FILE" ]]; then

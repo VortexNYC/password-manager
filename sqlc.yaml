@@ -1,0 +1,36 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "internal/store/queries.sql"
+    schema: "internal/store/schema.sql"
+    gen:
+      go:
+        package: "sqlc"
+        out: "internal/store/sqlc"
+        sql_package: "pgx/v5"
+        overrides:
+          - db_type: "text"
+            nullable: true
+            go_type: "database/sql.NullString"
+          - db_type: "pg_catalog.text"
+            nullable: true
+            go_type: "database/sql.NullString"
+          - db_type: "pg_catalog.varchar"
+            nullable: true
+            go_type: "database/sql.NullString"
+          - db_type: "bool"
+            nullable: true
+            go_type: "database/sql.NullBool"
+          - db_type: "pg_catalog.bool"
+            nullable: true
+            go_type: "database/sql.NullBool"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type: "database/sql.NullTime"
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type: "database/sql.NullTime"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "pg_catalog.timestamptz"
+            go_type: "time.Time"

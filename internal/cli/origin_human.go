@@ -14,9 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vortexnyc/password-manager/identity/glue"
-	"github.com/vortexnyc/password-manager/internal/confirm"
-	"github.com/vortexnyc/password-manager/internal/human"
+	"github.com/veilnyc/password-manager/identity/glue"
+	"github.com/veilnyc/password-manager/internal/confirm"
+	"github.com/veilnyc/password-manager/internal/human"
 )
 
 func originHumanToken() (string, error) {

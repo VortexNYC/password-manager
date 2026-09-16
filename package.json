@@ -11,8 +11,8 @@
     "format:check": "vp fmt --check",
     "typecheck": "pnpm --filter identity-login typecheck && pnpm --filter veil-vault typecheck",
     "sdk:generate": "pnpm exec tsx scripts/generate-sdks.ts",
-    "docs:dev": "pnpm --filter @vortexnyc/pwm-docs dev",
-    "docs:build": "pnpm --filter @vortexnyc/pwm-docs build",
+    "docs:dev": "pnpm --filter @veilnyc/pwm-docs dev",
+    "docs:build": "pnpm --filter @veilnyc/pwm-docs build",
     "prove:cli-golden-flow": "go test ./internal/cli ./internal/mcpserver ./internal/publicapi -count=1"
   },
   "devDependencies": {

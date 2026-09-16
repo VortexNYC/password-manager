@@ -3,7 +3,7 @@
 Generated from `docs/openapi/password-manager.openapi.json`. Do not handwrite clients.
 
 ```ts
-import { createClient, listItems, useItem } from "@vortex-api/pwm-sdk";
+import { createClient, listItems, useItem } from "@veilnyc/pwm-sdk";
 
 const client = createClient({
   baseUrl: "https://veil.nyc",

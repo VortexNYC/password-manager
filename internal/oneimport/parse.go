@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/vortexnyc/password-manager/internal/material"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/material"
+	"github.com/veilnyc/password-manager/internal/protocol"
 )
 
 const maxFile = 32 << 20

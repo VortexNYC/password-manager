@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/scrub"
 )
 
 func TestConfigIsRemoteNoSecret(t *testing.T) {

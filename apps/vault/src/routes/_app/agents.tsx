@@ -10,7 +10,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { PageChrome } from "../../page-chrome";
 import { addAgent, agents } from "../../origin";
-import type { Agent } from "@vortex-api/pwm-sdk";
+import type { Agent } from "@veilnyc/pwm-sdk";
 
 export const Route = createFileRoute("/_app/agents")({
   component: Agents,

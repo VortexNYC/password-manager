@@ -5,8 +5,8 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/vortexnyc/password-manager/internal/cli"
-	"github.com/vortexnyc/password-manager/internal/fill"
+	"github.com/veilnyc/password-manager/internal/cli"
+	"github.com/veilnyc/password-manager/internal/fill"
 )
 
 const version = "0.0.1"

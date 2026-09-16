@@ -17,24 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
-from vortex_pwm.models.owner import Owner
+from pydantic import BaseModel, ConfigDict
+from typing import Any, ClassVar, Dict, List
+from veil_pwm.models.session import Session
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class Agent(BaseModel):
+class SessionsResponse(BaseModel):
     """
-    Agent
+    SessionsResponse
     """ # noqa: E501
-    kind: StrictStr
-    id: StrictStr
-    org_id: StrictStr
-    owner: Optional[Owner] = None
-    revoked_at: Optional[datetime] = Field(default=None, description="Set when the agent is revoked. Record stays for audit.")
-    __properties: ClassVar[List[str]] = ["kind", "id", "org_id", "owner", "revoked_at"]
+    sessions: List[Session]
+    __properties: ClassVar[List[str]] = ["sessions"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -54,7 +49,7 @@ class Agent(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of Agent from a JSON string"""
+        """Create an instance of SessionsResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,14 +70,18 @@ class Agent(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of owner
-        if self.owner:
-            _dict['owner'] = self.owner.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of each item in sessions (list)
+        _items = []
+        if self.sessions:
+            for _item_sessions in self.sessions:
+                if _item_sessions:
+                    _items.append(_item_sessions.to_dict())
+            _dict['sessions'] = _items
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of Agent from a dict"""
+        """Create an instance of SessionsResponse from a dict"""
         if obj is None:
             return None
 
@@ -90,11 +89,7 @@ class Agent(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "kind": obj.get("kind"),
-            "id": obj.get("id"),
-            "org_id": obj.get("org_id"),
-            "owner": Owner.from_dict(obj["owner"]) if obj.get("owner") is not None else None,
-            "revoked_at": obj.get("revoked_at")
+            "sessions": [Session.from_dict(_item) for _item in obj["sessions"]] if obj.get("sessions") is not None else None
         })
         return _obj
 

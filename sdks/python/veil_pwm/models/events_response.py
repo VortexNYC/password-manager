@@ -19,17 +19,17 @@ import json
 
 from pydantic import BaseModel, ConfigDict
 from typing import Any, ClassVar, Dict, List
-from vortex_pwm.models.session import Session
+from veil_pwm.models.audit_event import AuditEvent
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class SessionsResponse(BaseModel):
+class EventsResponse(BaseModel):
     """
-    SessionsResponse
+    EventsResponse
     """ # noqa: E501
-    sessions: List[Session]
-    __properties: ClassVar[List[str]] = ["sessions"]
+    events: List[AuditEvent]
+    __properties: ClassVar[List[str]] = ["events"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -49,7 +49,7 @@ class SessionsResponse(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of SessionsResponse from a JSON string"""
+        """Create an instance of EventsResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -70,18 +70,18 @@ class SessionsResponse(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in sessions (list)
+        # override the default output from pydantic by calling `to_dict()` of each item in events (list)
         _items = []
-        if self.sessions:
-            for _item_sessions in self.sessions:
-                if _item_sessions:
-                    _items.append(_item_sessions.to_dict())
-            _dict['sessions'] = _items
+        if self.events:
+            for _item_events in self.events:
+                if _item_events:
+                    _items.append(_item_events.to_dict())
+            _dict['events'] = _items
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of SessionsResponse from a dict"""
+        """Create an instance of EventsResponse from a dict"""
         if obj is None:
             return None
 
@@ -89,7 +89,7 @@ class SessionsResponse(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "sessions": [Session.from_dict(_item) for _item in obj["sessions"]] if obj.get("sessions") is not None else None
+            "events": [AuditEvent.from_dict(_item) for _item in obj["events"]] if obj.get("events") is not None else None
         })
         return _obj
 

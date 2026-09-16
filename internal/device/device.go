@@ -10,7 +10,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/vortexnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/crypto"
 )
 
 const (

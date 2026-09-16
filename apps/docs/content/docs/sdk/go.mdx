@@ -6,7 +6,7 @@ description: Generated from the OpenAPI contract. Use injects. Never GetSecret.
 # Go SDK
 
 ```bash
-go get github.com/vortexnyc/pwm-go
+go get github.com/veilnyc/pwm-go
 ```
 
 ```go
@@ -14,22 +14,22 @@ import (
 	"context"
 	"os"
 
-	vortexpwm "github.com/vortexnyc/pwm-go"
+	veilpwm "github.com/veilnyc/pwm-go"
 )
 
-cfg := vortexpwm.NewConfiguration()
+cfg := veilpwm.NewConfiguration()
 cfg.Host = "veil.nyc"
 cfg.Scheme = "https"
 cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
 
-client := vortexpwm.NewAPIClient(cfg)
+client := veilpwm.NewAPIClient(cfg)
 _, _, _ = client.AgentAPI.ListItems(context.Background()).Execute()
 ```
 
 ## Local source
 
 - Generated package: `sdks/go`
-- Module path: `github.com/vortexnyc/pwm-go`
+- Module path: `github.com/veilnyc/pwm-go`
 - Generator: OpenAPI Generator
 
 Regenerate with `pnpm run sdk:generate`.

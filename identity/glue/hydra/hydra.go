@@ -13,7 +13,7 @@ import (
 
 	ory "github.com/ory/hydra-client-go/v26"
 
-	"github.com/vortexnyc/password-manager/identity/glue/internal/absurl"
+	"github.com/veilnyc/password-manager/identity/glue/internal/absurl"
 )
 
 var ErrChallenge = errors.New("glue: consent challenge")

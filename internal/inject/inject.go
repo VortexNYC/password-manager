@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vortexnyc/password-manager/internal/broker"
+	"github.com/veilnyc/password-manager/internal/broker"
 )
 
 var ref = regexp.MustCompile(`\$\{([A-Za-z0-9_-]+)\}|pwm://([A-Za-z0-9_-]+)`)

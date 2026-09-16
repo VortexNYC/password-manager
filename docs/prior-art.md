@@ -54,7 +54,7 @@ That list is a 1Password clone roundup. Most of it is a human vault, a file form
 
 ### Do not add
 
-- Dynamic AWS/Postgres secret engines until Vortex has that problem. Static API keys are the first customer.
+- Dynamic AWS/Postgres secret engines until we have that problem. Static API keys are the first customer.
 - Secret sync to GitHub/Vercel/AWS SM. That is GetSecret into someone else’s store.
 - PKI, KMS, PAM, session recording, Teleport.
 - KDBX, `.bcup`, collections, Send, Vaultwarden, a public Bitwarden-style relay.
