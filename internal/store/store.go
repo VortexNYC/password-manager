@@ -59,6 +59,7 @@ type Store interface {
 	ListSessions() ([]protocol.Session, error)
 
 	AppendAudit(protocol.AuditEvent) error
+	AppendAudits([]protocol.AuditEvent) error
 	Audit() ([]protocol.AuditEvent, error)
 	Close() error
 }

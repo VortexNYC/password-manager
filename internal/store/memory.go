@@ -346,6 +346,13 @@ func (m *Memory) AppendAudit(e protocol.AuditEvent) error {
 	return nil
 }
 
+func (m *Memory) AppendAudits(events []protocol.AuditEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.audit = append(m.audit, events...)
+	return nil
+}
+
 func (m *Memory) Audit() ([]protocol.AuditEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

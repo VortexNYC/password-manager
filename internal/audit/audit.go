@@ -44,8 +44,9 @@ var ErrClosed = errors.New("audit: closed")
 // or the caller's context is canceled. If the caller's context is canceled
 // before the event is queued, the event is dropped and ctx.Err() is returned.
 type Async struct {
-	store store.Store
-	ch    chan protocol.AuditEvent
+	store     store.Store
+	ch        chan protocol.AuditEvent
+	batchSize int
 
 	mu       sync.Mutex
 	closed   bool
@@ -62,9 +63,17 @@ type Async struct {
 }
 
 func NewAsync(s store.Store, cap int) *Async {
+	batchSize := cap
+	if batchSize < 1 {
+		batchSize = 1
+	}
+	if batchSize > 64 {
+		batchSize = 64
+	}
 	a := &Async{
 		store:      s,
 		ch:         make(chan protocol.AuditEvent, cap),
+		batchSize:  batchSize,
 		stopCh:     make(chan struct{}),
 		workerDone: make(chan struct{}),
 	}
@@ -98,14 +107,44 @@ func (a *Async) Append(ctx context.Context, e protocol.AuditEvent) error {
 func (a *Async) loop() {
 	defer a.workerWg.Done()
 	defer close(a.workerDone)
-	for e := range a.ch {
-		if err := a.store.AppendAudit(e); err != nil {
-			a.errMu.Lock()
-			if a.err == nil {
-				a.err = err
-			}
-			a.errMu.Unlock()
+	batch := make([]protocol.AuditEvent, 0, a.batchSize)
+	for {
+		e, ok := <-a.ch
+		if !ok {
+			a.flush(batch)
+			return
 		}
+		batch = append(batch, e)
+
+		drain := true
+		for drain && len(batch) < a.batchSize {
+			select {
+			case e2, ok := <-a.ch:
+				if !ok {
+					a.flush(batch)
+					return
+				}
+				batch = append(batch, e2)
+			default:
+				drain = false
+			}
+		}
+
+		a.flush(batch)
+		batch = batch[:0]
+	}
+}
+
+func (a *Async) flush(batch []protocol.AuditEvent) {
+	if len(batch) == 0 {
+		return
+	}
+	if err := a.store.AppendAudits(batch); err != nil {
+		a.errMu.Lock()
+		if a.err == nil {
+			a.err = err
+		}
+		a.errMu.Unlock()
 	}
 }
 

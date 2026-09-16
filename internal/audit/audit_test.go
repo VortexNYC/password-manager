@@ -102,3 +102,8 @@ func (s *slowStore) AppendAudit(e protocol.AuditEvent) error {
 	time.Sleep(s.delay)
 	return s.Memory.AppendAudit(e)
 }
+
+func (s *slowStore) AppendAudits(events []protocol.AuditEvent) error {
+	time.Sleep(s.delay)
+	return s.Memory.AppendAudits(events)
+}

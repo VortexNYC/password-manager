@@ -759,6 +759,25 @@ func (s *SQLite) AppendAudit(e protocol.AuditEvent) error {
 	return err
 }
 
+func (s *SQLite) AppendAudits(events []protocol.AuditEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	const q = `INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
+		VALUES(?,?,?,?,?,?,?,?)`
+	for _, e := range events {
+		if _, err := tx.Exec(q, e.Time.UTC().Format(time.RFC3339Nano), e.OrgID, e.AgentID, e.ItemID, e.Action, e.Decision, e.Reason, e.ApprovalID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *SQLite) Audit() ([]protocol.AuditEvent, error) {
 	rows, err := s.db.Query(`SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY rowid DESC LIMIT ?`, maxListResults)
 	if err != nil {

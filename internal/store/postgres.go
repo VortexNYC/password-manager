@@ -742,11 +742,36 @@ func (p *Postgres) ListSessions() ([]protocol.Session, error) {
 }
 
 func (p *Postgres) AppendAudit(e protocol.AuditEvent) error {
-	ctx := context.Background()
-	_, err := p.pool.Exec(ctx, `INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-		e.Time.UTC(), e.OrgID, e.AgentID, e.ItemID, e.Action, e.Decision, e.Reason, e.ApprovalID)
+	return p.AppendAudits([]protocol.AuditEvent{e})
+}
+
+func (p *Postgres) AppendAudits(events []protocol.AuditEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	_, err := p.pool.CopyFrom(context.Background(), pgx.Identifier{"audit"}, []string{
+		"at", "org_id", "agent_id", "item_id", "action", "decision", "reason", "approval_id",
+	}, &auditCopySource{events: events})
 	return err
+}
+
+type auditCopySource struct {
+	events []protocol.AuditEvent
+	idx    int
+}
+
+func (s *auditCopySource) Next() bool {
+	return s.idx < len(s.events)
+}
+
+func (s *auditCopySource) Values() ([]interface{}, error) {
+	e := s.events[s.idx]
+	s.idx++
+	return []interface{}{e.Time.UTC(), e.OrgID, e.AgentID, e.ItemID, e.Action, e.Decision, e.Reason, e.ApprovalID}, nil
+}
+
+func (s *auditCopySource) Err() error {
+	return nil
 }
 
 func (p *Postgres) Audit() ([]protocol.AuditEvent, error) {
