@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/store"
@@ -44,9 +45,10 @@ var ErrClosed = errors.New("audit: closed")
 // or the caller's context is canceled. If the caller's context is canceled
 // before the event is queued, the event is dropped and ctx.Err() is returned.
 type Async struct {
-	store     store.Store
-	ch        chan protocol.AuditEvent
-	batchSize int
+	store         store.Store
+	ch            chan protocol.AuditEvent
+	batchSize     int
+	flushInterval time.Duration
 
 	mu       sync.Mutex
 	closed   bool
@@ -62,7 +64,16 @@ type Async struct {
 	closeOnce sync.Once
 }
 
+// NewAsync creates an async auditor that flushes when the batch is full or
+// when no more events are immediately available in the channel.
 func NewAsync(s store.Store, cap int) *Async {
+	return NewAsyncWithInterval(s, cap, 0)
+}
+
+// NewAsyncWithInterval creates an async auditor that waits up to interval for
+// the batch to fill before flushing. A zero interval flushes immediately after
+// the channel is drained.
+func NewAsyncWithInterval(s store.Store, cap int, interval time.Duration) *Async {
 	batchSize := cap
 	if batchSize < 1 {
 		batchSize = 1
@@ -71,11 +82,12 @@ func NewAsync(s store.Store, cap int) *Async {
 		batchSize = 64
 	}
 	a := &Async{
-		store:      s,
-		ch:         make(chan protocol.AuditEvent, cap),
-		batchSize:  batchSize,
-		stopCh:     make(chan struct{}),
-		workerDone: make(chan struct{}),
+		store:         s,
+		ch:            make(chan protocol.AuditEvent, cap),
+		batchSize:     batchSize,
+		flushInterval: interval,
+		stopCh:        make(chan struct{}),
+		workerDone:    make(chan struct{}),
 	}
 	a.workerWg.Add(1)
 	go a.loop()
@@ -116,22 +128,53 @@ func (a *Async) loop() {
 		}
 		batch = append(batch, e)
 
-		drain := true
-		for drain && len(batch) < a.batchSize {
+		if a.flushInterval <= 0 {
+			a.drainBatch(&batch)
+			a.flush(batch)
+			batch = batch[:0]
+			continue
+		}
+
+		timer := time.NewTimer(a.flushInterval)
+		timed := false
+		for !timed && len(batch) < a.batchSize {
 			select {
 			case e2, ok := <-a.ch:
 				if !ok {
+					if !timer.Stop() {
+						<-timer.C
+					}
 					a.flush(batch)
 					return
 				}
 				batch = append(batch, e2)
-			default:
-				drain = false
+			case <-timer.C:
+				timed = true
 			}
 		}
+		if !timed {
+			if !timer.Stop() {
+				<-timer.C
+			}
+		}
+		if len(batch) > 0 {
+			a.flush(batch)
+			batch = batch[:0]
+		}
+	}
+}
 
-		a.flush(batch)
-		batch = batch[:0]
+func (a *Async) drainBatch(batch *[]protocol.AuditEvent) {
+	for len(*batch) < a.batchSize {
+		select {
+		case e, ok := <-a.ch:
+			if !ok {
+				return
+			}
+			*batch = append(*batch, e)
+		default:
+			return
+		}
 	}
 }
 

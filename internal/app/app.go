@@ -162,7 +162,7 @@ func OpenPostgres(dsn string) (*App, error) {
 		_ = s.Close()
 		return nil, err
 	}
-	return finish("", cfg, s, audit.NewAsync(s, auditBufferCapacity()))
+	return finish("", cfg, s, audit.NewAsyncWithInterval(s, auditBufferCapacity(), auditFlushInterval()))
 }
 
 func loadMasterFromEnv() ([]byte, error) {
@@ -183,6 +183,18 @@ func auditBufferCapacity() int {
 		return 1024
 	}
 	return n
+}
+
+func auditFlushInterval() time.Duration {
+	env := os.Getenv("VEIL_AUDIT_FLUSH_INTERVAL")
+	if env == "" {
+		return 5 * time.Millisecond
+	}
+	d, err := time.ParseDuration(env)
+	if err != nil || d <= 0 {
+		return 5 * time.Millisecond
+	}
+	return d
 }
 
 func finish(dir string, cfg config, s store.Store, auditor audit.Auditor) (*App, error) {
