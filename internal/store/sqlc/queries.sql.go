@@ -11,6 +11,51 @@ import (
 	"time"
 )
 
+const agentByID = `-- name: AgentByID :one
+SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents WHERE id = $1::text
+`
+
+func (q *Queries) AgentByID(ctx context.Context, id string) (Agent, error) {
+	row := q.db.QueryRow(ctx, agentByID, id)
+	var i Agent
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.OwnerKind,
+		&i.OwnerID,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const approvalByGrant = `-- name: ApprovalByGrant :one
+SELECT grant_id, id, human_id, expires_at FROM approvals WHERE grant_id = $1::text
+`
+
+func (q *Queries) ApprovalByGrant(ctx context.Context, grantID string) (Approval, error) {
+	row := q.db.QueryRow(ctx, approvalByGrant, grantID)
+	var i Approval
+	err := row.Scan(
+		&i.GrantID,
+		&i.ID,
+		&i.HumanID,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const archiveItem = `-- name: ArchiveItem :execrows
+UPDATE items SET archived = TRUE WHERE id = $1::text
+`
+
+func (q *Queries) ArchiveItem(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveItem, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const consumeSession = `-- name: ConsumeSession :one
 UPDATE sessions s
 SET uses = uses + 1
@@ -50,6 +95,466 @@ func (q *Queries) ConsumeSession(ctx context.Context, arg ConsumeSessionParams) 
 	return i, err
 }
 
+const deleteItem = `-- name: DeleteItem :execrows
+DELETE FROM items WHERE id = $1::text
+`
+
+func (q *Queries) DeleteItem(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteItem, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteItemGrants = `-- name: DeleteItemGrants :exec
+DELETE FROM grants WHERE item_id = $1::text
+`
+
+func (q *Queries) DeleteItemGrants(ctx context.Context, itemID string) error {
+	_, err := q.db.Exec(ctx, deleteItemGrants, itemID)
+	return err
+}
+
+const deleteItemVersions = `-- name: DeleteItemVersions :exec
+DELETE FROM item_versions WHERE item_id = $1::text
+`
+
+func (q *Queries) DeleteItemVersions(ctx context.Context, itemID string) error {
+	_, err := q.db.Exec(ctx, deleteItemVersions, itemID)
+	return err
+}
+
+const grantByID = `-- name: GrantByID :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE id = $1::text
+`
+
+func (q *Queries) GrantByID(ctx context.Context, id string) (Grant, error) {
+	row := q.db.QueryRow(ctx, grantByID, id)
+	var i Grant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.AgentID,
+		&i.ItemID,
+		&i.Level,
+		&i.Actions,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const grantFor = `-- name: GrantFor :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE agent_id = $1::text AND item_id = $2::text
+`
+
+type GrantForParams struct {
+	AgentID string
+	ItemID  string
+}
+
+func (q *Queries) GrantFor(ctx context.Context, arg GrantForParams) (Grant, error) {
+	row := q.db.QueryRow(ctx, grantFor, arg.AgentID, arg.ItemID)
+	var i Grant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.AgentID,
+		&i.ItemID,
+		&i.Level,
+		&i.Actions,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const humanByID = `-- name: HumanByID :one
+SELECT id, org_id FROM humans WHERE id = $1::text
+`
+
+func (q *Queries) HumanByID(ctx context.Context, id string) (Human, error) {
+	row := q.db.QueryRow(ctx, humanByID, id)
+	var i Human
+	err := row.Scan(&i.ID, &i.OrgID)
+	return i, err
+}
+
+const insertAudit = `-- name: InsertAudit :exec
+INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
+VALUES($1::timestamptz, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text)
+`
+
+type InsertAuditParams struct {
+	At         time.Time
+	OrgID      string
+	AgentID    string
+	ItemID     string
+	Action     string
+	Decision   string
+	Reason     string
+	ApprovalID string
+}
+
+func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error {
+	_, err := q.db.Exec(ctx, insertAudit,
+		arg.At,
+		arg.OrgID,
+		arg.AgentID,
+		arg.ItemID,
+		arg.Action,
+		arg.Decision,
+		arg.Reason,
+		arg.ApprovalID,
+	)
+	return err
+}
+
+const itemByID = `-- name: ItemByID :one
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE id = $1::text
+`
+
+type ItemByIDRow struct {
+	ID        string
+	OrgID     string
+	Name      string
+	Kind      string
+	OwnerKind string
+	OwnerID   string
+	Uris      string
+	HasTotp   bool
+	Tags      string
+	Archived  bool
+	HasFile   bool
+	Login     string
+}
+
+func (q *Queries) ItemByID(ctx context.Context, id string) (ItemByIDRow, error) {
+	row := q.db.QueryRow(ctx, itemByID, id)
+	var i ItemByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Kind,
+		&i.OwnerKind,
+		&i.OwnerID,
+		&i.Uris,
+		&i.HasTotp,
+		&i.Tags,
+		&i.Archived,
+		&i.HasFile,
+		&i.Login,
+	)
+	return i, err
+}
+
+const itemByName = `-- name: ItemByName :one
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE org_id = $1::text AND name = $2::text
+`
+
+type ItemByNameParams struct {
+	OrgID string
+	Name  string
+}
+
+type ItemByNameRow struct {
+	ID        string
+	OrgID     string
+	Name      string
+	Kind      string
+	OwnerKind string
+	OwnerID   string
+	Uris      string
+	HasTotp   bool
+	Tags      string
+	Archived  bool
+	HasFile   bool
+	Login     string
+}
+
+func (q *Queries) ItemByName(ctx context.Context, arg ItemByNameParams) (ItemByNameRow, error) {
+	row := q.db.QueryRow(ctx, itemByName, arg.OrgID, arg.Name)
+	var i ItemByNameRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Kind,
+		&i.OwnerKind,
+		&i.OwnerID,
+		&i.Uris,
+		&i.HasTotp,
+		&i.Tags,
+		&i.Archived,
+		&i.HasFile,
+		&i.Login,
+	)
+	return i, err
+}
+
+const itemOwner = `-- name: ItemOwner :one
+SELECT owner_kind, owner_id FROM items WHERE id = $1::text
+`
+
+type ItemOwnerRow struct {
+	OwnerKind string
+	OwnerID   string
+}
+
+func (q *Queries) ItemOwner(ctx context.Context, id string) (ItemOwnerRow, error) {
+	row := q.db.QueryRow(ctx, itemOwner, id)
+	var i ItemOwnerRow
+	err := row.Scan(&i.OwnerKind, &i.OwnerID)
+	return i, err
+}
+
+const itemSecretOwner = `-- name: ItemSecretOwner :one
+SELECT secret, owner_kind, owner_id FROM items WHERE id = $1::text
+`
+
+type ItemSecretOwnerRow struct {
+	Secret    []byte
+	OwnerKind string
+	OwnerID   string
+}
+
+func (q *Queries) ItemSecretOwner(ctx context.Context, id string) (ItemSecretOwnerRow, error) {
+	row := q.db.QueryRow(ctx, itemSecretOwner, id)
+	var i ItemSecretOwnerRow
+	err := row.Scan(&i.Secret, &i.OwnerKind, &i.OwnerID)
+	return i, err
+}
+
+const itemVersionSecret = `-- name: ItemVersionSecret :one
+SELECT secret FROM item_versions WHERE id = $1::bigint AND item_id = $2::text
+`
+
+type ItemVersionSecretParams struct {
+	ID     int64
+	ItemID string
+}
+
+func (q *Queries) ItemVersionSecret(ctx context.Context, arg ItemVersionSecretParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, itemVersionSecret, arg.ID, arg.ItemID)
+	var secret []byte
+	err := row.Scan(&secret)
+	return secret, err
+}
+
+const itemVersions = `-- name: ItemVersions :many
+SELECT id, item_id, at FROM item_versions WHERE item_id = $1::text ORDER BY id DESC LIMIT $2::bigint
+`
+
+type ItemVersionsParams struct {
+	ItemID     string
+	MaxResults int64
+}
+
+type ItemVersionsRow struct {
+	ID     int64
+	ItemID string
+	At     time.Time
+}
+
+func (q *Queries) ItemVersions(ctx context.Context, arg ItemVersionsParams) ([]ItemVersionsRow, error) {
+	rows, err := q.db.Query(ctx, itemVersions, arg.ItemID, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ItemVersionsRow
+	for rows.Next() {
+		var i ItemVersionsRow
+		if err := rows.Scan(&i.ID, &i.ItemID, &i.At); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgents = `-- name: ListAgents :many
+SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id LIMIT $1::bigint
+`
+
+func (q *Queries) ListAgents(ctx context.Context, maxResults int64) ([]Agent, error) {
+	rows, err := q.db.Query(ctx, listAgents, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Agent
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.OwnerKind,
+			&i.OwnerID,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAudit = `-- name: ListAudit :many
+SELECT id, at, org_id, agent_id, item_id, action, decision, reason, approval_id
+FROM audit ORDER BY id DESC LIMIT $1::bigint
+`
+
+func (q *Queries) ListAudit(ctx context.Context, maxResults int64) ([]Audit, error) {
+	rows, err := q.db.Query(ctx, listAudit, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Audit
+	for rows.Next() {
+		var i Audit
+		if err := rows.Scan(
+			&i.ID,
+			&i.At,
+			&i.OrgID,
+			&i.AgentID,
+			&i.ItemID,
+			&i.Action,
+			&i.Decision,
+			&i.Reason,
+			&i.ApprovalID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGrants = `-- name: ListGrants :many
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants ORDER BY id LIMIT $1::bigint
+`
+
+func (q *Queries) ListGrants(ctx context.Context, maxResults int64) ([]Grant, error) {
+	rows, err := q.db.Query(ctx, listGrants, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Grant
+	for rows.Next() {
+		var i Grant
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.AgentID,
+			&i.ItemID,
+			&i.Level,
+			&i.Actions,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHumans = `-- name: ListHumans :many
+SELECT id, org_id FROM humans ORDER BY id LIMIT $1::bigint
+`
+
+func (q *Queries) ListHumans(ctx context.Context, maxResults int64) ([]Human, error) {
+	rows, err := q.db.Query(ctx, listHumans, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Human
+	for rows.Next() {
+		var i Human
+		if err := rows.Scan(&i.ID, &i.OrgID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listItems = `-- name: ListItems :many
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE archived = FALSE ORDER BY name LIMIT $1::bigint
+`
+
+type ListItemsRow struct {
+	ID        string
+	OrgID     string
+	Name      string
+	Kind      string
+	OwnerKind string
+	OwnerID   string
+	Uris      string
+	HasTotp   bool
+	Tags      string
+	Archived  bool
+	HasFile   bool
+	Login     string
+}
+
+func (q *Queries) ListItems(ctx context.Context, maxResults int64) ([]ListItemsRow, error) {
+	rows, err := q.db.Query(ctx, listItems, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListItemsRow
+	for rows.Next() {
+		var i ListItemsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Kind,
+			&i.OwnerKind,
+			&i.OwnerID,
+			&i.Uris,
+			&i.HasTotp,
+			&i.Tags,
+			&i.Archived,
+			&i.HasFile,
+			&i.Login,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessions = `-- name: ListSessions :many
 SELECT id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
 FROM sessions ORDER BY expires_at LIMIT $1::bigint
@@ -86,6 +591,182 @@ func (q *Queries) ListSessions(ctx context.Context, maxResults int64) ([]Session
 		return nil, err
 	}
 	return items, nil
+}
+
+const ownerWrapped = `-- name: OwnerWrapped :one
+SELECT wrapped FROM owner_keys WHERE owner_kind = $1::text AND owner_id = $2::text
+`
+
+type OwnerWrappedParams struct {
+	OwnerKind string
+	OwnerID   string
+}
+
+func (q *Queries) OwnerWrapped(ctx context.Context, arg OwnerWrappedParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, ownerWrapped, arg.OwnerKind, arg.OwnerID)
+	var wrapped []byte
+	err := row.Scan(&wrapped)
+	return wrapped, err
+}
+
+const putAgent = `-- name: PutAgent :exec
+INSERT INTO agents(id, org_id, owner_kind, owner_id, revoked_at)
+VALUES($1::text, $2::text, $3::text, $4::text, $5)
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id, owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
+    revoked_at=COALESCE(agents.revoked_at, excluded.revoked_at)
+`
+
+type PutAgentParams struct {
+	ID        string
+	OrgID     string
+	OwnerKind string
+	OwnerID   string
+	RevokedAt sql.NullTime
+}
+
+func (q *Queries) PutAgent(ctx context.Context, arg PutAgentParams) error {
+	_, err := q.db.Exec(ctx, putAgent,
+		arg.ID,
+		arg.OrgID,
+		arg.OwnerKind,
+		arg.OwnerID,
+		arg.RevokedAt,
+	)
+	return err
+}
+
+const putApproval = `-- name: PutApproval :exec
+INSERT INTO approvals(grant_id, id, human_id, expires_at)
+VALUES($1::text, $2::text, $3::text, $4::timestamptz)
+ON CONFLICT(grant_id) DO UPDATE SET
+    id=excluded.id, human_id=excluded.human_id, expires_at=excluded.expires_at
+`
+
+type PutApprovalParams struct {
+	GrantID   string
+	ID        string
+	HumanID   string
+	ExpiresAt time.Time
+}
+
+func (q *Queries) PutApproval(ctx context.Context, arg PutApprovalParams) error {
+	_, err := q.db.Exec(ctx, putApproval,
+		arg.GrantID,
+		arg.ID,
+		arg.HumanID,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
+const putGrant = `-- name: PutGrant :exec
+INSERT INTO grants(id, org_id, agent_id, item_id, level, actions, expires_at)
+VALUES($1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7)
+ON CONFLICT(agent_id, item_id) DO UPDATE SET
+    id=excluded.id, org_id=excluded.org_id, level=excluded.level,
+    actions=excluded.actions, expires_at=excluded.expires_at
+`
+
+type PutGrantParams struct {
+	ID        string
+	OrgID     string
+	AgentID   string
+	ItemID    string
+	Level     string
+	Actions   string
+	ExpiresAt sql.NullTime
+}
+
+func (q *Queries) PutGrant(ctx context.Context, arg PutGrantParams) error {
+	_, err := q.db.Exec(ctx, putGrant,
+		arg.ID,
+		arg.OrgID,
+		arg.AgentID,
+		arg.ItemID,
+		arg.Level,
+		arg.Actions,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
+const putHuman = `-- name: PutHuman :exec
+INSERT INTO humans(id, org_id) VALUES($1::text, $2::text)
+ON CONFLICT(id) DO UPDATE SET org_id=excluded.org_id
+`
+
+type PutHumanParams struct {
+	ID    string
+	OrgID string
+}
+
+func (q *Queries) PutHuman(ctx context.Context, arg PutHumanParams) error {
+	_, err := q.db.Exec(ctx, putHuman, arg.ID, arg.OrgID)
+	return err
+}
+
+const putItem = `-- name: PutItem :exec
+INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+VALUES($1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::bytea, $9::bool, $10::text, $11::bool, $12::bool, $13::text)
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
+    owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
+    uris=excluded.uris, secret=excluded.secret, has_totp=excluded.has_totp,
+    tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file,
+    login=excluded.login
+`
+
+type PutItemParams struct {
+	ID        string
+	OrgID     string
+	Name      string
+	Kind      string
+	OwnerKind string
+	OwnerID   string
+	Uris      string
+	Secret    []byte
+	HasTotp   bool
+	Tags      string
+	Archived  bool
+	HasFile   bool
+	Login     string
+}
+
+func (q *Queries) PutItem(ctx context.Context, arg PutItemParams) error {
+	_, err := q.db.Exec(ctx, putItem,
+		arg.ID,
+		arg.OrgID,
+		arg.Name,
+		arg.Kind,
+		arg.OwnerKind,
+		arg.OwnerID,
+		arg.Uris,
+		arg.Secret,
+		arg.HasTotp,
+		arg.Tags,
+		arg.Archived,
+		arg.HasFile,
+		arg.Login,
+	)
+	return err
+}
+
+const putOwnerWrapped = `-- name: PutOwnerWrapped :exec
+INSERT INTO owner_keys(owner_kind, owner_id, wrapped)
+VALUES($1::text, $2::text, $3::bytea)
+ON CONFLICT(owner_kind, owner_id) DO NOTHING
+`
+
+type PutOwnerWrappedParams struct {
+	OwnerKind string
+	OwnerID   string
+	Wrapped   []byte
+}
+
+func (q *Queries) PutOwnerWrapped(ctx context.Context, arg PutOwnerWrappedParams) error {
+	_, err := q.db.Exec(ctx, putOwnerWrapped, arg.OwnerKind, arg.OwnerID, arg.Wrapped)
+	return err
 }
 
 const putSession = `-- name: PutSession :exec
@@ -138,6 +819,30 @@ func (q *Queries) PutSession(ctx context.Context, arg PutSessionParams) error {
 	return err
 }
 
+const putWorkload = `-- name: PutWorkload :exec
+INSERT INTO workloads(issuer, subject, agent_id, audience)
+VALUES($1::text, $2::text, $3::text, $4::text)
+ON CONFLICT(issuer, subject) DO UPDATE SET
+    agent_id=excluded.agent_id, audience=excluded.audience
+`
+
+type PutWorkloadParams struct {
+	Issuer   string
+	Subject  string
+	AgentID  string
+	Audience string
+}
+
+func (q *Queries) PutWorkload(ctx context.Context, arg PutWorkloadParams) error {
+	_, err := q.db.Exec(ctx, putWorkload,
+		arg.Issuer,
+		arg.Subject,
+		arg.AgentID,
+		arg.Audience,
+	)
+	return err
+}
+
 const renewSession = `-- name: RenewSession :exec
 UPDATE sessions SET expires_at = $1::timestamptz, renewed_at = $2::timestamptz WHERE id = $3::text
 `
@@ -151,6 +856,37 @@ type RenewSessionParams struct {
 func (q *Queries) RenewSession(ctx context.Context, arg RenewSessionParams) error {
 	_, err := q.db.Exec(ctx, renewSession, arg.ExpiresAt, arg.RenewedAt, arg.ID)
 	return err
+}
+
+const restoreItemSecret = `-- name: RestoreItemSecret :exec
+UPDATE items SET secret = $1::bytea WHERE id = $2::text
+`
+
+type RestoreItemSecretParams struct {
+	Secret []byte
+	ID     string
+}
+
+func (q *Queries) RestoreItemSecret(ctx context.Context, arg RestoreItemSecretParams) error {
+	_, err := q.db.Exec(ctx, restoreItemSecret, arg.Secret, arg.ID)
+	return err
+}
+
+const revokeAgent = `-- name: RevokeAgent :execrows
+UPDATE agents SET revoked_at = COALESCE(revoked_at, $1::timestamptz) WHERE id = $2::text
+`
+
+type RevokeAgentParams struct {
+	At time.Time
+	ID string
+}
+
+func (q *Queries) RevokeAgent(ctx context.Context, arg RevokeAgentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeAgent, arg.At, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const revokeSession = `-- name: RevokeSession :execrows
@@ -218,6 +954,21 @@ func (q *Queries) SessionByID(ctx context.Context, id string) (Session, error) {
 		&i.Uses,
 	)
 	return i, err
+}
+
+const snapshotItem = `-- name: SnapshotItem :exec
+INSERT INTO item_versions(item_id, at, secret)
+SELECT $1::text, $2::timestamptz, secret FROM items WHERE id = $1::text
+`
+
+type SnapshotItemParams struct {
+	ItemID string
+	At     time.Time
+}
+
+func (q *Queries) SnapshotItem(ctx context.Context, arg SnapshotItemParams) error {
+	_, err := q.db.Exec(ctx, snapshotItem, arg.ItemID, arg.At)
+	return err
 }
 
 const useAuth = `-- name: UseAuth :one
@@ -442,4 +1193,59 @@ func (q *Queries) UseAuthSession(ctx context.Context, arg UseAuthSessionParams) 
 		&i.ApprovalExpiresAt,
 	)
 	return i, err
+}
+
+const workloadByKey = `-- name: WorkloadByKey :one
+SELECT issuer, subject, agent_id, audience FROM workloads WHERE issuer = $1::text AND subject = $2::text
+`
+
+type WorkloadByKeyParams struct {
+	Issuer  string
+	Subject string
+}
+
+func (q *Queries) WorkloadByKey(ctx context.Context, arg WorkloadByKeyParams) (Workload, error) {
+	row := q.db.QueryRow(ctx, workloadByKey, arg.Issuer, arg.Subject)
+	var i Workload
+	err := row.Scan(
+		&i.Issuer,
+		&i.Subject,
+		&i.AgentID,
+		&i.Audience,
+	)
+	return i, err
+}
+
+const workloadsForIssuer = `-- name: WorkloadsForIssuer :many
+SELECT issuer, subject, agent_id, audience FROM workloads WHERE issuer = $1::text ORDER BY subject LIMIT $2::bigint
+`
+
+type WorkloadsForIssuerParams struct {
+	Issuer     string
+	MaxResults int64
+}
+
+func (q *Queries) WorkloadsForIssuer(ctx context.Context, arg WorkloadsForIssuerParams) ([]Workload, error) {
+	rows, err := q.db.Query(ctx, workloadsForIssuer, arg.Issuer, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Workload
+	for rows.Next() {
+		var i Workload
+		if err := rows.Scan(
+			&i.Issuer,
+			&i.Subject,
+			&i.AgentID,
+			&i.Audience,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -117,3 +117,138 @@ UPDATE sessions SET revoked_at = COALESCE(revoked_at, @at::timestamptz) WHERE id
 
 -- name: RenewSession :exec
 UPDATE sessions SET expires_at = @expires_at::timestamptz, renewed_at = @renewed_at::timestamptz WHERE id = @id::text;
+
+-- name: ItemOwner :one
+SELECT owner_kind, owner_id FROM items WHERE id = @id::text;
+
+-- name: SnapshotItem :exec
+INSERT INTO item_versions(item_id, at, secret)
+SELECT @item_id::text, @at::timestamptz, secret FROM items WHERE id = @item_id::text;
+
+-- name: PutItem :exec
+INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+VALUES(@id::text, @org_id::text, @name::text, @kind::text, @owner_kind::text, @owner_id::text, @uris::text, @secret::bytea, @has_totp::bool, @tags::text, @archived::bool, @has_file::bool, @login::text)
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
+    owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
+    uris=excluded.uris, secret=excluded.secret, has_totp=excluded.has_totp,
+    tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file,
+    login=excluded.login;
+
+-- name: ItemByID :one
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE id = @id::text;
+
+-- name: ItemByName :one
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE org_id = @org_id::text AND name = @name::text;
+
+-- name: ListItems :many
+SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
+FROM items WHERE archived = FALSE ORDER BY name LIMIT @max_results::bigint;
+
+-- name: ArchiveItem :execrows
+UPDATE items SET archived = TRUE WHERE id = @id::text;
+
+-- name: DeleteItemVersions :exec
+DELETE FROM item_versions WHERE item_id = @item_id::text;
+
+-- name: DeleteItemGrants :exec
+DELETE FROM grants WHERE item_id = @item_id::text;
+
+-- name: DeleteItem :execrows
+DELETE FROM items WHERE id = @id::text;
+
+-- name: ItemVersions :many
+SELECT id, item_id, at FROM item_versions WHERE item_id = @item_id::text ORDER BY id DESC LIMIT @max_results::bigint;
+
+-- name: ItemVersionSecret :one
+SELECT secret FROM item_versions WHERE id = @id::bigint AND item_id = @item_id::text;
+
+-- name: RestoreItemSecret :exec
+UPDATE items SET secret = @secret::bytea WHERE id = @id::text;
+
+-- name: ItemSecretOwner :one
+SELECT secret, owner_kind, owner_id FROM items WHERE id = @id::text;
+
+-- name: PutGrant :exec
+INSERT INTO grants(id, org_id, agent_id, item_id, level, actions, expires_at)
+VALUES(@id::text, @org_id::text, @agent_id::text, @item_id::text, @level::text, @actions::text, sqlc.narg(expires_at))
+ON CONFLICT(agent_id, item_id) DO UPDATE SET
+    id=excluded.id, org_id=excluded.org_id, level=excluded.level,
+    actions=excluded.actions, expires_at=excluded.expires_at;
+
+-- name: GrantByID :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE id = @id::text;
+
+-- name: GrantFor :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE agent_id = @agent_id::text AND item_id = @item_id::text;
+
+-- name: ListGrants :many
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants ORDER BY id LIMIT @max_results::bigint;
+
+-- name: PutApproval :exec
+INSERT INTO approvals(grant_id, id, human_id, expires_at)
+VALUES(@grant_id::text, @id::text, @human_id::text, @expires_at::timestamptz)
+ON CONFLICT(grant_id) DO UPDATE SET
+    id=excluded.id, human_id=excluded.human_id, expires_at=excluded.expires_at;
+
+-- name: ApprovalByGrant :one
+SELECT grant_id, id, human_id, expires_at FROM approvals WHERE grant_id = @grant_id::text;
+
+-- name: OwnerWrapped :one
+SELECT wrapped FROM owner_keys WHERE owner_kind = @owner_kind::text AND owner_id = @owner_id::text;
+
+-- name: PutOwnerWrapped :exec
+INSERT INTO owner_keys(owner_kind, owner_id, wrapped)
+VALUES(@owner_kind::text, @owner_id::text, @wrapped::bytea)
+ON CONFLICT(owner_kind, owner_id) DO NOTHING;
+
+-- name: PutAgent :exec
+INSERT INTO agents(id, org_id, owner_kind, owner_id, revoked_at)
+VALUES(@id::text, @org_id::text, @owner_kind::text, @owner_id::text, sqlc.narg(revoked_at))
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id, owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
+    revoked_at=COALESCE(agents.revoked_at, excluded.revoked_at);
+
+-- name: AgentByID :one
+SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents WHERE id = @id::text;
+
+-- name: ListAgents :many
+SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id LIMIT @max_results::bigint;
+
+-- name: RevokeAgent :execrows
+UPDATE agents SET revoked_at = COALESCE(revoked_at, @at::timestamptz) WHERE id = @id::text;
+
+-- name: PutHuman :exec
+INSERT INTO humans(id, org_id) VALUES(@id::text, @org_id::text)
+ON CONFLICT(id) DO UPDATE SET org_id=excluded.org_id;
+
+-- name: HumanByID :one
+SELECT id, org_id FROM humans WHERE id = @id::text;
+
+-- name: ListHumans :many
+SELECT id, org_id FROM humans ORDER BY id LIMIT @max_results::bigint;
+
+-- name: PutWorkload :exec
+INSERT INTO workloads(issuer, subject, agent_id, audience)
+VALUES(@issuer::text, @subject::text, @agent_id::text, @audience::text)
+ON CONFLICT(issuer, subject) DO UPDATE SET
+    agent_id=excluded.agent_id, audience=excluded.audience;
+
+-- name: WorkloadByKey :one
+SELECT issuer, subject, agent_id, audience FROM workloads WHERE issuer = @issuer::text AND subject = @subject::text;
+
+-- name: WorkloadsForIssuer :many
+SELECT issuer, subject, agent_id, audience FROM workloads WHERE issuer = @issuer::text ORDER BY subject LIMIT @max_results::bigint;
+
+-- name: InsertAudit :exec
+INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
+VALUES(@at::timestamptz, @org_id::text, @agent_id::text, @item_id::text, @action::text, @decision::text, @reason::text, @approval_id::text);
+
+-- name: ListAudit :many
+SELECT id, at, org_id, agent_id, item_id, action, decision, reason, approval_id
+FROM audit ORDER BY id DESC LIMIT @max_results::bigint;
