@@ -130,19 +130,20 @@ func run() error {
 		slog.Warn("reset test tables")
 	}
 
+	vus := envOrInt("VEIL_VUS", 50)
 	var agent protocol.Principal
 	var item protocol.Item
-	var session protocol.Session
-	var token string
+	var sessions []protocol.Session
+	var tokens []string
 	if mode == "goroutine" {
-		agent, item, session, token, err = seed(origins[0].app, upstreamURL)
+		agent, item, sessions, tokens, err = seed(origins[0].app, upstreamURL, vus)
 	} else {
 		var seedApp *app.App
 		seedApp, err = app.OpenPostgres(dsn)
 		if err != nil {
 			return fmt.Errorf("open seed app: %w", err)
 		}
-		agent, item, session, token, err = seed(seedApp, upstreamURL)
+		agent, item, sessions, tokens, err = seed(seedApp, upstreamURL, vus)
 		_ = seedApp.Close()
 	}
 	if err != nil {
@@ -203,7 +204,7 @@ func run() error {
 	k6Cmd.Env = append(os.Environ(),
 		"VEIL_ORIGINS="+strings.Join(k6Origins, ","),
 		"VEIL_ORIGIN="+proxyURL,
-		"VEIL_AGENT_TOKEN="+token,
+		"VEIL_TOKENS="+strings.Join(tokens, ","),
 		"VEIL_ITEM_ID="+item.ID,
 		"VEIL_UPSTREAM_URL="+upstreamURL,
 	)
@@ -240,7 +241,7 @@ func run() error {
 	slog.Warn("load test complete", "replicas", len(origins), "mode", mode, "summary", k6Out)
 
 	_ = agent
-	_ = session
+	_ = sessions
 	return nil
 }
 
@@ -465,29 +466,35 @@ func closeOrigins(origins []*origin) {
 	wg.Wait()
 }
 
-func seed(a *app.App, upstreamURL string) (protocol.Principal, protocol.Item, protocol.Session, string, error) {
+func seed(a *app.App, upstreamURL string, n int) (protocol.Principal, protocol.Item, []protocol.Session, []string, error) {
 	agentName := envOr("LOADTEST_AGENT", "loadtest-agent")
 	itemName := envOr("LOADTEST_ITEM", "loadtest-item")
 	secret := []byte(envOr("LOADTEST_SECRET", "sk_live_loadtest_secret"))
 
 	agent, err := a.AddAgent(agentName)
 	if err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add agent: %w", err)
+		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add agent: %w", err)
 	}
 	item, err := a.AddItem(itemName, upstreamURL, secret)
 	if err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add item: %w", err)
+		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add item: %w", err)
 	}
 	if _, err := a.AddGrant(agent.ID, item.ID, protocol.Level2); err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add grant: %w", err)
+		return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("add grant: %w", err)
 	}
 	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
-	session, token, err := a.CreateSession(human, agent.ID, time.Hour, 0)
-	if err != nil {
-		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("create session: %w", err)
+	sessions := make([]protocol.Session, 0, n)
+	tokens := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		session, token, err := a.CreateSession(human, agent.ID, time.Hour, 0)
+		if err != nil {
+			return protocol.Principal{}, protocol.Item{}, nil, nil, fmt.Errorf("create session %d: %w", i, err)
+		}
+		sessions = append(sessions, session)
+		tokens = append(tokens, token)
 	}
-	slog.Warn("seeded", "agent", agent.ID, "item", item.ID, "session", session.ID)
-	return agent, item, session, token, nil
+	slog.Warn("seeded", "agent", agent.ID, "item", item.ID, "sessions", len(sessions))
+	return agent, item, sessions, tokens, nil
 }
 
 func startProxy(origins []*origin) (string, error) {

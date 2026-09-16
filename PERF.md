@@ -308,6 +308,15 @@ Code changes:
 - The harness seeds from a short-lived Postgres app, truncates load-test tables
   when `LOADTEST_RESET_DB=1`, and passes the seeded token/item to `k6`.
 
+Code changes:
+
+- `cmd/loadtest` now seeds one session per VU (`VEIL_VUS`) and passes a
+  comma-separated `VEIL_TOKENS` list to `k6`.
+- `tests/load/k6/use.js` picks a token from `VEIL_TOKENS` based on the VU id,
+  so concurrent VUs do not share a single `sessions` row.
+
+#### 7.1 Initial run: single shared session
+
 With 3 child-process replicas, 150 VUs,
 `VEIL_AUDIT_FLUSH_INTERVAL=20ms`, `LOADTEST_PROXY=0` (direct origin), and
 `VEIL_MAX_IN_FLIGHT_USE=300`:
@@ -318,8 +327,6 @@ With 3 child-process replicas, 150 VUs,
 | Throughput | 434.99 req/s |
 | Latency avg / med / p95 / max | 155.83 ms / 25.76 ms / 810.41 ms / 4,475.12 ms |
 | Errors | 0% |
-| Cache hit ratio | 1.0 |
-| Deadlocks / waiting connections | 0 |
 
 Hot-path DB queries (`pgbot-after`):
 
@@ -329,49 +336,75 @@ Hot-path DB queries (`pgbot-after`):
 | `UseAuthSession` (LEFT JOIN `sessions → agents → items → grants → approvals`) | 52,200 | 0.0574 | 2,998.57 |
 | `audit` COPY | 7,317 | 0.1429 | 1,045.68 |
 | `items` secret lookup | 52,200 | 0.0102 | 534.18 |
-| `agents` final reload | 52,200 | omitted | small |
+
+The single shared session created a row-lock hot spot: every `Use` updated the
+same `sessions` row. This is a load-test artifact, not a realistic production
+pattern.
+
+#### 7.2 Corrected run: one session per VU
+
+Same configuration, but the harness creates 150 sessions and `k6` maps each VU
+id to its own token:
+
+| Metric | Value |
+|---|---|
+| Requests | 548,936 |
+| Throughput | 4,574.24 req/s |
+| Latency avg / med / p95 / max | 14.68 ms / 7.02 ms / 37.02 ms / 939.86 ms |
+| Errors | 0% |
+| Cache hit ratio | 1.0 |
+| Deadlocks / waiting connections | 0 |
+
+Hot-path DB queries (`pgbot-after`):
+
+| Query | Calls | Mean (ms) | Total (ms) |
+|---|---|---|---|
+| `UseAuthSession` (LEFT JOIN `sessions → agents → items → grants → approvals`) | 548,936 | 0.0595 | 32,665.19 |
+| `ConsumeSession` (`UPDATE sessions SET uses = uses + 1 FROM agents ...`) | 548,936 | 0.0381 | 20,937.21 |
+| `items` secret lookup | 548,936 | 0.0171 | 9,414.16 |
+| `audit` COPY | 11,861 | 0.7563 | 8,970.74 |
 
 Interpretation of this run:
 
-- The **single shared session across all VUs creates a row-lock hot spot**.
-  Every `Use` updates the same `sessions` row (`uses = uses + 1`), so the
-  session row serializes 150 concurrent VUs. The `ConsumeSession` query averages
-  91.7 ms and accounts for almost all DB time. This is a load-test artifact,
-  not a realistic production pattern: real agents/sessions are distributed
-  across many rows and lock contention is per-session, not global.
-- `UseAuthSession` itself is still fast (~0.06 ms) and the hot path remains 3
-  synchronous DB round trips plus an async audit `COPY`.
-- Process overhead is visible but secondary to the session-row lock: the
-  in-process `UseAuthSession` run achieved 11,603 req/s on the same workload,
-  while the child-process run achieved 435 req/s because every origin process
-  contends for the same session row.
+- The `UseAuthSession` join is now the largest single consumer of DB time, and
+  it still averages only ~0.06 ms per request. The `ConsumeSession` row update
+  is the second, at ~0.04 ms per request — exactly where it should be for a
+  per-session `uses` counter.
+- Per `Use`, the session-token path performs **3 synchronous DB round trips**
+  (`UseAuthSession`, `ConsumeSession`, `items` secret) plus an async audit
+  `COPY`. There is no standalone final `agents` reload because `UseAuthSession`
+  and `ConsumeSession` both verify the agent and session state.
+- Throughput went from **435 req/s** to **4,574 req/s** (+952%) just by
+  removing the single-row session lock. This is still lower than the
+  in-process `UseAuthSession` run (11,603 req/s) because of child-process
+  scheduling and single-Mac loopback overhead, but it is a clean multi-process
+  baseline.
 
 ## Next optimization
 
-The hot path is now 3 synchronous DB round trips per `Use` (`UseAuthSession`,
-final `agents`, `items` secret) plus an async audit `COPY`. The `UseAuthSession`
-read itself is fast (~0.06 ms), and fail-closed revocation is preserved by the
-final `agents` reload before secret access.
+The session-token hot path is now **3 synchronous DB round trips** per `Use`
+(`UseAuthSession`, `ConsumeSession`, `items` secret) plus an async audit `COPY`.
+`UseAuthSession` itself is the largest DB consumer at ~0.06 ms per request, and
+`ConsumeSession` is the second at ~0.04 ms. Fail-closed revocation for session
+requests is already handled by the `UseAuthSession` join and the
+`ConsumeSession` update that checks the bound agent; there is no extra final
+`agents` reload in the session path.
 
 Before adding a fail-closed cache or distributed rate limiting:
 
-1. **Get a true multi-process capacity number.** The first `process`-mode run
-   was dominated by a single shared session row: `ConsumeSession` averaged 91.7
-   ms because 150 VUs were all updating the same `sessions` row. The harness
-   should seed multiple sessions and distribute tokens across VUs, or use
-   `max_uses` and renew logic, so the measurement reflects per-session lock
-   contention rather than a single-row hot spot.
-2. **Move the final `agents` reload into `UseAuthSession` if it can be done
-   safely.** The final reload is the revocation race guard. If we can express
-   `UseAuthSession` as a single snapshot that is still authoritative at the
-   moment we read the secret, we could remove the extra `agents` call and cut
-   the hot path to 2 round trips. This is the highest remaining DB-side win once
-   the session-row artifact is removed from the measurement.
-3. **Run a multi-host load test.** Single-Mac loopback variance and child-process
+1. **Run a multi-host load test.** Single-Mac loopback variance and child-process
    scheduling noise are still clouding the numbers. A `k6` runner on a separate
    core or host with the origin and Postgres on other machines will separate
-   test-stack overhead from real origin capacity.
-4. **Only after the hot path is flat and measured away from loopback, consider a
+   test-stack overhead from real origin capacity. The corrected process run
+   (4,574 req/s, 14.68 ms avg) is still capped by the local test geometry.
+2. **Investigate the agent-token `Use` path only if it becomes a hot path.** The
+   agent-token `Use` still performs a final `Store.Agent` reload after `UseAuth`
+   to guard against revocation races. Folding that reload into `UseAuth` would
+   require holding a row lock on the agent through the upstream `fetch`, which
+   would serialize concurrent uses by the same agent and is not a win for the
+   high-volume session path. For now, keep the reload; it is a tiny fraction of
+   DB time in the session load test.
+3. **Only after the hot path is flat and measured away from loopback, consider a
    short-lived, fail-closed cache** for session/grant metadata with explicit
    invalidation and distributed rate limiting.
 

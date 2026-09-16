@@ -19,14 +19,17 @@ export const options = {
 
 const rawOrigins = __ENV.VEIL_ORIGINS || __ENV.VEIL_ORIGIN || 'http://127.0.0.1:8080';
 const origins = rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
-const token = __ENV.VEIL_AGENT_TOKEN;
+const rawTokens = __ENV.VEIL_TOKENS || __ENV.VEIL_AGENT_TOKEN;
+const tokens = rawTokens ? rawTokens.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const item = __ENV.VEIL_ITEM_ID;
 const upstream = __ENV.VEIL_UPSTREAM_URL || 'https://httpbin.org/get';
 
 export default function () {
-  if (!token || !item) {
-    fail('VEIL_AGENT_TOKEN and VEIL_ITEM_ID are required');
+  if (tokens.length === 0 || !item) {
+    fail('VEIL_TOKENS (or VEIL_AGENT_TOKEN) and VEIL_ITEM_ID are required');
   }
+
+  const token = tokens[(Number(__VU) - 1) % tokens.length];
 
   const idx = (Number(__VU) + Number(__ITER)) % origins.length;
   const origin = origins[idx];
