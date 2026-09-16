@@ -7,6 +7,8 @@ import (
 	"github.com/vortexnyc/password-manager/internal/protocol"
 )
 
+const maxListResults = 10000
+
 var (
 	ErrNotFound = errors.New("store: not found")
 	ErrDenied   = errors.New("store: denied")

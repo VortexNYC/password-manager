@@ -226,7 +226,7 @@ func (p *Postgres) Agent(id string) (protocol.Principal, error) {
 
 func (p *Postgres) ListAgents() ([]protocol.Principal, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id`)
+	rows, err := p.pool.Query(ctx, `SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id LIMIT $1`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +298,7 @@ func (p *Postgres) Human(id string) (protocol.Principal, error) {
 
 func (p *Postgres) ListHumans() ([]protocol.Principal, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id FROM humans ORDER BY id`)
+	rows, err := p.pool.Query(ctx, `SELECT id, org_id FROM humans ORDER BY id LIMIT $1`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +433,7 @@ func (p *Postgres) ItemByName(orgID, name string) (protocol.Item, error) {
 
 func (p *Postgres) ListItems() ([]protocol.Item, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE archived=$1 ORDER BY name`, false)
+	rows, err := p.pool.Query(ctx, `SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE archived=$1 ORDER BY name LIMIT $2`, false, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +481,7 @@ func (p *Postgres) DeleteItem(id string) error {
 
 func (p *Postgres) Versions(itemID string) ([]protocol.ItemVersion, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, item_id, at FROM item_versions WHERE item_id=$1 ORDER BY id`, itemID)
+	rows, err := p.pool.Query(ctx, `SELECT id, item_id, at FROM item_versions WHERE item_id=$1 ORDER BY id LIMIT $2`, itemID, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -606,7 +606,7 @@ func (p *Postgres) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
 
 func (p *Postgres) ListGrants() ([]protocol.Grant, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants ORDER BY id`)
+	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants ORDER BY id LIMIT $1`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +675,7 @@ func (p *Postgres) Workload(issuer, subject string) (*protocol.Workload, error) 
 
 func (p *Postgres) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=$1`, issuer)
+	rows, err := p.pool.Query(ctx, `SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=$1 ORDER BY subject LIMIT $2`, issuer, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +716,7 @@ func (p *Postgres) SessionByHash(secretHash []byte) (protocol.Session, error) {
 
 func (p *Postgres) ListSessions() ([]protocol.Session, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at`)
+	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at LIMIT $1`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -743,12 +743,12 @@ func (p *Postgres) AppendAudit(e protocol.AuditEvent) error {
 
 func (p *Postgres) Audit() ([]protocol.AuditEvent, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY id`)
+	rows, err := p.pool.Query(ctx, `SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY id DESC LIMIT $1`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []protocol.AuditEvent
+	var rev []protocol.AuditEvent
 	for rows.Next() {
 		var e protocol.AuditEvent
 		var at time.Time
@@ -756,9 +756,16 @@ func (p *Postgres) Audit() ([]protocol.AuditEvent, error) {
 			return nil, err
 		}
 		e.Time = at.UTC()
-		out = append(out, e)
+		rev = append(rev, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]protocol.AuditEvent, len(rev))
+	for i := range rev {
+		out[i] = rev[len(rev)-1-i]
+	}
+	return out, nil
 }
 
 var (

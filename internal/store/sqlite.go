@@ -133,7 +133,24 @@ func (s *SQLite) migrate() error {
 	if err := s.dropItemsNameUnique(); err != nil {
 		return err
 	}
-	return s.rewrapLegacy()
+	if err := s.rewrapLegacy(); err != nil {
+		return err
+	}
+	for _, q := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_items_org_name ON items(org_id, name)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_org_archived_name ON items(org_id, archived, name)`,
+		`CREATE INDEX IF NOT EXISTS idx_grants_item ON grants(item_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_agent_at ON audit(agent_id, at)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_item_versions_item ON item_versions(item_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_workloads_issuer ON workloads(issuer)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SQLite) dropItemsNameUnique() error {
@@ -230,7 +247,7 @@ func (s *SQLite) Agent(id string) (protocol.Principal, error) {
 }
 
 func (s *SQLite) ListAgents() ([]protocol.Principal, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +336,7 @@ func (s *SQLite) Human(id string) (protocol.Principal, error) {
 }
 
 func (s *SQLite) ListHumans() ([]protocol.Principal, error) {
-	rows, err := s.db.Query(`SELECT id, org_id FROM humans ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id FROM humans ORDER BY id LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +485,7 @@ func (s *SQLite) ItemByName(orgID, name string) (protocol.Item, error) {
 }
 
 func (s *SQLite) ListItems() ([]protocol.Item, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE archived=0 ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login FROM items WHERE archived=0 ORDER BY name LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +538,7 @@ func (s *SQLite) DeleteItem(id string) error {
 }
 
 func (s *SQLite) Versions(itemID string) ([]protocol.ItemVersion, error) {
-	rows, err := s.db.Query(`SELECT id, item_id, at FROM item_versions WHERE item_id=? ORDER BY id`, itemID)
+	rows, err := s.db.Query(`SELECT id, item_id, at FROM item_versions WHERE item_id=? ORDER BY id LIMIT ?`, itemID, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -648,7 +665,7 @@ func (s *SQLite) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
 }
 
 func (s *SQLite) ListGrants() ([]protocol.Grant, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants ORDER BY id LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -697,12 +714,12 @@ func (s *SQLite) AppendAudit(e protocol.AuditEvent) error {
 }
 
 func (s *SQLite) Audit() ([]protocol.AuditEvent, error) {
-	rows, err := s.db.Query(`SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY rowid`)
+	rows, err := s.db.Query(`SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY at DESC LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []protocol.AuditEvent
+	var rev []protocol.AuditEvent
 	for rows.Next() {
 		var e protocol.AuditEvent
 		var at string
@@ -710,9 +727,16 @@ func (s *SQLite) Audit() ([]protocol.AuditEvent, error) {
 			return nil, err
 		}
 		e.Time, _ = time.Parse(time.RFC3339Nano, at)
-		out = append(out, e)
+		rev = append(rev, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]protocol.AuditEvent, len(rev))
+	for i := range rev {
+		out[i] = rev[len(rev)-1-i]
+	}
+	return out, nil
 }
 
 func (s *SQLite) PutWorkload(w protocol.Workload) error {
@@ -738,7 +762,7 @@ func (s *SQLite) Workload(issuer, subject string) (*protocol.Workload, error) {
 }
 
 func (s *SQLite) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) {
-	rows, err := s.db.Query(`SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=?`, issuer)
+	rows, err := s.db.Query(`SELECT agent_id, issuer, subject, audience FROM workloads WHERE issuer=? ORDER BY subject LIMIT ?`, issuer, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -777,7 +801,7 @@ func (s *SQLite) SessionByHash(secretHash []byte) (protocol.Session, error) {
 }
 
 func (s *SQLite) ListSessions() ([]protocol.Session, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at`)
+	rows, err := s.db.Query(`SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}

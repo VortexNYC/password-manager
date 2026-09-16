@@ -333,8 +333,12 @@ func (m *Memory) AppendAudit(e protocol.AuditEvent) error {
 func (m *Memory) Audit() ([]protocol.AuditEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]protocol.AuditEvent, len(m.audit))
-	copy(out, m.audit)
+	n := len(m.audit)
+	if n > maxListResults {
+		n = maxListResults
+	}
+	out := make([]protocol.AuditEvent, n)
+	copy(out, m.audit[len(m.audit)-n:])
 	return out, nil
 }
 
