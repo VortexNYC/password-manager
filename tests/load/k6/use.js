@@ -1,10 +1,12 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
 
+const vus = parseInt(__ENV.VEIL_VUS || '50', 10);
+
 export const options = {
   stages: [
-    { duration: '30s', target: 10 },
-    { duration: '1m', target: 50 },
+    { duration: '30s', target: Math.max(1, Math.floor(vus / 5)) },
+    { duration: '1m', target: vus },
     { duration: '30s', target: 0 },
   ],
   thresholds: {

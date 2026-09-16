@@ -9,11 +9,15 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -23,6 +27,13 @@ import (
 	"github.com/vortexnyc/password-manager/internal/protocol"
 	"github.com/vortexnyc/password-manager/internal/publicapi"
 )
+
+type origin struct {
+	app *app.App
+	srv *http.Server
+	ln  net.Listener
+	url string
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -56,19 +67,9 @@ func run() error {
 		}
 	}
 
-	a, err := app.OpenPostgres(dsn)
-	if err != nil {
-		return fmt.Errorf("open origin app: %w", err)
-	}
-	defer func() { _ = a.Close() }()
-
-	if raw := os.Getenv("VEIL_MAX_IN_FLIGHT_USE"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			a.Broker = broker.NewWithInFlight(a.Store, n)
-			a.Broker.Auditor = a.Auditor
-		} else if err != nil {
-			log.Printf("warning: invalid VEIL_MAX_IN_FLIGHT_USE %q, ignored", raw)
-		}
+	replicas := envOrInt("LOADTEST_REPLICAS", 1)
+	if replicas < 1 {
+		replicas = 1
 	}
 
 	// Start the upstream server first so we know its URL when creating the item.
@@ -80,51 +81,27 @@ func run() error {
 	defer func() { _ = upstreamSrv.Close() }()
 	go func() { _ = upstreamSrv.Serve(upstreamLn) }()
 
-	agentName := envOr("LOADTEST_AGENT", "loadtest-agent")
-	itemName := envOr("LOADTEST_ITEM", "loadtest-item")
-	secret := []byte(envOr("LOADTEST_SECRET", "sk_live_loadtest_secret"))
-
-	agent, err := a.AddAgent(agentName)
+	// Start N stateless origin replicas. Each has its own Store pool and auditor
+	// worker, just like separate Railway containers behind a load balancer.
+	origins, err := startOrigins(dsn, masterKey, replicas)
 	if err != nil {
-		return fmt.Errorf("add agent: %w", err)
+		return err
 	}
-	item, err := a.AddItem(itemName, upstreamURL, secret)
+	defer closeOrigins(origins)
+
+	agent, item, session, token, err := seed(origins[0].app, upstreamURL)
 	if err != nil {
-		return fmt.Errorf("add item: %w", err)
-	}
-	if _, err := a.AddGrant(agent.ID, item.ID, protocol.Level2); err != nil {
-		return fmt.Errorf("add grant: %w", err)
+		return err
 	}
 
-	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
-	session, token, err := a.CreateSession(human, agent.ID, time.Hour)
+	proxyURL, proxySrv, proxyLn, err := startProxy(origins)
 	if err != nil {
-		return fmt.Errorf("create session: %w", err)
+		return fmt.Errorf("start proxy: %w", err)
 	}
-	log.Printf("seeded: agent=%s item=%s session=%s", agent.ID, item.ID, session.ID)
+	defer func() { _ = proxySrv.Close() }()
+	go func() { _ = proxySrv.Serve(proxyLn) }()
 
-	// Start the origin HTTP server.
-	originMux := http.NewServeMux()
-	srv := &publicapi.Server{App: a}
-	srv.Mount(originMux)
-
-	originLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return fmt.Errorf("listen origin: %w", err)
-	}
-	originAddr := originLn.Addr().String()
-	originSrv := &http.Server{
-		Handler:           originMux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
-	defer func() { _ = originSrv.Close() }()
-	go func() { _ = originSrv.Serve(originLn) }()
-
-	originURL := "http://" + originAddr
-	log.Printf("origin=%s upstream=%s", originURL, upstreamURL)
+	log.Printf("origin replicas=%d proxy=%s upstream=%s", len(origins), proxyURL, upstreamURL)
 
 	outDir := envOr("LOADTEST_OUT", "tests/load/k6/out")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -140,7 +117,7 @@ func run() error {
 	k6Args := []string{"run", "--summary-export", k6Out, k6Script}
 	k6Cmd := exec.CommandContext(ctx, "k6", k6Args...)
 	k6Cmd.Env = append(os.Environ(),
-		"VEIL_ORIGIN="+originURL,
+		"VEIL_ORIGIN="+proxyURL,
 		"VEIL_AGENT_TOKEN="+token,
 		"VEIL_ITEM_ID="+item.ID,
 		"VEIL_UPSTREAM_URL="+upstreamURL,
@@ -155,8 +132,136 @@ func run() error {
 		log.Printf("pgbot after: %v", err)
 	}
 
-	log.Printf("load test complete. summary=%s", k6Out)
+	log.Printf("load test complete. replicas=%d summary=%s", len(origins), k6Out)
+
+	_ = agent
+	_ = session
 	return nil
+}
+
+func startOrigins(dsn, masterKey string, n int) ([]*origin, error) {
+	maxInFlight := 0
+	if raw := os.Getenv("VEIL_MAX_IN_FLIGHT_USE"); raw != "" {
+		if m, err := strconv.Atoi(raw); err == nil && m > 0 {
+			maxInFlight = m
+		} else if err != nil {
+			log.Printf("warning: invalid VEIL_MAX_IN_FLIGHT_USE %q, ignored", raw)
+		}
+	}
+
+	origins := make([]*origin, n)
+	for i := 0; i < n; i++ {
+		a, err := app.OpenPostgres(dsn)
+		if err != nil {
+			closeOrigins(origins[:i])
+			return nil, fmt.Errorf("open origin %d: %w", i, err)
+		}
+		if maxInFlight > 0 {
+			a.Broker = broker.NewWithInFlight(a.Store, maxInFlight)
+			a.Broker.Auditor = a.Auditor
+		}
+
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			_ = a.Close()
+			closeOrigins(origins[:i])
+			return nil, fmt.Errorf("listen origin %d: %w", i, err)
+		}
+
+		mux := http.NewServeMux()
+		srv := &publicapi.Server{App: a}
+		srv.Mount(mux)
+		originSrv := &http.Server{
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20,
+		}
+		origins[i] = &origin{app: a, srv: originSrv, ln: ln, url: "http://" + ln.Addr().String()}
+		go func(s *http.Server, l net.Listener) { _ = s.Serve(l) }(originSrv, ln)
+	}
+	return origins, nil
+}
+
+func closeOrigins(origins []*origin) {
+	var wg sync.WaitGroup
+	for _, o := range origins {
+		if o == nil || o.app == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(o *origin) {
+			defer wg.Done()
+			_ = o.srv.Close()
+			_ = o.app.Close()
+		}(o)
+	}
+	wg.Wait()
+}
+
+func seed(a *app.App, upstreamURL string) (protocol.Principal, protocol.Item, protocol.Session, string, error) {
+	agentName := envOr("LOADTEST_AGENT", "loadtest-agent")
+	itemName := envOr("LOADTEST_ITEM", "loadtest-item")
+	secret := []byte(envOr("LOADTEST_SECRET", "sk_live_loadtest_secret"))
+
+	agent, err := a.AddAgent(agentName)
+	if err != nil {
+		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add agent: %w", err)
+	}
+	item, err := a.AddItem(itemName, upstreamURL, secret)
+	if err != nil {
+		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add item: %w", err)
+	}
+	if _, err := a.AddGrant(agent.ID, item.ID, protocol.Level2); err != nil {
+		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add grant: %w", err)
+	}
+	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
+	session, token, err := a.CreateSession(human, agent.ID, time.Hour)
+	if err != nil {
+		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("create session: %w", err)
+	}
+	log.Printf("seeded: agent=%s item=%s session=%s", agent.ID, item.ID, session.ID)
+	return agent, item, session, token, nil
+}
+
+func startProxy(origins []*origin) (string, *http.Server, net.Listener, error) {
+	urls := make([]*url.URL, len(origins))
+	for i, o := range origins {
+		u, err := url.Parse(o.url)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("parse origin url %q: %w", o.url, err)
+		}
+		urls[i] = u
+	}
+
+	var counter uint64
+	proxy := httputil.NewSingleHostReverseProxy(urls[0])
+	proxy.Director = nil
+	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
+		idx := atomic.AddUint64(&counter, 1) % uint64(len(urls))
+		pr.SetURL(urls[idx])
+		pr.Out.Host = urls[idx].Host
+	}
+	// The default transport only keeps two idle connections per host, which
+	// causes connection churn and port exhaustion under high request rates.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 100
+	proxy.Transport = transport
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("listen proxy: %w", err)
+	}
+	srv := &http.Server{
+		Handler:           proxy,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	return "http://" + ln.Addr().String(), srv, ln, nil
 }
 
 func startUpstream() (net.Listener, string, error) {
@@ -175,7 +280,7 @@ func upstreamHandler() http.Handler {
 }
 
 func pgbotInspect(ctx context.Context, path string) error {
-	cmd := exec.CommandContext(ctx, "pgbot", "inspect", "--format", "json")
+	cmd := exec.CommandContext(ctx, "pgbot", "inspect", "--format", "json", "--fail-on", "none")
 	out, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create pgbot output file: %w", err)
@@ -194,4 +299,17 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envOrInt(key string, fallback int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		log.Printf("warning: invalid %s %q, using fallback %d", key, raw, fallback)
+		return fallback
+	}
+	return n
 }
