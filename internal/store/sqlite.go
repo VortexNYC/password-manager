@@ -149,6 +149,13 @@ func (s *SQLite) migrate() error {
 			agent_id TEXT NOT NULL,
 			secret_hash BLOB NOT NULL,
 			expires_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			revoked_at TEXT,
+			renewed_at TEXT,
+			ttl INTEGER NOT NULL,
+			max_ttl INTEGER NOT NULL,
+			max_uses INTEGER NOT NULL,
+			uses INTEGER NOT NULL,
 			UNIQUE(secret_hash)
 		)`,
 		`CREATE TABLE IF NOT EXISTS schema_version (
@@ -168,6 +175,13 @@ func (s *SQLite) migrate() error {
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN has_file INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.Exec(`ALTER TABLE items ADD COLUMN login TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN revoked_at TEXT`)
+	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN renewed_at TEXT`)
+	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN ttl INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN max_ttl INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE sessions ADD COLUMN uses INTEGER NOT NULL DEFAULT 0`)
 	if err := s.dropItemsNameUnique(); err != nil {
 		return err
 	}
@@ -658,14 +672,139 @@ func (s *SQLite) Secret(id string) (Secret, error) {
 }
 
 func (s *SQLite) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
-	sess, err := s.SessionByHash(sessionHash)
-	if err != nil {
+	row := s.db.QueryRow(`SELECT
+		s.id,
+		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
+		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
+		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
+		ap.id, ap.grant_id, ap.human_id, ap.expires_at
+	FROM (SELECT ? AS session_hash, ? AS item_id, ? AS now) AS v
+	LEFT JOIN sessions s ON s.secret_hash = v.session_hash AND s.expires_at > v.now AND s.revoked_at IS NULL AND (s.max_uses = 0 OR s.uses < s.max_uses)
+	LEFT JOIN agents a ON a.id = s.agent_id
+	LEFT JOIN items i ON i.id = v.item_id
+	LEFT JOIN grants g ON g.agent_id = s.agent_id AND g.item_id = i.id
+	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
+		sessionHash, itemID, now.Unix())
+
+	var (
+		sID                                                 sql.NullString
+		aID, aOrgID, aOwnerKind, aOwnerID, aRevoked sql.NullString
+		iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID, iLogin sql.NullString
+		iURIs, iTags                                          []byte
+		iHasTOTP, iArchived, iHasFile                         sql.NullInt64
+		gID, gOrgID, gAgentID, gItemID, gLevel                sql.NullString
+		gActions                                              []byte
+		gExpires, apExpires                                   sql.NullInt64
+		apID, apGrantID, apHumanID                            sql.NullString
+	)
+	if err := row.Scan(
+		&sID,
+		&aID, &aOrgID, &aOwnerKind, &aOwnerID, &aRevoked,
+		&iID, &iOrgID, &iName, &iKind, &iOwnerKind, &iOwnerID, &iURIs, &iHasTOTP, &iTags, &iArchived, &iHasFile, &iLogin,
+		&gID, &gOrgID, &gAgentID, &gItemID, &gLevel, &gActions, &gExpires,
+		&apID, &apGrantID, &apHumanID, &apExpires,
+	); err != nil {
 		return UseAuth{}, err
 	}
-	if !now.Before(sess.ExpiresAt) {
+	if !sID.Valid || sID.String == "" || !aID.Valid || aID.String == "" {
 		return UseAuth{}, ErrNotFound
 	}
-	return s.UseAuth(sess.AgentID, itemID, now)
+
+	var r UseAuth
+	if aID.Valid && aID.String != "" {
+		r.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: aID.String, OrgID: aOrgID.String}
+		r.Agent.Owner.Kind = protocol.OwnerKind(aOwnerKind.String)
+		r.Agent.Owner.ID = aOwnerID.String
+		if aRevoked.Valid && aRevoked.String != "" {
+			t, err := time.Parse(time.RFC3339, aRevoked.String)
+			if err != nil {
+				return UseAuth{}, err
+			}
+			tr := t.UTC()
+			r.Agent.RevokedAt = &tr
+		}
+	}
+	if iID.Valid && iID.String != "" {
+		r.Item = protocol.Item{ID: iID.String, OrgID: iOrgID.String, Name: iName.String, Kind: protocol.ItemKind(iKind.String)}
+		r.Item.Owner.Kind = protocol.OwnerKind(iOwnerKind.String)
+		r.Item.Owner.ID = iOwnerID.String
+		if len(iURIs) > 0 {
+			_ = json.Unmarshal(iURIs, &r.Item.URIs)
+		}
+		if len(iTags) > 0 {
+			_ = json.Unmarshal(iTags, &r.Item.Tags)
+		}
+		r.Item.HasTOTP = iHasTOTP.Int64 != 0
+		r.Item.Archived = iArchived.Int64 != 0
+		r.Item.HasFile = iHasFile.Int64 != 0
+		r.Item.Login = iLogin.String
+	}
+	if gID.Valid && gID.String != "" {
+		g := &protocol.Grant{ID: gID.String, OrgID: gOrgID.String, AgentID: gAgentID.String, ItemID: gItemID.String, Level: protocol.GrantLevel(gLevel.String)}
+		if len(gActions) > 0 {
+			_ = json.Unmarshal(gActions, &g.Actions)
+		}
+		if gExpires.Valid {
+			t := time.Unix(gExpires.Int64, 0).UTC()
+			g.ExpiresAt = &t
+		}
+		r.Grant = g
+	}
+	if apID.Valid && apID.String != "" {
+		if apExpires.Valid {
+			r.Approval = &protocol.Approval{ID: apID.String, GrantID: apGrantID.String, HumanID: apHumanID.String, ExpiresAt: time.Unix(apExpires.Int64, 0).UTC()}
+		}
+	}
+	return r, nil
+}
+
+func (s *SQLite) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var agentID string
+	err = tx.QueryRow(`UPDATE sessions SET uses = uses + 1
+		WHERE secret_hash = ? AND expires_at > ? AND revoked_at IS NULL AND (max_uses = 0 OR uses < max_uses)
+		RETURNING agent_id`,
+		sessionHash, now.Unix()).Scan(&agentID)
+	if err == sql.ErrNoRows {
+		return protocol.Principal{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+
+	var (
+		aID, aOrgID, aOwnerKind, aOwnerID sql.NullString
+		aRevoked                          sql.NullString
+	)
+	err = tx.QueryRow(`SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents WHERE id = ? AND revoked_at IS NULL`, agentID).
+		Scan(&aID, &aOrgID, &aOwnerKind, &aOwnerID, &aRevoked)
+	if err == sql.ErrNoRows {
+		return protocol.Principal{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return protocol.Principal{}, err
+	}
+
+	a := protocol.Principal{Kind: protocol.PrincipalAgent, ID: aID.String, OrgID: aOrgID.String}
+	a.Owner.Kind = protocol.OwnerKind(aOwnerKind.String)
+	a.Owner.ID = aOwnerID.String
+	if aRevoked.Valid && aRevoked.String != "" {
+		t, err := time.Parse(time.RFC3339, aRevoked.String)
+		if err != nil {
+			return protocol.Principal{}, err
+		}
+		tr := t.UTC()
+		a.RevokedAt = &tr
+	}
+	return a, nil
 }
 
 func (s *SQLite) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
@@ -934,18 +1073,68 @@ func (s *SQLite) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) 
 	return out, rows.Err()
 }
 
+func (s *SQLite) putSessionSQL(sess protocol.Session, secretHash []byte) (string, []any) {
+	return `INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET
+			org_id=excluded.org_id,
+			agent_id=excluded.agent_id,
+			secret_hash=excluded.secret_hash,
+			expires_at=excluded.expires_at,
+			created_at=excluded.created_at,
+			revoked_at=excluded.revoked_at,
+			renewed_at=excluded.renewed_at,
+			ttl=excluded.ttl,
+			max_ttl=excluded.max_ttl,
+			max_uses=excluded.max_uses,
+			uses=excluded.uses`,
+		[]any{
+			sess.ID, sess.OrgID, sess.AgentID, secretHash, sess.ExpiresAt.UTC().Unix(),
+			sess.CreatedAt.UTC().Unix(), revokedAtString(sess.RevokedAt), revokedAtString(sess.RenewedAt),
+			sess.TTL, sess.MaxTTL, sess.MaxUses, sess.Uses,
+		}
+}
+
 func (s *SQLite) PutSession(sess protocol.Session, secretHash []byte) error {
-	_, err := s.db.Exec(`INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at)
-		VALUES(?,?,?,?,?)`,
-		sess.ID, sess.OrgID, sess.AgentID, secretHash, sess.ExpiresAt.UTC().Unix())
+	q, args := s.putSessionSQL(sess, secretHash)
+	_, err := s.db.Exec(q, args...)
 	return err
+}
+
+func (s *SQLite) scanSession(rows *sql.Rows) (protocol.Session, error) {
+	var sess protocol.Session
+	var exp, created, ttl, maxttl, maxUses, uses int64
+	var rv, rn sql.NullString
+	err := rows.Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &exp, &created, &rv, &rn, &ttl, &maxttl, &maxUses, &uses)
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	sess.ExpiresAt = time.Unix(exp, 0).UTC()
+	sess.CreatedAt = time.Unix(created, 0).UTC()
+	sess.TTL = ttl
+	sess.MaxTTL = maxttl
+	sess.MaxUses = int(maxUses)
+	sess.Uses = int(uses)
+	if t, err := parseRevokedAt(rv); err != nil {
+		return protocol.Session{}, err
+	} else {
+		sess.RevokedAt = t
+	}
+	if t, err := parseRevokedAt(rn); err != nil {
+		return protocol.Session{}, err
+	} else {
+		sess.RenewedAt = t
+	}
+	return sess, nil
 }
 
 func (s *SQLite) SessionByHash(secretHash []byte) (protocol.Session, error) {
 	var sess protocol.Session
-	var exp int64
-	err := s.db.QueryRow(`SELECT id, org_id, agent_id, expires_at FROM sessions WHERE secret_hash=?`, secretHash).
-		Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &exp)
+	var exp, created, ttl, maxttl, maxUses, uses int64
+	var rv, rn sql.NullString
+	err := s.db.QueryRow(`SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+		FROM sessions WHERE secret_hash=?`, secretHash).
+		Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &exp, &created, &rv, &rn, &ttl, &maxttl, &maxUses, &uses)
 	if err == sql.ErrNoRows {
 		return protocol.Session{}, ErrNotFound
 	}
@@ -953,26 +1142,118 @@ func (s *SQLite) SessionByHash(secretHash []byte) (protocol.Session, error) {
 		return protocol.Session{}, err
 	}
 	sess.ExpiresAt = time.Unix(exp, 0).UTC()
+	sess.CreatedAt = time.Unix(created, 0).UTC()
+	sess.TTL = ttl
+	sess.MaxTTL = maxttl
+	sess.MaxUses = int(maxUses)
+	sess.Uses = int(uses)
+	if t, err := parseRevokedAt(rv); err != nil {
+		return protocol.Session{}, err
+	} else {
+		sess.RevokedAt = t
+	}
+	if t, err := parseRevokedAt(rn); err != nil {
+		return protocol.Session{}, err
+	} else {
+		sess.RenewedAt = t
+	}
 	return sess, nil
 }
 
 func (s *SQLite) ListSessions() ([]protocol.Session, error) {
-	rows, err := s.db.Query(`SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at LIMIT ?`, maxListResults)
+	rows, err := s.db.Query(`SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+		FROM sessions ORDER BY expires_at LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []protocol.Session
 	for rows.Next() {
-		var sess protocol.Session
-		var exp int64
-		if err := rows.Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &exp); err != nil {
+		sess, err := s.scanSession(rows)
+		if err != nil {
 			return nil, err
 		}
-		sess.ExpiresAt = time.Unix(exp, 0).UTC()
 		out = append(out, sess)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLite) SessionByID(id string) (protocol.Session, error) {
+	var sess protocol.Session
+	var exp, created, ttl, maxttl, maxUses, uses int64
+	var rv, rn sql.NullString
+	err := s.db.QueryRow(`SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+		FROM sessions WHERE id=?`, id).
+		Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &exp, &created, &rv, &rn, &ttl, &maxttl, &maxUses, &uses)
+	if err == sql.ErrNoRows {
+		return protocol.Session{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	sess.ExpiresAt = time.Unix(exp, 0).UTC()
+	sess.CreatedAt = time.Unix(created, 0).UTC()
+	sess.TTL = ttl
+	sess.MaxTTL = maxttl
+	sess.MaxUses = int(maxUses)
+	sess.Uses = int(uses)
+	if t, err := parseRevokedAt(rv); err != nil {
+		return protocol.Session{}, err
+	} else {
+		sess.RevokedAt = t
+	}
+	if t, err := parseRevokedAt(rn); err != nil {
+		return protocol.Session{}, err
+	} else {
+		sess.RenewedAt = t
+	}
+	return sess, nil
+}
+
+func (s *SQLite) RevokeSession(id string, at time.Time) error {
+	rv := at.UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(`UPDATE sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, rv, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLite) RenewSession(id string, at time.Time) (protocol.Session, error) {
+	sess, err := s.SessionByID(id)
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	if sess.RevokedAt != nil {
+		return protocol.Session{}, ErrSessionRevoked
+	}
+	if !sess.ExpiresAt.After(at) {
+		return protocol.Session{}, ErrSessionExpired
+	}
+	maxExpires := sess.CreatedAt.Add(time.Duration(sess.MaxTTL) * time.Second)
+	newExpires := sess.ExpiresAt.Add(time.Duration(sess.TTL) * time.Second)
+	if newExpires.After(maxExpires) {
+		newExpires = maxExpires
+	}
+	if !newExpires.After(sess.ExpiresAt) {
+		newExpires = sess.ExpiresAt
+	}
+	rn := at.UTC()
+	sess.ExpiresAt = newExpires.UTC()
+	sess.RenewedAt = &rn
+	_, err = s.db.Exec(`UPDATE sessions SET expires_at = ?, renewed_at = ? WHERE id = ?`,
+		sess.ExpiresAt.UTC().Unix(), sess.RenewedAt.UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	return sess, nil
 }
 
 func (s *SQLite) ownerDEK(o protocol.Owner) ([]byte, error) {

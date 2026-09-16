@@ -26,6 +26,17 @@ type Session struct {
 	OrgId string `json:"org_id"`
 	AgentId string `json:"agent_id"`
 	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	RenewedAt *time.Time `json:"renewed_at,omitempty"`
+	// Initial lease duration in seconds.
+	Ttl int32 `json:"ttl"`
+	// Maximum cumulative lifetime in seconds.
+	MaxTtl int32 `json:"max_ttl"`
+	// Maximum successful Use calls. 0 = unlimited.
+	MaxUses int32 `json:"max_uses"`
+	// Successful Use calls consumed.
+	Uses int32 `json:"uses"`
 }
 
 type _Session Session
@@ -34,12 +45,17 @@ type _Session Session
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSession(id string, orgId string, agentId string, expiresAt time.Time) *Session {
+func NewSession(id string, orgId string, agentId string, expiresAt time.Time, createdAt time.Time, ttl int32, maxTtl int32, maxUses int32, uses int32) *Session {
 	this := Session{}
 	this.Id = id
 	this.OrgId = orgId
 	this.AgentId = agentId
 	this.ExpiresAt = expiresAt
+	this.CreatedAt = createdAt
+	this.Ttl = ttl
+	this.MaxTtl = maxTtl
+	this.MaxUses = maxUses
+	this.Uses = uses
 	return &this
 }
 
@@ -147,6 +163,190 @@ func (o *Session) SetExpiresAt(v time.Time) {
 	o.ExpiresAt = v
 }
 
+// GetCreatedAt returns the CreatedAt field value
+func (o *Session) GetCreatedAt() time.Time {
+	if o == nil {
+		var ret time.Time
+		return ret
+	}
+
+	return o.CreatedAt
+}
+
+// GetCreatedAtOk returns a tuple with the CreatedAt field value
+// and a boolean to check if the value has been set.
+func (o *Session) GetCreatedAtOk() (*time.Time, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.CreatedAt, true
+}
+
+// SetCreatedAt sets field value
+func (o *Session) SetCreatedAt(v time.Time) {
+	o.CreatedAt = v
+}
+
+// GetRevokedAt returns the RevokedAt field value if set, zero value otherwise.
+func (o *Session) GetRevokedAt() time.Time {
+	if o == nil || IsNil(o.RevokedAt) {
+		var ret time.Time
+		return ret
+	}
+	return *o.RevokedAt
+}
+
+// GetRevokedAtOk returns a tuple with the RevokedAt field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Session) GetRevokedAtOk() (*time.Time, bool) {
+	if o == nil || IsNil(o.RevokedAt) {
+		return nil, false
+	}
+	return o.RevokedAt, true
+}
+
+// HasRevokedAt returns a boolean if a field has been set.
+func (o *Session) HasRevokedAt() bool {
+	if o != nil && !IsNil(o.RevokedAt) {
+		return true
+	}
+
+	return false
+}
+
+// SetRevokedAt gets a reference to the given time.Time and assigns it to the RevokedAt field.
+func (o *Session) SetRevokedAt(v time.Time) {
+	o.RevokedAt = &v
+}
+
+// GetRenewedAt returns the RenewedAt field value if set, zero value otherwise.
+func (o *Session) GetRenewedAt() time.Time {
+	if o == nil || IsNil(o.RenewedAt) {
+		var ret time.Time
+		return ret
+	}
+	return *o.RenewedAt
+}
+
+// GetRenewedAtOk returns a tuple with the RenewedAt field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Session) GetRenewedAtOk() (*time.Time, bool) {
+	if o == nil || IsNil(o.RenewedAt) {
+		return nil, false
+	}
+	return o.RenewedAt, true
+}
+
+// HasRenewedAt returns a boolean if a field has been set.
+func (o *Session) HasRenewedAt() bool {
+	if o != nil && !IsNil(o.RenewedAt) {
+		return true
+	}
+
+	return false
+}
+
+// SetRenewedAt gets a reference to the given time.Time and assigns it to the RenewedAt field.
+func (o *Session) SetRenewedAt(v time.Time) {
+	o.RenewedAt = &v
+}
+
+// GetTtl returns the Ttl field value
+func (o *Session) GetTtl() int32 {
+	if o == nil {
+		var ret int32
+		return ret
+	}
+
+	return o.Ttl
+}
+
+// GetTtlOk returns a tuple with the Ttl field value
+// and a boolean to check if the value has been set.
+func (o *Session) GetTtlOk() (*int32, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.Ttl, true
+}
+
+// SetTtl sets field value
+func (o *Session) SetTtl(v int32) {
+	o.Ttl = v
+}
+
+// GetMaxTtl returns the MaxTtl field value
+func (o *Session) GetMaxTtl() int32 {
+	if o == nil {
+		var ret int32
+		return ret
+	}
+
+	return o.MaxTtl
+}
+
+// GetMaxTtlOk returns a tuple with the MaxTtl field value
+// and a boolean to check if the value has been set.
+func (o *Session) GetMaxTtlOk() (*int32, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.MaxTtl, true
+}
+
+// SetMaxTtl sets field value
+func (o *Session) SetMaxTtl(v int32) {
+	o.MaxTtl = v
+}
+
+// GetMaxUses returns the MaxUses field value
+func (o *Session) GetMaxUses() int32 {
+	if o == nil {
+		var ret int32
+		return ret
+	}
+
+	return o.MaxUses
+}
+
+// GetMaxUsesOk returns a tuple with the MaxUses field value
+// and a boolean to check if the value has been set.
+func (o *Session) GetMaxUsesOk() (*int32, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.MaxUses, true
+}
+
+// SetMaxUses sets field value
+func (o *Session) SetMaxUses(v int32) {
+	o.MaxUses = v
+}
+
+// GetUses returns the Uses field value
+func (o *Session) GetUses() int32 {
+	if o == nil {
+		var ret int32
+		return ret
+	}
+
+	return o.Uses
+}
+
+// GetUsesOk returns a tuple with the Uses field value
+// and a boolean to check if the value has been set.
+func (o *Session) GetUsesOk() (*int32, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.Uses, true
+}
+
+// SetUses sets field value
+func (o *Session) SetUses(v int32) {
+	o.Uses = v
+}
+
 func (o Session) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -161,6 +361,17 @@ func (o Session) ToMap() (map[string]interface{}, error) {
 	toSerialize["org_id"] = o.OrgId
 	toSerialize["agent_id"] = o.AgentId
 	toSerialize["expires_at"] = o.ExpiresAt
+	toSerialize["created_at"] = o.CreatedAt
+	if !IsNil(o.RevokedAt) {
+		toSerialize["revoked_at"] = o.RevokedAt
+	}
+	if !IsNil(o.RenewedAt) {
+		toSerialize["renewed_at"] = o.RenewedAt
+	}
+	toSerialize["ttl"] = o.Ttl
+	toSerialize["max_ttl"] = o.MaxTtl
+	toSerialize["max_uses"] = o.MaxUses
+	toSerialize["uses"] = o.Uses
 	return toSerialize, nil
 }
 
@@ -173,6 +384,11 @@ func (o *Session) UnmarshalJSON(data []byte) (err error) {
 		"org_id",
 		"agent_id",
 		"expires_at",
+		"created_at",
+		"ttl",
+		"max_ttl",
+		"max_uses",
+		"uses",
 	}
 
 	allProperties := make(map[string]interface{})

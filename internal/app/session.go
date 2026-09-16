@@ -22,8 +22,10 @@ const (
 )
 
 var (
-	ErrForbidden      = errors.New("app: forbidden")
-	ErrSessionExpired = errors.New("app: session expired")
+	ErrForbidden       = errors.New("app: forbidden")
+	ErrSessionExpired  = errors.New("app: session expired")
+	ErrSessionRevoked  = errors.New("app: session revoked")
+	ErrSessionExhausted = errors.New("app: session uses exhausted")
 )
 
 func IsSessionToken(raw string) bool {
@@ -57,6 +59,7 @@ func (a *App) PrincipalFromSession(rawToken string) (protocol.Principal, error) 
 	if !IsSessionToken(raw) {
 		return protocol.Principal{}, fmt.Errorf("app: not a session")
 	}
+	now := time.Now()
 	sess, err := a.Store.SessionByHash(sessionHash(raw))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -64,8 +67,14 @@ func (a *App) PrincipalFromSession(rawToken string) (protocol.Principal, error) 
 		}
 		return protocol.Principal{}, err
 	}
-	if !sess.ExpiresAt.After(time.Now()) {
+	if sess.RevokedAt != nil {
+		return protocol.Principal{}, ErrSessionRevoked
+	}
+	if !sess.ExpiresAt.After(now) {
 		return protocol.Principal{}, ErrSessionExpired
+	}
+	if sess.MaxUses > 0 && sess.Uses >= sess.MaxUses {
+		return protocol.Principal{}, ErrSessionExhausted
 	}
 	agent, err := a.Store.Agent(sess.AgentID)
 	if err != nil {
@@ -77,7 +86,7 @@ func (a *App) PrincipalFromSession(rawToken string) (protocol.Principal, error) 
 	return agent, nil
 }
 
-func (a *App) CreateSession(actor protocol.Principal, agentID string, ttl time.Duration) (protocol.Session, string, error) {
+func (a *App) CreateSession(actor protocol.Principal, agentID string, ttl time.Duration, maxUses int) (protocol.Session, string, error) {
 	ok, err := a.ownsVault(actor)
 	if err != nil {
 		return protocol.Session{}, "", err
@@ -90,6 +99,9 @@ func (a *App) CreateSession(actor protocol.Principal, agentID string, ttl time.D
 	}
 	if ttl > SessionTTLMax {
 		return protocol.Session{}, "", fmt.Errorf("app: ttl exceeds 1h")
+	}
+	if maxUses < 0 {
+		return protocol.Session{}, "", fmt.Errorf("app: max_uses cannot be negative")
 	}
 	agent, err := a.Store.Agent(agentID)
 	if err != nil {
@@ -106,16 +118,46 @@ func (a *App) CreateSession(actor protocol.Principal, agentID string, ttl time.D
 	if err != nil {
 		return protocol.Session{}, "", err
 	}
+	now := time.Now().UTC()
 	sess := protocol.Session{
 		ID:        sid,
 		OrgID:     a.OrgID,
 		AgentID:   agent.ID,
-		ExpiresAt: time.Now().Add(ttl).UTC(),
+		CreatedAt: now,
+		ExpiresAt: now.Add(ttl).UTC(),
+		TTL:       int64(ttl.Seconds()),
+		MaxTTL:    int64(SessionTTLMax.Seconds()),
+		MaxUses:   maxUses,
 	}
 	if err := a.Store.PutSession(sess, sessionHash(token)); err != nil {
 		return protocol.Session{}, "", err
 	}
 	return sess, token, nil
+}
+
+func (a *App) RevokeSession(actor protocol.Principal, id string) (protocol.Session, error) {
+	ok, err := a.ownsVault(actor)
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	if !ok {
+		return protocol.Session{}, ErrForbidden
+	}
+	if err := a.Store.RevokeSession(id, time.Now()); err != nil {
+		return protocol.Session{}, err
+	}
+	return a.Store.SessionByID(id)
+}
+
+func (a *App) RenewSession(actor protocol.Principal, id string) (protocol.Session, error) {
+	ok, err := a.ownsVault(actor)
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	if !ok {
+		return protocol.Session{}, ErrForbidden
+	}
+	return a.Store.RenewSession(id, time.Now())
 }
 
 func (a *App) ListSessions(actor protocol.Principal) ([]protocol.Session, error) {

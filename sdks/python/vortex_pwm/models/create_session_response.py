@@ -18,8 +18,8 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -32,8 +32,15 @@ class CreateSessionResponse(BaseModel):
     org_id: StrictStr
     agent_id: StrictStr
     expires_at: datetime
+    created_at: datetime
+    revoked_at: Optional[datetime] = None
+    renewed_at: Optional[datetime] = None
+    ttl: StrictInt
+    max_ttl: StrictInt
+    max_uses: StrictInt
+    uses: StrictInt
     token: StrictStr
-    __properties: ClassVar[List[str]] = ["id", "org_id", "agent_id", "expires_at", "token"]
+    __properties: ClassVar[List[str]] = ["id", "org_id", "agent_id", "expires_at", "created_at", "revoked_at", "renewed_at", "ttl", "max_ttl", "max_uses", "uses", "token"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -90,6 +97,13 @@ class CreateSessionResponse(BaseModel):
             "org_id": obj.get("org_id"),
             "agent_id": obj.get("agent_id"),
             "expires_at": obj.get("expires_at"),
+            "created_at": obj.get("created_at"),
+            "revoked_at": obj.get("revoked_at"),
+            "renewed_at": obj.get("renewed_at"),
+            "ttl": obj.get("ttl"),
+            "max_ttl": obj.get("max_ttl"),
+            "max_uses": obj.get("max_uses"),
+            "uses": obj.get("uses"),
             "token": obj.get("token")
         })
         return _obj

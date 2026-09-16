@@ -197,8 +197,15 @@ type AuditEvent struct {
 // Session is a short-lived Use lease onto an existing agent. The token
 // is never on this type. Owner mint only. Not MCP. Not list.
 type Session struct {
-	ID        string    `json:"id"`
-	OrgID     string    `json:"org_id"`
-	AgentID   string    `json:"agent_id"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ID        string     `json:"id"`
+	OrgID     string     `json:"org_id"`
+	AgentID   string     `json:"agent_id"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	RenewedAt *time.Time `json:"renewed_at,omitempty"`
+	TTL       int64      `json:"ttl"`      // seconds
+	MaxTTL    int64      `json:"max_ttl"`  // seconds
+	MaxUses   int        `json:"max_uses"` // 0 = unlimited
+	Uses      int        `json:"uses"`     // successful Use calls consumed
 }

@@ -1110,7 +1110,7 @@ func TestRevokeAgentKillsGrantsAndSessions(t *testing.T) {
 	}
 
 	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
-	_, token, err := a.CreateSession(owner, "flue", time.Minute)
+	_, token, err := a.CreateSession(owner, "flue", time.Minute, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1134,7 +1134,7 @@ func TestRevokeAgentKillsGrantsAndSessions(t *testing.T) {
 	}
 
 	// New sandbox mint is denied.
-	if _, _, err := a.CreateSession(owner, "flue", time.Minute); err == nil {
+	if _, _, err := a.CreateSession(owner, "flue", time.Minute, 0); err == nil {
 		t.Fatal("created session for revoked agent")
 	}
 
@@ -1331,7 +1331,7 @@ func TestSessionMapsToAgentAndExpires(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := protocol.Principal{Kind: protocol.PrincipalHuman, ID: DefaultHuman, OrgID: a.OrgID}
-	sess, token, err := a.CreateSession(owner, "claude", 2*time.Second)
+	sess, token, err := a.CreateSession(owner, "claude", 2*time.Second, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1352,7 +1352,7 @@ func TestSessionMapsToAgentAndExpires(t *testing.T) {
 	if agent.ID != "claude" {
 		t.Fatalf("%+v", agent)
 	}
-	if _, _, err := a.CreateSession(p, "claude", time.Minute); !errors.Is(err, ErrForbidden) {
+	if _, _, err := a.CreateSession(p, "claude", time.Minute, 0); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("agent minted session: %v", err)
 	}
 	listed, err := a.ListSessions(owner)

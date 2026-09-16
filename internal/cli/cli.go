@@ -935,6 +935,7 @@ func sessionCmd(home *string) *cobra.Command {
 	c := &cobra.Command{Use: "session", Short: "Sandbox Use lease. Not the agent JWT."}
 	var ttl time.Duration
 	var outFile string
+	var maxUses int
 	create := &cobra.Command{
 		Use:   "create AGENT",
 		Short: "Mint a short-lived session. Writes --out-file. Never stdout.",
@@ -944,7 +945,7 @@ func sessionCmd(home *string) *cobra.Command {
 				return fmt.Errorf("--out-file is required")
 			}
 			if originBase() != "" {
-				return originSessionCreate(cmd, args[0], ttl, outFile)
+				return originSessionCreate(cmd, args[0], ttl, maxUses, outFile)
 			}
 			a, err := openApp(*home)
 			if err != nil {
@@ -952,7 +953,7 @@ func sessionCmd(home *string) *cobra.Command {
 			}
 			defer a.Close()
 			actor := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
-			sess, token, err := a.CreateSession(actor, args[0], ttl)
+			sess, token, err := a.CreateSession(actor, args[0], ttl, maxUses)
 			if err != nil {
 				return err
 			}
@@ -968,6 +969,7 @@ func sessionCmd(home *string) *cobra.Command {
 		},
 	}
 	create.Flags().DurationVar(&ttl, "ttl", app.SessionTTLDefault, "lease length. max 1h.")
+	create.Flags().IntVar(&maxUses, "max-uses", 0, "max uses (0 = unlimited).")
 	create.Flags().StringVar(&outFile, "out-file", "", "write the session token here. never stdout.")
 	_ = create.MarkFlagRequired("out-file")
 	c.AddCommand(create)

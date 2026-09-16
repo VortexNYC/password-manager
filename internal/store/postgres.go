@@ -144,7 +144,14 @@ func (p *Postgres) migrate() error {
 			org_id TEXT NOT NULL,
 			agent_id TEXT NOT NULL,
 			secret_hash BYTEA NOT NULL UNIQUE,
-			expires_at TIMESTAMPTZ NOT NULL
+			expires_at TIMESTAMPTZ NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL,
+			revoked_at TIMESTAMPTZ,
+			renewed_at TIMESTAMPTZ,
+			ttl BIGINT NOT NULL,
+			max_ttl BIGINT NOT NULL,
+			max_uses INTEGER NOT NULL,
+			uses INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_items_org_name ON items(org_id, name)`,
 		`CREATE INDEX IF NOT EXISTS idx_items_org_archived_name ON items(org_id, archived, name)`,
@@ -154,6 +161,19 @@ func (p *Postgres) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_item_versions_item ON item_versions(item_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_workloads_issuer ON workloads(issuer)`,
+	} {
+		if _, err := p.pool.Exec(ctx, q); err != nil {
+			return err
+		}
+	}
+	for _, q := range []string{
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01T00:00:00Z'`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS renewed_at TIMESTAMPTZ`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ttl BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_ttl BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_uses INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS uses INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := p.pool.Exec(ctx, q); err != nil {
 			return err
@@ -657,7 +677,7 @@ func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Ti
 		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
 		ap.id, ap.grant_id, ap.human_id, ap.expires_at
 	FROM (SELECT $1::bytea AS session_hash, $2::text AS item_id, $3::timestamptz AS now) AS v
-	LEFT JOIN sessions s ON s.secret_hash = v.session_hash AND s.expires_at > v.now
+	LEFT JOIN sessions s ON s.secret_hash = v.session_hash AND s.expires_at > v.now AND s.revoked_at IS NULL AND (s.max_uses = 0 OR s.uses < s.max_uses)
 	LEFT JOIN agents a ON a.id = s.agent_id
 	LEFT JOIN items i ON i.id = v.item_id
 	LEFT JOIN grants g ON g.agent_id = s.agent_id AND g.item_id = i.id
@@ -675,10 +695,33 @@ func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Ti
 	); err != nil {
 		return UseAuth{}, err
 	}
-	if !sID.Valid || sID.String == "" {
+	if !sID.Valid || sID.String == "" || !r.aID.Valid || r.aID.String == "" {
 		return UseAuth{}, ErrNotFound
 	}
 	return useAuthFromRow(&r)
+}
+
+func (p *Postgres) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
+	ctx := context.Background()
+	row := p.pool.QueryRow(ctx, `UPDATE sessions s
+		SET uses = uses + 1
+		FROM agents a
+		WHERE s.secret_hash = $1 AND s.agent_id = a.id AND a.revoked_at IS NULL
+		  AND s.expires_at > $2 AND s.revoked_at IS NULL AND (s.max_uses = 0 OR s.uses < s.max_uses)
+		RETURNING a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at`,
+		sessionHash, now.UTC())
+
+	var a protocol.Principal
+	a.Kind = protocol.PrincipalAgent
+	err := row.Scan(&a.ID, &a.OrgID, &a.Owner.Kind, &a.Owner.ID, &a.RevokedAt)
+	if err == pgx.ErrNoRows {
+		return protocol.Principal{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	a.Owner.Kind = protocol.OwnerKind(a.Owner.Kind)
+	return a, nil
 }
 
 func (p *Postgres) PutGrant(g protocol.Grant) error {
@@ -816,19 +859,13 @@ func (p *Postgres) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error
 	return out, rows.Err()
 }
 
-func (p *Postgres) PutSession(sess protocol.Session, secretHash []byte) error {
-	ctx := context.Background()
-	_, err := p.pool.Exec(ctx, `INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at)
-		VALUES($1,$2,$3,$4,$5)`,
-		sess.ID, sess.OrgID, sess.AgentID, secretHash, sess.ExpiresAt.UTC())
-	return err
-}
-
-func (p *Postgres) SessionByHash(secretHash []byte) (protocol.Session, error) {
-	ctx := context.Background()
+func scanPostgresSession(row pgx.Row) (protocol.Session, error) {
 	var sess protocol.Session
-	err := p.pool.QueryRow(ctx, `SELECT id, org_id, agent_id, expires_at FROM sessions WHERE secret_hash=$1`, secretHash).
-		Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &sess.ExpiresAt)
+	var created, revoked, renewed sql.NullTime
+	err := row.Scan(
+		&sess.ID, &sess.OrgID, &sess.AgentID, &sess.ExpiresAt, &created,
+		&revoked, &renewed, &sess.TTL, &sess.MaxTTL, &sess.MaxUses, &sess.Uses,
+	)
 	if err == pgx.ErrNoRows {
 		return protocol.Session{}, ErrNotFound
 	}
@@ -836,26 +873,111 @@ func (p *Postgres) SessionByHash(secretHash []byte) (protocol.Session, error) {
 		return protocol.Session{}, err
 	}
 	sess.ExpiresAt = sess.ExpiresAt.UTC()
+	sess.CreatedAt = created.Time.UTC()
+	if revoked.Valid {
+		t := revoked.Time.UTC()
+		sess.RevokedAt = &t
+	}
+	if renewed.Valid {
+		t := renewed.Time.UTC()
+		sess.RenewedAt = &t
+	}
 	return sess, nil
+}
+
+func (p *Postgres) PutSession(sess protocol.Session, secretHash []byte) error {
+	ctx := context.Background()
+	_, err := p.pool.Exec(ctx, `INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		ON CONFLICT(id) DO UPDATE SET
+			org_id=excluded.org_id,
+			agent_id=excluded.agent_id,
+			secret_hash=excluded.secret_hash,
+			expires_at=excluded.expires_at,
+			created_at=excluded.created_at,
+			revoked_at=excluded.revoked_at,
+			renewed_at=excluded.renewed_at,
+			ttl=excluded.ttl,
+			max_ttl=excluded.max_ttl,
+			max_uses=excluded.max_uses,
+			uses=excluded.uses`,
+		sess.ID, sess.OrgID, sess.AgentID, secretHash, sess.ExpiresAt.UTC(), sess.CreatedAt.UTC(),
+		sess.RevokedAt, sess.RenewedAt, sess.TTL, sess.MaxTTL, sess.MaxUses, sess.Uses)
+	return err
+}
+
+func (p *Postgres) SessionByHash(secretHash []byte) (protocol.Session, error) {
+	ctx := context.Background()
+	return scanPostgresSession(p.pool.QueryRow(ctx, `SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+		FROM sessions WHERE secret_hash=$1`, secretHash))
 }
 
 func (p *Postgres) ListSessions() ([]protocol.Session, error) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, expires_at FROM sessions ORDER BY expires_at LIMIT $1`, maxListResults)
+	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+		FROM sessions ORDER BY expires_at LIMIT $1`, maxListResults)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []protocol.Session
 	for rows.Next() {
-		var sess protocol.Session
-		if err := rows.Scan(&sess.ID, &sess.OrgID, &sess.AgentID, &sess.ExpiresAt); err != nil {
+		sess, err := scanPostgresSession(rows)
+		if err != nil {
 			return nil, err
 		}
-		sess.ExpiresAt = sess.ExpiresAt.UTC()
 		out = append(out, sess)
 	}
 	return out, rows.Err()
+}
+
+func (p *Postgres) SessionByID(id string) (protocol.Session, error) {
+	ctx := context.Background()
+	return scanPostgresSession(p.pool.QueryRow(ctx, `SELECT id, org_id, agent_id, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+		FROM sessions WHERE id=$1`, id))
+}
+
+func (p *Postgres) RevokeSession(id string, at time.Time) error {
+	ctx := context.Background()
+	res, err := p.pool.Exec(ctx, `UPDATE sessions SET revoked_at = COALESCE(revoked_at, $1) WHERE id = $2`, at.UTC(), id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *Postgres) RenewSession(id string, at time.Time) (protocol.Session, error) {
+	ctx := context.Background()
+	sess, err := p.SessionByID(id)
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	if sess.RevokedAt != nil {
+		return protocol.Session{}, ErrSessionRevoked
+	}
+	if !sess.ExpiresAt.After(at) {
+		return protocol.Session{}, ErrSessionExpired
+	}
+	maxExpires := sess.CreatedAt.Add(time.Duration(sess.MaxTTL) * time.Second)
+	newExpires := sess.ExpiresAt.Add(time.Duration(sess.TTL) * time.Second)
+	if newExpires.After(maxExpires) {
+		newExpires = maxExpires
+	}
+	if !newExpires.After(sess.ExpiresAt) {
+		newExpires = sess.ExpiresAt
+	}
+	rn := at.UTC()
+	sess.ExpiresAt = newExpires.UTC()
+	sess.RenewedAt = &rn
+	_, err = p.pool.Exec(ctx, `UPDATE sessions SET expires_at = $1, renewed_at = $2 WHERE id = $3`,
+		sess.ExpiresAt.UTC(), sess.RenewedAt.UTC(), id)
+	if err != nil {
+		return protocol.Session{}, err
+	}
+	return sess, nil
 }
 
 func (p *Postgres) AppendAudit(e protocol.AuditEvent) error {

@@ -465,12 +465,12 @@ func originGrantList(cmd *cobra.Command) error {
 	return encode(cmd, out.Grants)
 }
 
-func originSessionCreate(cmd *cobra.Command, agent string, ttl time.Duration, outFile string) error {
+func originSessionCreate(cmd *cobra.Command, agent string, ttl time.Duration, maxUses int, outFile string) error {
 	tok, err := originHumanCLI(cmd.Context())
 	if err != nil {
 		return err
 	}
-	in := publicapi.CreateSessionRequest{Agent: agent}
+	in := publicapi.CreateSessionRequest{Agent: agent, MaxUses: maxUses}
 	if ttl > 0 {
 		in.TTL = ttl.String()
 	}
