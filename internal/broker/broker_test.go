@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -751,5 +753,142 @@ func TestUseReloadsAgentAndDeniesRevoked(t *testing.T) {
 	}
 	if got.Decision != protocol.DecisionDeny || got.Reason != "agent_revoked" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestUseInFlightLimit(t *testing.T) {
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+
+	blocker := make(chan struct{})
+	started := make(chan struct{}, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-blocker
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	item := protocol.Item{
+		ID:    "item-1",
+		OrgID: "org-1",
+		Name:  "stripe-live",
+		Kind:  protocol.ItemAPIKey,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		URIs:  []string{upstream.URL},
+	}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	b := NewWithInFlight(mem, 2)
+	b.Now = func() time.Time { return time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC) }
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	results := make(chan error, 3)
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := b.Use(ctx, agent, protocol.UseRequest{
+				ItemID: item.ID,
+				Action: protocol.ActionFetch,
+				Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1"},
+			})
+			results <- err
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		<-started
+	}
+
+	_, err := b.Use(ctx, agent, protocol.UseRequest{
+		ItemID: item.ID,
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL + "/v1"},
+	})
+	if !errors.Is(err, ErrOverloaded) {
+		t.Fatalf("third Use got %v, want ErrOverloaded", err)
+	}
+
+	close(blocker)
+	wg.Wait()
+	close(results)
+	for e := range results {
+		if e != nil {
+			t.Fatalf("in-flight Use returned error: %v", e)
+		}
+	}
+}
+
+func TestUseInFlightLimitReleasesOnDenial(t *testing.T) {
+	mem := store.NewMemory()
+	agent := protocol.Principal{Kind: protocol.PrincipalAgent, ID: "agent-1", OrgID: "org-1"}
+	item := protocol.Item{
+		ID:    "item-1",
+		OrgID: "org-1",
+		Name:  "file",
+		Kind:  protocol.ItemFile,
+		Owner: protocol.Owner{Kind: protocol.OwnerOrg, ID: "org-1"},
+		URIs:  []string{"http://localhost"},
+	}
+	if err := mem.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutItem(item, store.Secret(secret)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutGrant(protocol.Grant{
+		ID:      "grant-1",
+		OrgID:   "org-1",
+		AgentID: agent.ID,
+		ItemID:  item.ID,
+		Level:   protocol.Level2,
+		Actions: []protocol.ActionKind{protocol.ActionFetch},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	b := NewWithInFlight(mem, 1)
+	b.Now = func() time.Time { return time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC) }
+
+	got, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: item.ID,
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: "http://localhost/v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision != protocol.DecisionDeny || got.Reason != "not_injectable" {
+		t.Fatalf("first use got %+v", got)
+	}
+
+	got2, err := b.Use(context.Background(), agent, protocol.UseRequest{
+		ItemID: item.ID,
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: "http://localhost/v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Decision != protocol.DecisionDeny || got2.Reason != "not_injectable" {
+		t.Fatalf("second use got %+v", got2)
 	}
 }

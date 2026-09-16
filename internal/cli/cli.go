@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 	"github.com/vortexnyc/password-manager/identity/glue"
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/broker"
 	"github.com/vortexnyc/password-manager/internal/confirm"
 	"github.com/vortexnyc/password-manager/internal/device"
 	"github.com/vortexnyc/password-manager/internal/fill"
@@ -1554,6 +1556,9 @@ func mcpCmd(home *string) *cobra.Command {
 				return err
 			}
 			defer a.Close()
+			if n, _ := strconv.Atoi(envOr("VEIL_MAX_IN_FLIGHT_USE", "100")); n > 0 {
+				a.Broker = broker.NewWithInFlight(a.Store, n)
+			}
 			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			publicURL = mcpPublicURL(publicURL, listen)
 			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")

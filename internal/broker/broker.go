@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/vortexnyc/password-manager/internal/grant"
 	"github.com/vortexnyc/password-manager/internal/material"
@@ -29,21 +30,34 @@ import (
 	"github.com/vortexnyc/password-manager/internal/store"
 )
 
+var ErrOverloaded = errors.New("broker: origin overloaded")
+
 type Clock func() time.Time
 
 type Broker struct {
-	Store store.Store
-	HTTP  *http.Client
-	Now   Clock
+	Store    store.Store
+	HTTP     *http.Client
+	Now      Clock
+	useLimit *semaphore.Weighted
 }
 
 func New(s store.Store) *Broker {
+	return newBroker(s, 0)
+}
+
+// NewWithInFlight creates a Broker that allows at most n concurrent Use calls.
+// n <= 0 means unlimited.
+func NewWithInFlight(s store.Store, n int) *Broker {
+	return newBroker(s, n)
+}
+
+func newBroker(s store.Store, inFlight int) *Broker {
 	// Clone the default transport so outbound connections to the same upstream
 	// are reused instead of churned. The default MaxIdleConnsPerHost is only 2.
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConns = 100
 	t.MaxIdleConnsPerHost = 100
-	return &Broker{
+	b := &Broker{
 		Store: s,
 		Now:   time.Now,
 		HTTP: &http.Client{
@@ -65,6 +79,10 @@ func New(s store.Store) *Broker {
 			},
 		},
 	}
+	if inFlight > 0 {
+		b.useLimit = semaphore.NewWeighted(int64(inFlight))
+	}
+	return b
 }
 
 func (b *Broker) now() time.Time {
@@ -86,6 +104,16 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	ctx, span := otel.Tracer("veil").Start(ctx, "use")
 	defer span.End()
 	now := b.now()
+
+	// Admission: bound in-flight Use calls so a flood cannot hold unlimited
+	// goroutines and upstream connections.
+	if b.useLimit != nil {
+		if !b.useLimit.TryAcquire(1) {
+			span.SetStatus(codes.Error, "origin_overload")
+			return protocol.UseResult{}, ErrOverloaded
+		}
+		defer b.useLimit.Release(1)
+	}
 
 	// Second authorization check: the agent may have been revoked between the
 	// initial resolution and this Use. Tests may pass a bare principal with no

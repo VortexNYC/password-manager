@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/app"
+	"github.com/vortexnyc/password-manager/internal/broker"
 	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/oneimport"
 	"github.com/vortexnyc/password-manager/internal/protocol"
@@ -556,6 +557,10 @@ func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 		Body:   []byte(in.Body),
 	})
 	if err != nil {
+		if errors.Is(err, broker.ErrOverloaded) {
+			http.Error(w, "origin overloaded", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "use failed", http.StatusBadRequest)
 		return
 	}
