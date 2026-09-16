@@ -130,7 +130,7 @@ Clean `pgbot-after` (Run A) hot-path queries per request:
 | Query | Calls | Mean (ms) | Total (ms) | /request |
 |---|---|---|---|---|
 | `UseAuth` (LEFT JOIN of agents/items/grants/approvals) | 835,227 | 0.0362 | 30,227.5 | 1 |
-| `agents` (final reload before secret) | 1,670,454 | 0.0141 | 23,506.0 | 2 |
+| `agents` (session resolution + final reload) | 1,670,454 | 0.0141 | 23,506.0 | 2 |
 | `sessions` (session resolution) | 835,227 | 0.0155 | 12,973.8 | 1 |
 | `items` secret lookup | 835,227 | 0.0145 | 12,141.3 | 1 |
 | `audit` COPY | 14,606 | 1.0791 | 15,761.2 | 0.017 (batches) |
@@ -157,8 +157,9 @@ pprof (Run A CPU) top-line observations:
    6,960 req/s, a ~27.7% gain over the prior 5,449 req/s baseline.
 2. **The database is not the primary limiter.** Hot-path DB queries still run in
    ~0.012–0.036 ms with a cache hit ratio of 1.0 and no waiting/blocked
-   connections. Per request there are only ~4 DB round trips now (`sessions`,
-   `UseAuth`, final `agents` reload, `items` secret), plus an async audit `COPY`.
+   connections. Per request there are only ~5 synchronous DB round trips now
+   (`sessions` lookup, session `agents` lookup, `UseAuth`, final `agents` reload,
+   `items` secret), plus an async audit `COPY`.
 3. **The remaining time is mostly local network/runtime overhead.** The pprof CPU
    profile shows >50% of samples in `syscall.rawsyscalln` and runtime wait
    states (`pthread_cond_wait`, `usleep`, `kevent`). This is loopback I/O and
