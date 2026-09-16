@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vortexnyc/password-manager/internal/broker"
-	"github.com/vortexnyc/password-manager/internal/device"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/scrub"
-	"github.com/vortexnyc/password-manager/internal/store"
+	"github.com/veilnyc/password-manager/internal/broker"
+	"github.com/veilnyc/password-manager/internal/device"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/store"
 )
 
 const secret = "sk_live_APP_TEST_SECRET"

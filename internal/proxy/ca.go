@@ -34,7 +34,7 @@ func GenerateCA() (certPEM, keyPEM []byte, err error) {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			Organization: []string{"VortexNYC"},
+			Organization: []string{"VeilNYC"},
 			CommonName:   "password-manager local CA",
 		},
 		NotBefore:             time.Now().Add(-time.Hour),

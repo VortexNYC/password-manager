@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vortexnyc/password-manager/internal/crypto"
-	"github.com/vortexnyc/password-manager/internal/material"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/material"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/scrub"
 
 	_ "modernc.org/sqlite"
 )

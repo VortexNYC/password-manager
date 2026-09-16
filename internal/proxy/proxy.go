@@ -26,12 +26,12 @@ import (
 	"github.com/elazarl/goproxy"
 	"github.com/elazarl/goproxy/ext/auth"
 
-	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/broker"
-	"github.com/vortexnyc/password-manager/internal/grant"
-	"github.com/vortexnyc/password-manager/internal/material"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/app"
+	"github.com/veilnyc/password-manager/internal/broker"
+	"github.com/veilnyc/password-manager/internal/grant"
+	"github.com/veilnyc/password-manager/internal/material"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/scrub"
 )
 
 type Server struct {

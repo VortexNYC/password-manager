@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vortexnyc/password-manager/internal/material"
+	"github.com/veilnyc/password-manager/internal/material"
 )
 
 // HTTPLogin is Kratos frontend HTTP. Not Ory Elements. Not CDP.

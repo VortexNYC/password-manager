@@ -2,13 +2,13 @@
 
 Agent-first credential broker. One protocol. Two grant levels. Secrets never enter the model.
 
-The product is Veil. Repo and CLI stay `password-manager` in VortexNYC until a rename.
+The product is Veil. Repo and CLI stay `password-manager` in VeilNYC until a rename.
 
 ## Objective
 
 1Password is the company we are taking customers from. Not Infisical. Not Vault. Not Bitwarden-the-enterprise.
 
-Who: developers, their agents, solo people, families, small teams, startups under 100 people. Vortex is the first of those, not a different product.
+Who: developers, their agents, solo people, families, small teams, startups under 100 people. We are the first of those, not a different product.
 
 The wedge is agents: a bot may be Stripe and may not be Gmail. Humans in that same org still need logins, TOTP, fill, SSH, sharing. One protocol. Two grant levels. Secrets never enter the model.
 
@@ -18,7 +18,7 @@ Humans live in a sibling plane in this same repo. That plane pins official Ory K
 
 ## Doctrine
 
-Dogfood is Vortex (agents on Flue / Codex / Cursor, humans on this Mac). The market is everyone 1Password sells Individual / Families / Teams to, plus startups under 100. We do not build for 1Password Enterprise: SCIM, Privileged Access, Device Trust, AWS Secrets Manager sync, a 10k-seat admin console.
+We dogfood Veil (agents on Flue / Codex / Cursor, humans on this Mac). The market is everyone 1Password sells Individual / Families / Teams to, plus startups under 100. We do not build for 1Password Enterprise: SCIM, Privileged Access, Device Trust, AWS Secrets Manager sync, a 10k-seat admin console.
 
 The grant is the object. Use is the only way a secret is touched. Grants are per item. A bank is level 1 forever. A Stripe test key is level 2. A family member is a human principal with grants, not a second vault type.
 
@@ -61,7 +61,7 @@ Passkeys: we are the authenticator when the site is someone else. Level 1 user v
 | oauth | Refresh stays in the broker. Inject the access token. | broker | Authsome; `golang.org/x/oauth2` |
 | humans | Sibling plane. Directory, issuer, identity-plane RBAC. | identity schema, login UI | Official Ory Kratos + Hydra + Keto images. Go clients for the glue. |
 
-Build order for what is missing: 1Password displacement for the people above. Vortex remains the only org in this vault until that is proven. Do not start iOS until fill on this Mac Uses origin items. Families live on phones — that is the limiter after Mac fill, not a reason to start an app this week. Do not invent a second org in sqlite to fake a market.
+Build order for what is missing: 1Password displacement for the people above. Veil remains the only org in this vault until that is proven. Do not start iOS until fill on this Mac Uses origin items. Families live on phones — that is the limiter after Mac fill, not a reason to start an app this week. Do not invent a second org in sqlite to fake a market.
 
 ## How we fill the repo
 
@@ -101,7 +101,7 @@ The next slices, in this order, and nothing else until each is proven:
 17 public Hydra mint     written. https://id.veil.nyc token+JWKS.
                          not admin. cloud agents client_credentials.
 18 origin                 written. Hydra+broker on Railway. veil.nyc.
-                         laptop is not the origin. pwm.vortex.nyc is
+                         laptop is not the origin. pwm.veil.nyc is
                          leftover Mini.
 19 item lifecycle + refs written. ${NAME}/pwm:// in run --inject.
                          archive/delete/history. Grant.ExpiresAt.
@@ -224,7 +224,7 @@ The next slices, in this order, and nothing else until each is proven:
                          Auto-Type / portals, whatever shipped since.
                          Do not assume a Freedesktop Autofill portal.
 37 Veil browser extension Chrome MV3 written+proven 2026-09-14
-                         (CFT + branded vortex.nyc: fill approve/Cancel,
+                         (CFT + branded veil.nyc: fill approve/Cancel,
                          generate, passkeyCreate UV). Firefox / Safari
                          Web Extension not written. Replica written+proven
                          2026-09-14 (`replica.box` + Keychain). Cards +
@@ -765,7 +765,7 @@ Next: Mac helper (slice 32). Typed-save / TOTP-from-page on Chrome are CFT-prove
 | Mac helper | menu-bar accessory + ASCredentialProvider (slice 32). Native apps only. Same choose job as `docs/fill.md`. | A vault window. Using it to fill Chrome. Using it as the Safari Web Extension (37). |
 | Windows / Linux helper | tray + Chrome extension. Revisit OS APIs on slices 35–36 | Inventing an Autofill API. Shipping Auto-Type before 26. |
 | Identity screens | Ory Elements in identity/login | Restyling Elements. Putting them in the broker. |
-| Vault UI widgets | Kumo (`@cloudflare/kumo`). Uniwind if a phone WebView/RN shell exists later | `@vortexnyc/ui`. NativeWind. One component file in Swift. Native SDK as the UI. |
+| Vault UI widgets | Kumo (`@cloudflare/kumo`). Uniwind if a phone WebView/RN shell exists later | `@veilnyc/ui`. NativeWind. One component file in Swift. Native SDK as the UI. |
 | Device pairing | `golang.org/x/crypto/nacl/box` | Age, a second vault, pairing a model, iOS |
 | MITM | `elazarl/goproxy` | A CONNECT parser |
 | AEAD | `x/crypto` | A cipher |

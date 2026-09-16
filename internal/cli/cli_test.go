@@ -23,10 +23,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/vortexnyc/password-manager/internal/device"
-	"github.com/vortexnyc/password-manager/internal/mcpserver"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/device"
+	"github.com/veilnyc/password-manager/internal/mcpserver"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/scrub"
 )
 
 const secret = "sk_live_CLI_SECRET"
@@ -1432,7 +1432,7 @@ func TestMCPStdioOriginListAndFetch(t *testing.T) {
 				t.Fatal("stdio fetch request leaked secret")
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"decision":"allow","status":200,"body":"{\"login\":\"vortex\"}"}`)
+			_, _ = io.WriteString(w, `{"decision":"allow","status":200,"body":"{\"login\":\"veil\"}"}`)
 		default:
 			http.Error(w, "nope", http.StatusNotFound)
 		}

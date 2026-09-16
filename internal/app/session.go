@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vortexnyc/password-manager/internal/id"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/store"
+	"github.com/veilnyc/password-manager/internal/id"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/store"
 )
 
 const (

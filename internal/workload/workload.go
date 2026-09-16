@@ -15,9 +15,9 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
-	"github.com/vortexnyc/password-manager/internal/oidchttp"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/store"
+	"github.com/veilnyc/password-manager/internal/oidchttp"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/store"
 )
 
 type Checker struct {

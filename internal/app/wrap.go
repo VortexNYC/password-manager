@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vortexnyc/password-manager/internal/crypto"
-	"github.com/vortexnyc/password-manager/internal/device"
+	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/device"
 )
 
 const (

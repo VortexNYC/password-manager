@@ -17,33 +17,36 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
-from vortex_pwm.models.owner import Owner
+from veil_pwm.models.card_fields import CardFields
+from veil_pwm.models.identity_fields import IdentityFields
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class Item(BaseModel):
+class CreateItemRequest(BaseModel):
     """
-    Item
+    CreateItemRequest
     """ # noqa: E501
-    id: StrictStr
-    org_id: StrictStr
     name: StrictStr
-    kind: StrictStr
-    owner: Owner
-    uris: List[StrictStr]
+    uri: Optional[StrictStr] = None
+    uris: Optional[List[StrictStr]] = None
     tags: Optional[List[StrictStr]] = None
-    archived: Optional[StrictBool] = None
-    has_totp: Optional[StrictBool] = None
-    has_file: Optional[StrictBool] = None
-    login: Optional[StrictStr] = Field(default=None, description="Fill username. Metadata. Not a secret. Empty if unset.")
-    __properties: ClassVar[List[str]] = ["id", "org_id", "name", "kind", "owner", "uris", "tags", "archived", "has_totp", "has_file", "login"]
+    kind: Optional[StrictStr] = None
+    secret: Optional[StrictStr] = Field(default=None, description="Vault material. Request only. Never returned.")
+    totp_seed: Optional[StrictStr] = Field(default=None, description="TOTP seed. Request only. Never returned.")
+    login: Optional[StrictStr] = Field(default=None, description="Fill username. Metadata on the item. Also sealed in the envelope. Not a secret.")
+    card: Optional[CardFields] = None
+    identity: Optional[IdentityFields] = None
+    __properties: ClassVar[List[str]] = ["name", "uri", "uris", "tags", "kind", "secret", "totp_seed", "login", "card", "identity"]
 
     @field_validator('kind')
     def kind_validate_enum(cls, value):
         """Validates the enum"""
+        if value is None:
+            return value
+
         if value not in set(['api_key', 'oauth', 'ssh', 'file', 'passkey', 'card', 'identity']):
             raise ValueError("must be one of enum values ('api_key', 'oauth', 'ssh', 'file', 'passkey', 'card', 'identity')")
         return value
@@ -66,7 +69,7 @@ class Item(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of Item from a JSON string"""
+        """Create an instance of CreateItemRequest from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -87,14 +90,17 @@ class Item(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of owner
-        if self.owner:
-            _dict['owner'] = self.owner.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of card
+        if self.card:
+            _dict['card'] = self.card.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of identity
+        if self.identity:
+            _dict['identity'] = self.identity.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of Item from a dict"""
+        """Create an instance of CreateItemRequest from a dict"""
         if obj is None:
             return None
 
@@ -102,17 +108,16 @@ class Item(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "id": obj.get("id"),
-            "org_id": obj.get("org_id"),
             "name": obj.get("name"),
-            "kind": obj.get("kind"),
-            "owner": Owner.from_dict(obj["owner"]) if obj.get("owner") is not None else None,
+            "uri": obj.get("uri"),
             "uris": obj.get("uris"),
             "tags": obj.get("tags"),
-            "archived": obj.get("archived"),
-            "has_totp": obj.get("has_totp"),
-            "has_file": obj.get("has_file"),
-            "login": obj.get("login")
+            "kind": obj.get("kind"),
+            "secret": obj.get("secret"),
+            "totp_seed": obj.get("totp_seed"),
+            "login": obj.get("login"),
+            "card": CardFields.from_dict(obj["card"]) if obj.get("card") is not None else None,
+            "identity": IdentityFields.from_dict(obj["identity"]) if obj.get("identity") is not None else None
         })
         return _obj
 

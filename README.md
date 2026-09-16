@@ -2,9 +2,9 @@
 
 Agent-first credential broker. Agents reference an item. Something outside the model injects the secret. The model never holds it.
 
-The product is Veil. This repo and the CLI stay `password-manager` in the Vortex org for now.
+The product is Veil. This repo and the CLI stay `password-manager` in the VeilNYC org for now.
 
-Open source under Vortex NYC. Not a 1Password clone and not an auth company.
+Open source under Veil NYC. Not a 1Password clone and not an auth company.
 
 **Ory \*** — the identity vendor, not us. **Kratos** = humans (email, login, invite). **Hydra** = tokens. **Keto** = org owner/member. **Glue** talks to those three. **This repo** is the broker (secrets, grants, inject). Cheatsheet: `AGENTS.md` and `docs/SPEC.md`.
 
@@ -26,7 +26,7 @@ make test
 go run ./cmd/password-manager init --home /tmp/pwm
 go run ./cmd/password-manager item add stripe --home /tmp/pwm --uri https://api.stripe.com --secret-file ./key --totp-file ./seed
 go run ./cmd/password-manager agent add claude --home /tmp/pwm
-go run ./cmd/password-manager agent bind claude --home /tmp/pwm --issuer https://token.actions.githubusercontent.com --subject 'repo:vortexnyc/password-manager:ref:refs/heads/main' --audience password-manager
+go run ./cmd/password-manager agent bind claude --home /tmp/pwm --issuer https://token.actions.githubusercontent.com --subject 'repo:veilnyc/password-manager:ref:refs/heads/main' --audience password-manager
 go run ./cmd/password-manager grant add --home /tmp/pwm --agent claude --item stripe --level level2
 go run ./cmd/password-manager mcp --home /tmp/pwm
 go run ./cmd/password-manager mcp config
@@ -73,4 +73,4 @@ See [docs/SPEC.md](docs/SPEC.md) for the capability map and [docs/prior-art.md](
 
 ## License
 
-MIT. Copyright 2026 Vortex NYC, Inc.
+MIT. Copyright 2026 Veil NYC, Inc.

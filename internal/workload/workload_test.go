@@ -13,8 +13,8 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/store"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/store"
 )
 
 type testIssuer struct {
@@ -87,14 +87,14 @@ func TestOIDCTokenResolvesBoundAgent(t *testing.T) {
 	if err := mem.PutWorkload(protocol.Workload{
 		AgentID:  agent.ID,
 		Issuer:   iss.URL,
-		Subject:  "repo:vortexnyc/password-manager:ref:refs/heads/main",
+		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
 		Audience: "password-manager",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	c := New(mem)
-	tok := iss.token(t, "repo:vortexnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	tok := iss.token(t, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
 	got, err := c.Agent(context.Background(), tok)
 	if err != nil {
 		t.Fatal(err)
@@ -144,14 +144,14 @@ func TestProviderDiscoveryCachedAcrossCalls(t *testing.T) {
 	if err := mem.PutWorkload(protocol.Workload{
 		AgentID:  "flue",
 		Issuer:   iss.URL,
-		Subject:  "repo:vortexnyc/password-manager:ref:refs/heads/main",
+		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
 		Audience: "password-manager",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	c := New(mem)
-	tok := iss.token(t, "repo:vortexnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	tok := iss.token(t, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
 	if _, err := c.Agent(context.Background(), tok); err != nil {
 		t.Fatal(err)
 	}

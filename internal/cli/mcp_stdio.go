@@ -8,9 +8,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/vortexnyc/password-manager/internal/mcpserver"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/publicapi"
+	"github.com/veilnyc/password-manager/internal/mcpserver"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/publicapi"
 )
 
 // originMCPServer is the laptop Cursor adapter. Same tools as origin MCP.

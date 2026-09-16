@@ -18,9 +18,9 @@ import (
 
 	"github.com/chromedp/chromedp"
 
-	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/publicapi"
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/app"
+	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/veilnyc/password-manager/internal/scrub"
 )
 
 func TestChromeExtensionFill(t *testing.T) {

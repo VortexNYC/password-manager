@@ -1,4 +1,4 @@
-module github.com/vortexnyc/pwm-go
+module github.com/veilnyc/pwm-go
 
 go 1.23
 

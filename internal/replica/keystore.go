@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/vortexnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/crypto"
 )
 
 var ErrNotFound = errors.New("replica: key not found")

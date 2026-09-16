@@ -48,7 +48,7 @@ importers:
       '@tanstack/react-router':
         specifier: 1.132.47
         version: 1.132.47(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@vortex-api/pwm-sdk':
+      '@veilnyc/pwm-sdk':
         specifier: workspace:*
         version: link:../../sdks/typescript
       react:

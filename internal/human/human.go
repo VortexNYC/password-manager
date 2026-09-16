@@ -18,8 +18,8 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"github.com/vortexnyc/password-manager/internal/oidchttp"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/oidchttp"
+	"github.com/veilnyc/password-manager/internal/protocol"
 )
 
 const (

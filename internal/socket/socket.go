@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/app"
+	"github.com/veilnyc/password-manager/internal/protocol"
 )
 
 const Name = "pwm.sock"

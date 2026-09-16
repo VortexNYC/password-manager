@@ -23,7 +23,7 @@ const (
 	OwnerOrg  OwnerKind = "org"
 )
 
-// LocalOrgID is the one Vortex organization. Same value in the vault,
+// LocalOrgID is the one VeilNYC organization. Same value in the vault,
 // Kratos organization_id, and the Keto object. A second company is a
 // new UUID when a second tenant exists. Not this slice.
 const LocalOrgID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

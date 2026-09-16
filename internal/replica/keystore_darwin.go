@@ -7,7 +7,7 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/vortexnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/crypto"
 )
 
 /*

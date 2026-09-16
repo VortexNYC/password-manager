@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/id"
-	"github.com/vortexnyc/password-manager/internal/publicapi"
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/app"
+	"github.com/veilnyc/password-manager/internal/id"
+	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/veilnyc/password-manager/internal/scrub"
 )
 
 const typedPassword = "typed-netflix-pw"

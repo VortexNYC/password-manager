@@ -18,23 +18,23 @@ from typing_extensions import Annotated
 from pydantic import Field, StrictBytes, StrictStr
 from typing import Optional, Tuple, Union
 from typing_extensions import Annotated
-from vortex_pwm.models.agent import Agent
-from vortex_pwm.models.agents_response import AgentsResponse
-from vortex_pwm.models.create_agent_request import CreateAgentRequest
-from vortex_pwm.models.create_grant_request import CreateGrantRequest
-from vortex_pwm.models.create_item_request import CreateItemRequest
-from vortex_pwm.models.create_session_request import CreateSessionRequest
-from vortex_pwm.models.create_session_response import CreateSessionResponse
-from vortex_pwm.models.grant import Grant
-from vortex_pwm.models.grants_response import GrantsResponse
-from vortex_pwm.models.import_response import ImportResponse
-from vortex_pwm.models.item import Item
-from vortex_pwm.models.sessions_response import SessionsResponse
-from vortex_pwm.models.update_item_request import UpdateItemRequest
+from veil_pwm.models.agent import Agent
+from veil_pwm.models.agents_response import AgentsResponse
+from veil_pwm.models.create_agent_request import CreateAgentRequest
+from veil_pwm.models.create_grant_request import CreateGrantRequest
+from veil_pwm.models.create_item_request import CreateItemRequest
+from veil_pwm.models.create_session_request import CreateSessionRequest
+from veil_pwm.models.create_session_response import CreateSessionResponse
+from veil_pwm.models.grant import Grant
+from veil_pwm.models.grants_response import GrantsResponse
+from veil_pwm.models.import_response import ImportResponse
+from veil_pwm.models.item import Item
+from veil_pwm.models.sessions_response import SessionsResponse
+from veil_pwm.models.update_item_request import UpdateItemRequest
 
-from vortex_pwm.api_client import ApiClient, RequestSerialized
-from vortex_pwm.api_response import ApiResponse
-from vortex_pwm.rest import RESTResponseType
+from veil_pwm.api_client import ApiClient, RequestSerialized
+from veil_pwm.api_response import ApiResponse
+from veil_pwm.rest import RESTResponseType
 
 
 class OwnerApi:

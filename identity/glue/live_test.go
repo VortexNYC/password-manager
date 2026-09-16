@@ -25,11 +25,11 @@ import (
 
 	"github.com/google/uuid"
 	kratos "github.com/ory/kratos-client-go/v26"
-	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/human"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/scrub"
-	"github.com/vortexnyc/password-manager/internal/socket"
+	"github.com/veilnyc/password-manager/internal/app"
+	"github.com/veilnyc/password-manager/internal/human"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/socket"
 )
 
 const (

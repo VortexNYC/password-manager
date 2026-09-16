@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/publicapi"
+	"github.com/veilnyc/password-manager/internal/app"
+	"github.com/veilnyc/password-manager/internal/publicapi"
 )
 
 // These tests exist because we shipped green by turning the product off.

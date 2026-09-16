@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vortexnyc/password-manager/internal/crypto"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/protocol"
 )
 
 func ownerCacheKey(o protocol.Owner) string {

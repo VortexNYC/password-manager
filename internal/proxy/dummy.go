@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vortexnyc/password-manager/internal/broker"
-	"github.com/vortexnyc/password-manager/internal/grant"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/broker"
+	"github.com/veilnyc/password-manager/internal/grant"
+	"github.com/veilnyc/password-manager/internal/protocol"
 )
 
 // DummySecret is the Infisical-style placeholder in a child env. Origin run

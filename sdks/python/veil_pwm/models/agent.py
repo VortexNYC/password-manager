@@ -17,19 +17,24 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict
-from typing import Any, ClassVar, Dict, List
-from vortex_pwm.models.agent import Agent
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional
+from veil_pwm.models.owner import Owner
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class AgentsResponse(BaseModel):
+class Agent(BaseModel):
     """
-    AgentsResponse
+    Agent
     """ # noqa: E501
-    agents: List[Agent]
-    __properties: ClassVar[List[str]] = ["agents"]
+    kind: StrictStr
+    id: StrictStr
+    org_id: StrictStr
+    owner: Optional[Owner] = None
+    revoked_at: Optional[datetime] = Field(default=None, description="Set when the agent is revoked. Record stays for audit.")
+    __properties: ClassVar[List[str]] = ["kind", "id", "org_id", "owner", "revoked_at"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -49,7 +54,7 @@ class AgentsResponse(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentsResponse from a JSON string"""
+        """Create an instance of Agent from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -70,18 +75,14 @@ class AgentsResponse(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in agents (list)
-        _items = []
-        if self.agents:
-            for _item_agents in self.agents:
-                if _item_agents:
-                    _items.append(_item_agents.to_dict())
-            _dict['agents'] = _items
+        # override the default output from pydantic by calling `to_dict()` of owner
+        if self.owner:
+            _dict['owner'] = self.owner.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentsResponse from a dict"""
+        """Create an instance of Agent from a dict"""
         if obj is None:
             return None
 
@@ -89,7 +90,11 @@ class AgentsResponse(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agents": [Agent.from_dict(_item) for _item in obj["agents"]] if obj.get("agents") is not None else None
+            "kind": obj.get("kind"),
+            "id": obj.get("id"),
+            "org_id": obj.get("org_id"),
+            "owner": Owner.from_dict(obj["owner"]) if obj.get("owner") is not None else None,
+            "revoked_at": obj.get("revoked_at")
         })
         return _obj
 

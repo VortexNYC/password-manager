@@ -6,28 +6,28 @@ description: Generated from the OpenAPI contract. Use injects. Never GetSecret.
 # Python SDK
 
 ```bash
-pip install vortex-pwm-sdk
+pip install veil-pwm-sdk
 ```
 
 ```py
 import os
-import vortex_pwm
+import veil_pwm
 
-configuration = vortex_pwm.Configuration(host="https://veil.nyc")
+configuration = veil_pwm.Configuration(host="https://veil.nyc")
 configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
-client = vortex_pwm.ApiClient(configuration)
-api = vortex_pwm.AgentApi(client)
+client = veil_pwm.ApiClient(configuration)
+api = veil_pwm.AgentApi(client)
 items = api.list_items()
 api.use_item(
-    vortex_pwm.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers")
+    veil_pwm.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers")
 )
 ```
 
 ## Local source
 
 - Generated package: `sdks/python`
-- Package name: `vortex-pwm-sdk`
-- Import name: `vortex_pwm`
+- Package name: `veil-pwm-sdk`
+- Import name: `veil_pwm`
 - Generator: OpenAPI Generator
 
 Regenerate with `pnpm run sdk:generate`.

@@ -26,11 +26,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/vortexnyc/password-manager/internal/app"
-	"github.com/vortexnyc/password-manager/internal/broker"
-	"github.com/vortexnyc/password-manager/internal/crypto"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/publicapi"
+	"github.com/veilnyc/password-manager/internal/app"
+	"github.com/veilnyc/password-manager/internal/broker"
+	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/publicapi"
 )
 
 type origin struct {

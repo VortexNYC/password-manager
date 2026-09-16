@@ -19,7 +19,7 @@ The unified layer we own is **authorization, not identity.** One Veil identity (
 
 Better Auth is a library **inside someone else’s app**. Apple, Google, GitHub — those buttons are *their* OAuth. The app stores *their* user row. You still have an account per app. Cloudflare Access is the same shape with a smaller landlord: they store the session and the policy.
 
-Adding “Sign in with Veil” to that list is going **down** into their layer. Clerk. We lose to Google on their field. Vortex consumer apps use Vortex Auth (better-auth + Convex). Veil does not become Better Auth.
+Adding “Sign in with Veil” to that list is going **down** into their layer. Clerk. We lose to Google on their field. Consumer apps use Veil Auth (better-auth + Convex). Veil does not become Better Auth.
 
 The layer **above**: the principal’s policy plane. You sign into Veil. That is the only identity *you* operate. Cloudflare, Linear, GitHub are **destinations**. Access lives here: who may use this, which agent, which action, until when, audit. Their “create an API token, dump it in a dashboard” is a grant on the item.
 

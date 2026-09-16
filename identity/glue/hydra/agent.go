@@ -11,7 +11,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
-	"github.com/vortexnyc/password-manager/identity/glue/internal/absurl"
+	"github.com/veilnyc/password-manager/identity/glue/internal/absurl"
 )
 
 const AgentClientPrefix = "agent-"

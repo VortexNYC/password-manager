@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vortexnyc/password-manager/internal/crypto"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/veilnyc/password-manager/internal/protocol"
 
 	_ "modernc.org/sqlite"
 )

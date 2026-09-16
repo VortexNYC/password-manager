@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/vortexnyc/password-manager/internal/material"
-	"github.com/vortexnyc/password-manager/internal/oneimport"
-	"github.com/vortexnyc/password-manager/internal/protocol"
-	"github.com/vortexnyc/password-manager/internal/scrub"
+	"github.com/veilnyc/password-manager/internal/material"
+	"github.com/veilnyc/password-manager/internal/oneimport"
+	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/scrub"
 )
 
 func TestImportItemsCreatesLoginAndCard(t *testing.T) {

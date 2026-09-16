@@ -12,8 +12,8 @@ import (
 
 	"github.com/elazarl/goproxy"
 
-	"github.com/vortexnyc/password-manager/internal/grant"
-	"github.com/vortexnyc/password-manager/internal/protocol"
+	"github.com/veilnyc/password-manager/internal/grant"
+	"github.com/veilnyc/password-manager/internal/protocol"
 )
 
 // OriginResult is POST /v1/use unwrapped for MITM. Not a GetSecret.

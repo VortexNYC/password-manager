@@ -7,7 +7,7 @@ import {
   listEvents,
   listGrants,
   listItems,
-} from "@vortex-api/pwm-sdk"
+} from "@veilnyc/pwm-sdk"
 import { originAPI, token } from "./auth"
 
 function client() {

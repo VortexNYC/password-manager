@@ -17,14 +17,14 @@ from typing_extensions import Annotated
 
 from pydantic import StrictStr
 from typing import Any, Dict
-from vortex_pwm.models.events_response import EventsResponse
-from vortex_pwm.models.items_response import ItemsResponse
-from vortex_pwm.models.use_request import UseRequest
-from vortex_pwm.models.use_response import UseResponse
+from veil_pwm.models.events_response import EventsResponse
+from veil_pwm.models.items_response import ItemsResponse
+from veil_pwm.models.use_request import UseRequest
+from veil_pwm.models.use_response import UseResponse
 
-from vortex_pwm.api_client import ApiClient, RequestSerialized
-from vortex_pwm.api_response import ApiResponse
-from vortex_pwm.rest import RESTResponseType
+from veil_pwm.api_client import ApiClient, RequestSerialized
+from veil_pwm.api_response import ApiResponse
+from veil_pwm.rest import RESTResponseType
 
 
 class AgentApi:
