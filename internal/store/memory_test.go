@@ -74,3 +74,24 @@ func TestMemoryRevokeAgentSurvivesReAdd(t *testing.T) {
 		t.Fatalf("revoked_at not preserved: %+v", got.RevokedAt)
 	}
 }
+
+func TestMemoryAppendAudits(t *testing.T) {
+	m := NewMemory()
+	events := []protocol.AuditEvent{
+		{Time: time.Unix(1, 0), OrgID: "o", AgentID: "a1", Action: protocol.ActionFetch, Decision: protocol.DecisionAllow},
+		{Time: time.Unix(2, 0), OrgID: "o", AgentID: "a2", Action: protocol.ActionFetch, Decision: protocol.DecisionAllow},
+	}
+	if err := m.AppendAudits(events); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(events) {
+		t.Fatalf("got %d events", len(got))
+	}
+	if got[0].AgentID != "a1" || got[1].AgentID != "a2" {
+		t.Fatalf("order wrong: %+v", got)
+	}
+}

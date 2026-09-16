@@ -225,3 +225,25 @@ func TestPostgresRevokeAgentAndAudit(t *testing.T) {
 		t.Fatalf("reason %q", events[0].Reason)
 	}
 }
+
+func TestPostgresAppendAudits(t *testing.T) {
+	s := openTestPostgres(t)
+
+	events := []protocol.AuditEvent{
+		{Time: time.Unix(1, 0), OrgID: "o", AgentID: "a1", Action: protocol.ActionFetch, Decision: protocol.DecisionAllow},
+		{Time: time.Unix(2, 0), OrgID: "o", AgentID: "a2", Action: protocol.ActionFetch, Decision: protocol.DecisionAllow},
+	}
+	if err := s.AppendAudits(events); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(events) {
+		t.Fatalf("got %d events", len(got))
+	}
+	if got[0].AgentID != "a1" || got[1].AgentID != "a2" {
+		t.Fatalf("order wrong: %+v", got)
+	}
+}
