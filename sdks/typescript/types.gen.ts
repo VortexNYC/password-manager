@@ -173,6 +173,25 @@ export type Session = {
     org_id: string;
     agent_id: string;
     expires_at: string;
+    created_at: string;
+    revoked_at?: string;
+    renewed_at?: string;
+    /**
+     * Initial lease duration in seconds.
+     */
+    ttl: number;
+    /**
+     * Maximum cumulative lifetime in seconds.
+     */
+    max_ttl: number;
+    /**
+     * Maximum successful Use calls. 0 = unlimited.
+     */
+    max_uses: number;
+    /**
+     * Use calls that passed authorization and reached upstream consumption.
+     */
+    uses: number;
 };
 
 export type SessionsResponse = {
@@ -185,6 +204,10 @@ export type CreateSessionRequest = {
      * Go duration. Default 15m. Max 1h.
      */
     ttl?: string;
+    /**
+     * Maximum successful Use calls. 0 = unlimited.
+     */
+    max_uses?: number;
 };
 
 /**
@@ -195,6 +218,16 @@ export type CreateSessionResponse = {
     org_id: string;
     agent_id: string;
     expires_at: string;
+    created_at: string;
+    revoked_at?: string;
+    renewed_at?: string;
+    ttl: number;
+    max_ttl: number;
+    max_uses: number;
+    /**
+     * Use calls that passed authorization and reached upstream consumption.
+     */
+    uses: number;
     token: string;
 };
 

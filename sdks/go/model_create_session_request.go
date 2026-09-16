@@ -24,6 +24,8 @@ type CreateSessionRequest struct {
 	Agent string `json:"agent"`
 	// Go duration. Default 15m. Max 1h.
 	Ttl *string `json:"ttl,omitempty"`
+	// Maximum successful Use calls. 0 = unlimited.
+	MaxUses *int32 `json:"max_uses,omitempty"`
 }
 
 type _CreateSessionRequest CreateSessionRequest
@@ -102,6 +104,38 @@ func (o *CreateSessionRequest) SetTtl(v string) {
 	o.Ttl = &v
 }
 
+// GetMaxUses returns the MaxUses field value if set, zero value otherwise.
+func (o *CreateSessionRequest) GetMaxUses() int32 {
+	if o == nil || IsNil(o.MaxUses) {
+		var ret int32
+		return ret
+	}
+	return *o.MaxUses
+}
+
+// GetMaxUsesOk returns a tuple with the MaxUses field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CreateSessionRequest) GetMaxUsesOk() (*int32, bool) {
+	if o == nil || IsNil(o.MaxUses) {
+		return nil, false
+	}
+	return o.MaxUses, true
+}
+
+// HasMaxUses returns a boolean if a field has been set.
+func (o *CreateSessionRequest) HasMaxUses() bool {
+	if o != nil && !IsNil(o.MaxUses) {
+		return true
+	}
+
+	return false
+}
+
+// SetMaxUses gets a reference to the given int32 and assigns it to the MaxUses field.
+func (o *CreateSessionRequest) SetMaxUses(v int32) {
+	o.MaxUses = &v
+}
+
 func (o CreateSessionRequest) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -115,6 +149,9 @@ func (o CreateSessionRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["agent"] = o.Agent
 	if !IsNil(o.Ttl) {
 		toSerialize["ttl"] = o.Ttl
+	}
+	if !IsNil(o.MaxUses) {
+		toSerialize["max_uses"] = o.MaxUses
 	}
 	return toSerialize, nil
 }

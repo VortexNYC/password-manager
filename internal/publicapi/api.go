@@ -122,8 +122,9 @@ type AgentsResponse struct {
 }
 
 type CreateSessionRequest struct {
-	Agent string `json:"agent"`
-	TTL   string `json:"ttl,omitempty"`
+	Agent   string `json:"agent"`
+	TTL     string `json:"ttl,omitempty"`
+	MaxUses int    `json:"max_uses,omitempty"`
 }
 
 type CreateSessionResponse struct {
@@ -520,7 +521,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		}
 		ttl = d
 	}
-	sess, token, err := s.App.CreateSession(p, strings.TrimSpace(in.Agent), ttl)
+	sess, token, err := s.App.CreateSession(p, strings.TrimSpace(in.Agent), ttl, in.MaxUses)
 	if err != nil {
 		if errors.Is(err, app.ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)

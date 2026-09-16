@@ -148,7 +148,7 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	if err != nil {
 		return protocol.UseResult{}, err
 	}
-	return b.useAuthorized(ctx, span, agent, req, auth, now)
+	return b.useAuthorized(ctx, span, agent, req, auth, nil, now)
 }
 
 func (b *Broker) UseSession(ctx context.Context, sessionHash []byte, req protocol.UseRequest) (protocol.UseResult, error) {
@@ -166,7 +166,7 @@ func (b *Broker) UseSession(ctx context.Context, sessionHash []byte, req protoco
 
 	auth, err := b.Store.UseAuthSession(sessionHash, req.ItemID, now)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrSessionExpired) || errors.Is(err, store.ErrSessionRevoked) || errors.Is(err, store.ErrDenied) {
 			return protocol.UseResult{}, ErrUnauthorized
 		}
 		return protocol.UseResult{}, err
@@ -174,10 +174,10 @@ func (b *Broker) UseSession(ctx context.Context, sessionHash []byte, req protoco
 	if auth.Agent.ID == "" {
 		return protocol.UseResult{}, ErrUnauthorized
 	}
-	return b.useAuthorized(ctx, span, auth.Agent, req, auth, now)
+	return b.useAuthorized(ctx, span, auth.Agent, req, auth, sessionHash, now)
 }
 
-func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent protocol.Principal, req protocol.UseRequest, auth store.UseAuth, now time.Time) (protocol.UseResult, error) {
+func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent protocol.Principal, req protocol.UseRequest, auth store.UseAuth, sessionHash []byte, now time.Time) (protocol.UseResult, error) {
 	// Tests may pass a bare principal with no store entry; do not fail those.
 	// A real store error fails closed above. Unknown agents fall through to
 	// grant evaluation, which will deny as no_grant.
@@ -212,52 +212,43 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 		Now:       now,
 	})
 
-	// Final authorization check immediately before touching the secret. A
-	// revocation that happened during the grant/approval lookups must still fail
-	// closed. A real store error fails closed; an unknown agent passes through.
-	if current, err := b.Store.Agent(agent.ID); err == nil {
-		agent = current
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return protocol.UseResult{}, err
+	// For agent-token Use calls, reload the agent immediately before touching
+	// the secret to catch a revocation that happened during grant/approval
+	// lookups. For session-token calls, ConsumeSession below provides the same
+	// final revocation check and consumes the session use atomically.
+	if sessionHash == nil {
+		if current, err := b.Store.Agent(agent.ID); err == nil {
+			agent = current
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return protocol.UseResult{}, err
+		}
+		if agent.RevokedAt != nil {
+			dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "agent_revoked"}
+		}
 	}
-	if agent.RevokedAt != nil {
-		dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "agent_revoked"}
-	}
-
-	event := protocol.AuditEvent{
-		Time:       now,
-		OrgID:      agent.OrgID,
-		AgentID:    agent.ID,
-		ItemID:     req.ItemID,
-		Action:     req.Action,
-		Decision:   dec.Decision,
-		Reason:     dec.Reason,
-		ApprovalID: dec.ApprovalID,
-	}
-	host := hostPath(target)
-	status := 0
-	defer func() {
-		b.appendAudit(ctx, event)
-		LogEvent(event, item.Name, host, status)
-		spanUse(span, agent.ID, item.Name, dec, status, host)
-	}()
 
 	if dec.Decision != protocol.DecisionAllow {
-		return dec, nil
+		return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), nil
 	}
 	if !item.Kind.Injects() {
-		dec.Reason = "not_injectable"
-		dec.Decision = protocol.DecisionDeny
-		event.Decision = dec.Decision
-		event.Reason = dec.Reason
-		return dec, nil
+		dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "not_injectable"}
+		return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), nil
 	}
 	if req.Action != protocol.ActionFetch || req.Fetch == nil {
-		dec.Reason = "unsupported_action"
-		dec.Decision = protocol.DecisionDeny
-		event.Decision = dec.Decision
-		event.Reason = dec.Reason
-		return dec, nil
+		dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "unsupported_action"}
+		return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), nil
+	}
+
+	if sessionHash != nil {
+		current, err := b.Store.ConsumeSession(sessionHash, now)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrSessionExpired) || errors.Is(err, store.ErrSessionRevoked) || errors.Is(err, store.ErrDenied) {
+				dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "session_revoked"}
+				return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), nil
+			}
+			return protocol.UseResult{}, err
+		}
+		agent = current
 	}
 
 	secret, err := b.Store.Secret(item.ID)
@@ -268,11 +259,9 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 	fr, code, access, err := b.fetch(ctx, req.Fetch, env, now)
 	if err != nil {
 		dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "fetch_failed"}
-		event.Decision = dec.Decision
-		event.Reason = dec.Reason
-		return dec, err
+		return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), err
 	}
-	status = fr.Status
+	status := fr.Status
 	hide := material.ScrubList(env, secret, []byte(code), []byte(access))
 	fr.Body = scrub.Bytes(fr.Body, hide...)
 	for k, vs := range fr.Header {
@@ -283,7 +272,25 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 		fr.Header[k] = cleaned
 	}
 	dec.Fetch = fr
-	return dec, nil
+	return b.auditUse(ctx, span, agent, item, req, dec, target, status, now), nil
+}
+
+func (b *Broker) auditUse(ctx context.Context, span trace.Span, agent protocol.Principal, item protocol.Item, req protocol.UseRequest, dec protocol.UseResult, target string, status int, now time.Time) protocol.UseResult {
+	host := hostPath(target)
+	event := protocol.AuditEvent{
+		Time:       now,
+		OrgID:      agent.OrgID,
+		AgentID:    agent.ID,
+		ItemID:     req.ItemID,
+		Action:     req.Action,
+		Decision:   dec.Decision,
+		Reason:     dec.Reason,
+		ApprovalID: dec.ApprovalID,
+	}
+	b.appendAudit(ctx, event)
+	LogEvent(event, item.Name, host, status)
+	spanUse(span, agent.ID, item.Name, dec, status, host)
+	return dec
 }
 
 func (b *Broker) fetch(ctx context.Context, f *protocol.Fetch, env material.Envelope, now time.Time) (*protocol.FetchResult, string, string, error) {

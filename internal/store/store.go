@@ -10,8 +10,10 @@ import (
 const maxListResults = 10000
 
 var (
-	ErrNotFound = errors.New("store: not found")
-	ErrDenied   = errors.New("store: denied")
+	ErrNotFound       = errors.New("store: not found")
+	ErrDenied         = errors.New("store: denied")
+	ErrSessionExpired = errors.New("store: session expired")
+	ErrSessionRevoked = errors.New("store: session revoked")
 )
 
 // Secret is vault material. It never lives on protocol types.
@@ -54,9 +56,25 @@ type Store interface {
 	// request in a single round trip. It never returns a secret.
 	UseAuth(agentID, itemID string, now time.Time) (UseAuth, error)
 	// UseAuthSession is the same as UseAuth but resolves a session by its
-	// secret hash first. If the session is missing, expired, or maps to a
-	// missing agent, it returns ErrNotFound.
+	// secret hash first. It read-only validates the session is not expired,
+	// revoked, or exhausted and then joins the authorization metadata. It does
+	// not consume a use; the broker calls ConsumeSession after the pre-secret
+	// authorization gates. If the session is missing, expired, revoked,
+	// exhausted, or maps to a missing agent, it returns ErrNotFound,
+	// ErrSessionExpired, ErrSessionRevoked, or ErrDenied.
 	UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error)
+
+	// ConsumeSession atomically verifies the session is still valid (not
+	// expired, revoked, or exhausted), that the bound agent has not been
+	// revoked, and increments Uses. It returns the current agent principal on
+	// success. It must be called only after all pre-secret authorization
+	// checks have passed. It is the final revocation race guard for session
+	// token Use calls.
+	ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error)
+
+	SessionByID(id string) (protocol.Session, error)
+	RevokeSession(id string, at time.Time) error
+	RenewSession(id string, at time.Time) (protocol.Session, error)
 
 	PutGrant(protocol.Grant) error
 	Grant(id string) (*protocol.Grant, error)

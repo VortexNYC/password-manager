@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -29,7 +29,8 @@ class CreateSessionRequest(BaseModel):
     """ # noqa: E501
     agent: StrictStr
     ttl: Optional[StrictStr] = Field(default=None, description="Go duration. Default 15m. Max 1h.")
-    __properties: ClassVar[List[str]] = ["agent", "ttl"]
+    max_uses: Optional[StrictInt] = Field(default=None, description="Maximum successful Use calls. 0 = unlimited.")
+    __properties: ClassVar[List[str]] = ["agent", "ttl", "max_uses"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -83,7 +84,8 @@ class CreateSessionRequest(BaseModel):
 
         _obj = cls.model_validate({
             "agent": obj.get("agent"),
-            "ttl": obj.get("ttl")
+            "ttl": obj.get("ttl"),
+            "max_uses": obj.get("max_uses")
         })
         return _obj
 

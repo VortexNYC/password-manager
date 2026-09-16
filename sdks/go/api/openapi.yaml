@@ -901,6 +901,13 @@ components:
         org_id: org_id
         agent_id: agent_id
         expires_at: 2000-01-23T04:56:07.000+00:00
+        created_at: 2000-01-23T04:56:07.000+00:00
+        revoked_at: 2000-01-23T04:56:07.000+00:00
+        renewed_at: 2000-01-23T04:56:07.000+00:00
+        ttl: 0
+        max_ttl: 6
+        max_uses: 1
+        uses: 5
       properties:
         id:
           type: string
@@ -911,11 +918,39 @@ components:
         expires_at:
           format: date-time
           type: string
+        created_at:
+          format: date-time
+          type: string
+        revoked_at:
+          format: date-time
+          type: string
+          nullable: true
+        renewed_at:
+          format: date-time
+          type: string
+          nullable: true
+        ttl:
+          description: Initial lease duration in seconds.
+          type: integer
+        max_ttl:
+          description: Maximum cumulative lifetime in seconds.
+          type: integer
+        max_uses:
+          description: Maximum successful Use calls. 0 = unlimited.
+          type: integer
+        uses:
+          description: Use calls that passed authorization and reached upstream consumption.
+          type: integer
       required:
       - agent_id
+      - created_at
       - expires_at
       - id
+      - max_ttl
+      - max_uses
       - org_id
+      - ttl
+      - uses
     SessionsResponse:
       additionalProperties: false
       example:
@@ -924,10 +959,24 @@ components:
           org_id: org_id
           agent_id: agent_id
           expires_at: 2000-01-23T04:56:07.000+00:00
+          created_at: 2000-01-23T04:56:07.000+00:00
+          revoked_at: 2000-01-23T04:56:07.000+00:00
+          renewed_at: 2000-01-23T04:56:07.000+00:00
+          ttl: 0
+          max_ttl: 6
+          max_uses: 1
+          uses: 5
         - id: id
           org_id: org_id
           agent_id: agent_id
           expires_at: 2000-01-23T04:56:07.000+00:00
+          created_at: 2000-01-23T04:56:07.000+00:00
+          revoked_at: 2000-01-23T04:56:07.000+00:00
+          renewed_at: 2000-01-23T04:56:07.000+00:00
+          ttl: 0
+          max_ttl: 6
+          max_uses: 1
+          uses: 5
       properties:
         sessions:
           items:
@@ -941,12 +990,16 @@ components:
       example:
         agent: agent
         ttl: ttl
+        max_uses: 0
       properties:
         agent:
           type: string
         ttl:
           description: Go duration. Default 15m. Max 1h.
           type: string
+        max_uses:
+          description: Maximum successful Use calls. 0 = unlimited.
+          type: integer
       required:
       - agent
     CreateSessionResponse:
@@ -957,6 +1010,13 @@ components:
         org_id: org_id
         agent_id: agent_id
         expires_at: 2000-01-23T04:56:07.000+00:00
+        created_at: 2000-01-23T04:56:07.000+00:00
+        revoked_at: 2000-01-23T04:56:07.000+00:00
+        renewed_at: 2000-01-23T04:56:07.000+00:00
+        ttl: 0
+        max_ttl: 6
+        max_uses: 1
+        uses: 5
         token: token
       properties:
         id:
@@ -968,14 +1028,39 @@ components:
         expires_at:
           format: date-time
           type: string
+        created_at:
+          format: date-time
+          type: string
+        revoked_at:
+          format: date-time
+          type: string
+          nullable: true
+        renewed_at:
+          format: date-time
+          type: string
+          nullable: true
+        ttl:
+          type: integer
+        max_ttl:
+          type: integer
+        max_uses:
+          type: integer
+        uses:
+          description: Use calls that passed authorization and reached upstream consumption.
+          type: integer
         token:
           type: string
       required:
       - agent_id
+      - created_at
       - expires_at
       - id
+      - max_ttl
+      - max_uses
       - org_id
       - token
+      - ttl
+      - uses
     CardFields:
       additionalProperties: false
       description: Request only. Never returned. Never MCP.

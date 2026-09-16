@@ -323,10 +323,44 @@ func (m *Memory) UseAuthSession(sessionHash []byte, itemID string, now time.Time
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	sess, ok := m.sessions[sessionHashKey(sessionHash)]
-	if !ok || !now.Before(sess.ExpiresAt) {
+	if !ok {
 		return UseAuth{}, ErrNotFound
 	}
+	if sess.RevokedAt != nil {
+		return UseAuth{}, ErrSessionRevoked
+	}
+	if !now.Before(sess.ExpiresAt) {
+		return UseAuth{}, ErrSessionExpired
+	}
+	if sess.MaxUses > 0 && sess.Uses >= sess.MaxUses {
+		return UseAuth{}, ErrDenied
+	}
 	return m.useAuthLocked(sess.AgentID, itemID, now), nil
+}
+
+func (m *Memory) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sess, ok := m.sessions[sessionHashKey(sessionHash)]
+	if !ok {
+		return protocol.Principal{}, ErrNotFound
+	}
+	if sess.RevokedAt != nil {
+		return protocol.Principal{}, ErrSessionRevoked
+	}
+	if !now.Before(sess.ExpiresAt) {
+		return protocol.Principal{}, ErrSessionExpired
+	}
+	if sess.MaxUses > 0 && sess.Uses >= sess.MaxUses {
+		return protocol.Principal{}, ErrDenied
+	}
+	a, ok := m.agents[sess.AgentID]
+	if !ok || a.RevokedAt != nil {
+		return protocol.Principal{}, ErrNotFound
+	}
+	sess.Uses++
+	m.sessions[sessionHashKey(sessionHash)] = sess
+	return a, nil
 }
 
 func (m *Memory) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
@@ -465,4 +499,60 @@ func (m *Memory) ListSessions() ([]protocol.Session, error) {
 		out = out[:maxListResults]
 	}
 	return out, nil
+}
+
+func (m *Memory) SessionByID(id string) (protocol.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return protocol.Session{}, ErrNotFound
+}
+
+func (m *Memory) RevokeSession(id string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, s := range m.sessions {
+		if s.ID == id {
+			if s.RevokedAt == nil {
+				t := at.UTC()
+				s.RevokedAt = &t
+				m.sessions[k] = s
+			}
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Memory) RenewSession(id string, at time.Time) (protocol.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, s := range m.sessions {
+		if s.ID == id {
+			if s.RevokedAt != nil {
+				return protocol.Session{}, ErrSessionRevoked
+			}
+			if !s.ExpiresAt.After(at) {
+				return protocol.Session{}, ErrSessionExpired
+			}
+			maxExpires := s.CreatedAt.Add(time.Duration(s.MaxTTL) * time.Second)
+			newExpires := s.ExpiresAt.Add(time.Duration(s.TTL) * time.Second)
+			if newExpires.After(maxExpires) {
+				newExpires = maxExpires
+			}
+			if !newExpires.After(s.ExpiresAt) {
+				newExpires = s.ExpiresAt
+			}
+			t := at.UTC()
+			s.ExpiresAt = newExpires.UTC()
+			s.RenewedAt = &t
+			m.sessions[k] = s
+			return s, nil
+		}
+	}
+	return protocol.Session{}, ErrNotFound
 }

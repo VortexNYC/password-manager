@@ -292,7 +292,7 @@ func seed(a *app.App, upstreamURL string) (protocol.Principal, protocol.Item, pr
 		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("add grant: %w", err)
 	}
 	human := protocol.Principal{Kind: protocol.PrincipalHuman, ID: a.HumanID, OrgID: a.OrgID}
-	session, token, err := a.CreateSession(human, agent.ID, time.Hour)
+	session, token, err := a.CreateSession(human, agent.ID, time.Hour, 0)
 	if err != nil {
 		return protocol.Principal{}, protocol.Item{}, protocol.Session{}, "", fmt.Errorf("create session: %w", err)
 	}
