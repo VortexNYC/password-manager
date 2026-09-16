@@ -50,6 +50,176 @@ func (q *Queries) ConsumeSession(ctx context.Context, arg ConsumeSessionParams) 
 	return i, err
 }
 
+const listSessions = `-- name: ListSessions :many
+SELECT id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+FROM sessions ORDER BY expires_at LIMIT $1::bigint
+`
+
+func (q *Queries) ListSessions(ctx context.Context, maxResults int64) ([]Session, error) {
+	rows, err := q.db.Query(ctx, listSessions, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.AgentID,
+			&i.SecretHash,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.RevokedAt,
+			&i.RenewedAt,
+			&i.Ttl,
+			&i.MaxTtl,
+			&i.MaxUses,
+			&i.Uses,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const putSession = `-- name: PutSession :exec
+INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses)
+VALUES($1::text, $2::text, $3::text, $4::bytea, $5::timestamptz, $6::timestamptz, $7, $8, $9::bigint, $10::bigint, $11::integer, $12::integer)
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id,
+    agent_id=excluded.agent_id,
+    secret_hash=excluded.secret_hash,
+    expires_at=excluded.expires_at,
+    created_at=excluded.created_at,
+    revoked_at=excluded.revoked_at,
+    renewed_at=excluded.renewed_at,
+    ttl=excluded.ttl,
+    max_ttl=excluded.max_ttl,
+    max_uses=excluded.max_uses,
+    uses=excluded.uses
+`
+
+type PutSessionParams struct {
+	ID         string
+	OrgID      string
+	AgentID    string
+	SecretHash []byte
+	ExpiresAt  time.Time
+	CreatedAt  time.Time
+	RevokedAt  sql.NullTime
+	RenewedAt  sql.NullTime
+	Ttl        int64
+	MaxTtl     int64
+	MaxUses    int32
+	Uses       int32
+}
+
+func (q *Queries) PutSession(ctx context.Context, arg PutSessionParams) error {
+	_, err := q.db.Exec(ctx, putSession,
+		arg.ID,
+		arg.OrgID,
+		arg.AgentID,
+		arg.SecretHash,
+		arg.ExpiresAt,
+		arg.CreatedAt,
+		arg.RevokedAt,
+		arg.RenewedAt,
+		arg.Ttl,
+		arg.MaxTtl,
+		arg.MaxUses,
+		arg.Uses,
+	)
+	return err
+}
+
+const renewSession = `-- name: RenewSession :exec
+UPDATE sessions SET expires_at = $1::timestamptz, renewed_at = $2::timestamptz WHERE id = $3::text
+`
+
+type RenewSessionParams struct {
+	ExpiresAt time.Time
+	RenewedAt time.Time
+	ID        string
+}
+
+func (q *Queries) RenewSession(ctx context.Context, arg RenewSessionParams) error {
+	_, err := q.db.Exec(ctx, renewSession, arg.ExpiresAt, arg.RenewedAt, arg.ID)
+	return err
+}
+
+const revokeSession = `-- name: RevokeSession :execrows
+UPDATE sessions SET revoked_at = COALESCE(revoked_at, $1::timestamptz) WHERE id = $2::text
+`
+
+type RevokeSessionParams struct {
+	At time.Time
+	ID string
+}
+
+func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeSession, arg.At, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sessionByHash = `-- name: SessionByHash :one
+SELECT id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+FROM sessions WHERE secret_hash = $1::bytea
+`
+
+func (q *Queries) SessionByHash(ctx context.Context, secretHash []byte) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionByHash, secretHash)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.AgentID,
+		&i.SecretHash,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.RenewedAt,
+		&i.Ttl,
+		&i.MaxTtl,
+		&i.MaxUses,
+		&i.Uses,
+	)
+	return i, err
+}
+
+const sessionByID = `-- name: SessionByID :one
+SELECT id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+FROM sessions WHERE id = $1::text
+`
+
+func (q *Queries) SessionByID(ctx context.Context, id string) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionByID, id)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.AgentID,
+		&i.SecretHash,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.RenewedAt,
+		&i.Ttl,
+		&i.MaxTtl,
+		&i.MaxUses,
+		&i.Uses,
+	)
+	return i, err
+}
+
 const useAuth = `-- name: UseAuth :one
 SELECT
     a.id AS agent_id,

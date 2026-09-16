@@ -83,3 +83,37 @@ WHERE s.secret_hash = @session_hash::bytea
   AND s.revoked_at IS NULL
   AND (s.max_uses = 0 OR s.uses < s.max_uses)
 RETURNING a.id AS agent_id, a.org_id AS agent_org_id, a.owner_kind AS agent_owner_kind, a.owner_id AS agent_owner_id, a.revoked_at AS agent_revoked_at;
+
+-- name: PutSession :exec
+INSERT INTO sessions(id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses)
+VALUES(@id::text, @org_id::text, @agent_id::text, @secret_hash::bytea, @expires_at::timestamptz, @created_at::timestamptz, sqlc.narg(revoked_at), sqlc.narg(renewed_at), @ttl::bigint, @max_ttl::bigint, @max_uses::integer, @uses::integer)
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id,
+    agent_id=excluded.agent_id,
+    secret_hash=excluded.secret_hash,
+    expires_at=excluded.expires_at,
+    created_at=excluded.created_at,
+    revoked_at=excluded.revoked_at,
+    renewed_at=excluded.renewed_at,
+    ttl=excluded.ttl,
+    max_ttl=excluded.max_ttl,
+    max_uses=excluded.max_uses,
+    uses=excluded.uses;
+
+-- name: SessionByHash :one
+SELECT id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+FROM sessions WHERE secret_hash = @secret_hash::bytea;
+
+-- name: SessionByID :one
+SELECT id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+FROM sessions WHERE id = @id::text;
+
+-- name: ListSessions :many
+SELECT id, org_id, agent_id, secret_hash, expires_at, created_at, revoked_at, renewed_at, ttl, max_ttl, max_uses, uses
+FROM sessions ORDER BY expires_at LIMIT @max_results::bigint;
+
+-- name: RevokeSession :execrows
+UPDATE sessions SET revoked_at = COALESCE(revoked_at, @at::timestamptz) WHERE id = @id::text;
+
+-- name: RenewSession :exec
+UPDATE sessions SET expires_at = @expires_at::timestamptz, renewed_at = @renewed_at::timestamptz WHERE id = @id::text;
