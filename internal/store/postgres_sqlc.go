@@ -598,3 +598,216 @@ func (p *Postgres) LiveApproval(grantID string, now time.Time) (*protocol.Approv
 	}
 	return &a, nil
 }
+
+func (p *Postgres) loadOwnerWrapped(ctx context.Context, o protocol.Owner) ([]byte, error) {
+	wrapped, err := p.sqlc.OwnerWrapped(ctx, sqlc.OwnerWrappedParams{
+		OwnerKind: string(o.Kind),
+		OwnerID:   o.ID,
+	})
+	if err == pgx.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return wrapped, err
+}
+
+func (p *Postgres) storeOwnerWrapped(ctx context.Context, o protocol.Owner, wrapped []byte) error {
+	return p.sqlc.PutOwnerWrapped(ctx, sqlc.PutOwnerWrappedParams{
+		OwnerKind: string(o.Kind),
+		OwnerID:   o.ID,
+		Wrapped:   wrapped,
+	})
+}
+
+func agentFromSqlc(a *sqlc.Agent) protocol.Principal {
+	p := protocol.Principal{
+		Kind:  protocol.PrincipalAgent,
+		ID:    a.ID,
+		OrgID: a.OrgID,
+		Owner: protocol.Owner{Kind: protocol.OwnerKind(a.OwnerKind), ID: a.OwnerID},
+	}
+	if a.RevokedAt.Valid {
+		t := a.RevokedAt.Time.UTC()
+		p.RevokedAt = &t
+	}
+	return p
+}
+
+func (p *Postgres) PutAgent(agent protocol.Principal) error {
+	return p.sqlc.PutAgent(context.Background(), sqlc.PutAgentParams{
+		ID:        agent.ID,
+		OrgID:     agent.OrgID,
+		OwnerKind: string(agent.Owner.Kind),
+		OwnerID:   agent.Owner.ID,
+		RevokedAt: nullTime(agent.RevokedAt),
+	})
+}
+
+func (p *Postgres) Agent(id string) (protocol.Principal, error) {
+	a, err := p.sqlc.AgentByID(context.Background(), id)
+	if err == pgx.ErrNoRows {
+		return protocol.Principal{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	return agentFromSqlc(&a), nil
+}
+
+func (p *Postgres) ListAgents() ([]protocol.Principal, error) {
+	rows, err := p.sqlc.ListAgents(context.Background(), maxListResults)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.Principal, 0, len(rows))
+	for i := range rows {
+		out = append(out, agentFromSqlc(&rows[i]))
+	}
+	return out, nil
+}
+
+func (p *Postgres) RevokeAgent(id string, at time.Time, audit ...protocol.AuditEvent) error {
+	ctx := context.Background()
+	if len(audit) == 0 {
+		n, err := p.sqlc.RevokeAgent(ctx, sqlc.RevokeAgentParams{At: at.UTC(), ID: id})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	qtx := p.sqlc.WithTx(tx)
+
+	n, err := qtx.RevokeAgent(ctx, sqlc.RevokeAgentParams{At: at.UTC(), ID: id})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	for _, e := range audit {
+		if err := qtx.InsertAudit(ctx, sqlc.InsertAuditParams{
+			At: e.Time.UTC(), OrgID: e.OrgID, AgentID: e.AgentID, ItemID: e.ItemID,
+			Action: string(e.Action), Decision: string(e.Decision), Reason: e.Reason, ApprovalID: e.ApprovalID,
+		}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func humanFromSqlc(h *sqlc.Human) protocol.Principal {
+	return protocol.Principal{Kind: protocol.PrincipalHuman, ID: h.ID, OrgID: h.OrgID}
+}
+
+func (p *Postgres) PutHuman(h protocol.Principal) error {
+	return p.sqlc.PutHuman(context.Background(), sqlc.PutHumanParams{ID: h.ID, OrgID: h.OrgID})
+}
+
+func (p *Postgres) Human(id string) (protocol.Principal, error) {
+	h, err := p.sqlc.HumanByID(context.Background(), id)
+	if err == pgx.ErrNoRows {
+		return protocol.Principal{}, ErrNotFound
+	}
+	if err != nil {
+		return protocol.Principal{}, err
+	}
+	return humanFromSqlc(&h), nil
+}
+
+func (p *Postgres) ListHumans() ([]protocol.Principal, error) {
+	rows, err := p.sqlc.ListHumans(context.Background(), maxListResults)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.Principal, 0, len(rows))
+	for i := range rows {
+		out = append(out, humanFromSqlc(&rows[i]))
+	}
+	return out, nil
+}
+
+func (p *Postgres) PutWorkload(w protocol.Workload) error {
+	return p.sqlc.PutWorkload(context.Background(), sqlc.PutWorkloadParams{
+		Issuer: w.Issuer, Subject: w.Subject, AgentID: w.AgentID, Audience: w.Audience,
+	})
+}
+
+func (p *Postgres) Workload(issuer, subject string) (*protocol.Workload, error) {
+	r, err := p.sqlc.WorkloadByKey(context.Background(), sqlc.WorkloadByKeyParams{Issuer: issuer, Subject: subject})
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &protocol.Workload{Issuer: r.Issuer, Subject: r.Subject, AgentID: r.AgentID, Audience: r.Audience}, nil
+}
+
+func (p *Postgres) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) {
+	rows, err := p.sqlc.WorkloadsForIssuer(context.Background(), sqlc.WorkloadsForIssuerParams{Issuer: issuer, MaxResults: maxListResults})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.Workload, 0, len(rows))
+	for i := range rows {
+		out = append(out, protocol.Workload{Issuer: rows[i].Issuer, Subject: rows[i].Subject, AgentID: rows[i].AgentID, Audience: rows[i].Audience})
+	}
+	return out, nil
+}
+
+func (p *Postgres) AppendAudit(e protocol.AuditEvent) error {
+	return p.AppendAudits([]protocol.AuditEvent{e})
+}
+
+func (p *Postgres) AppendAudits(events []protocol.AuditEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	_, err := p.pool.CopyFrom(context.Background(), pgx.Identifier{"audit"}, []string{
+		"at", "org_id", "agent_id", "item_id", "action", "decision", "reason", "approval_id",
+	}, &auditCopySource{events: events})
+	return err
+}
+
+type auditCopySource struct {
+	events []protocol.AuditEvent
+	idx    int
+}
+
+func (s *auditCopySource) Next() bool {
+	return s.idx < len(s.events)
+}
+
+func (s *auditCopySource) Values() ([]interface{}, error) {
+	e := s.events[s.idx]
+	s.idx++
+	return []interface{}{e.Time.UTC(), e.OrgID, e.AgentID, e.ItemID, e.Action, e.Decision, e.Reason, e.ApprovalID}, nil
+}
+
+func (s *auditCopySource) Err() error {
+	return nil
+}
+
+func (p *Postgres) Audit() ([]protocol.AuditEvent, error) {
+	rows, err := p.sqlc.ListAudit(context.Background(), maxListResults)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.AuditEvent, len(rows))
+	for i := range rows {
+		r := rows[len(rows)-1-i]
+		out[i] = protocol.AuditEvent{
+			Time: r.At.UTC(), OrgID: r.OrgID, AgentID: r.AgentID, ItemID: r.ItemID,
+			Action: protocol.ActionKind(r.Action), Decision: protocol.Decision(r.Decision), Reason: r.Reason, ApprovalID: r.ApprovalID,
+		}
+	}
+	return out, nil
+}

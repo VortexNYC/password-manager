@@ -198,3 +198,57 @@ ON CONFLICT(grant_id) DO UPDATE SET
 
 -- name: ApprovalByGrant :one
 SELECT grant_id, id, human_id, expires_at FROM approvals WHERE grant_id = @grant_id::text;
+
+-- name: OwnerWrapped :one
+SELECT wrapped FROM owner_keys WHERE owner_kind = @owner_kind::text AND owner_id = @owner_id::text;
+
+-- name: PutOwnerWrapped :exec
+INSERT INTO owner_keys(owner_kind, owner_id, wrapped)
+VALUES(@owner_kind::text, @owner_id::text, @wrapped::bytea)
+ON CONFLICT(owner_kind, owner_id) DO NOTHING;
+
+-- name: PutAgent :exec
+INSERT INTO agents(id, org_id, owner_kind, owner_id, revoked_at)
+VALUES(@id::text, @org_id::text, @owner_kind::text, @owner_id::text, sqlc.narg(revoked_at))
+ON CONFLICT(id) DO UPDATE SET
+    org_id=excluded.org_id, owner_kind=excluded.owner_kind, owner_id=excluded.owner_id,
+    revoked_at=COALESCE(agents.revoked_at, excluded.revoked_at);
+
+-- name: AgentByID :one
+SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents WHERE id = @id::text;
+
+-- name: ListAgents :many
+SELECT id, org_id, owner_kind, owner_id, revoked_at FROM agents ORDER BY id LIMIT @max_results::bigint;
+
+-- name: RevokeAgent :execrows
+UPDATE agents SET revoked_at = COALESCE(revoked_at, @at::timestamptz) WHERE id = @id::text;
+
+-- name: PutHuman :exec
+INSERT INTO humans(id, org_id) VALUES(@id::text, @org_id::text)
+ON CONFLICT(id) DO UPDATE SET org_id=excluded.org_id;
+
+-- name: HumanByID :one
+SELECT id, org_id FROM humans WHERE id = @id::text;
+
+-- name: ListHumans :many
+SELECT id, org_id FROM humans ORDER BY id LIMIT @max_results::bigint;
+
+-- name: PutWorkload :exec
+INSERT INTO workloads(issuer, subject, agent_id, audience)
+VALUES(@issuer::text, @subject::text, @agent_id::text, @audience::text)
+ON CONFLICT(issuer, subject) DO UPDATE SET
+    agent_id=excluded.agent_id, audience=excluded.audience;
+
+-- name: WorkloadByKey :one
+SELECT issuer, subject, agent_id, audience FROM workloads WHERE issuer = @issuer::text AND subject = @subject::text;
+
+-- name: WorkloadsForIssuer :many
+SELECT issuer, subject, agent_id, audience FROM workloads WHERE issuer = @issuer::text ORDER BY subject LIMIT @max_results::bigint;
+
+-- name: InsertAudit :exec
+INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
+VALUES(@at::timestamptz, @org_id::text, @agent_id::text, @item_id::text, @action::text, @decision::text, @reason::text, @approval_id::text);
+
+-- name: ListAudit :many
+SELECT id, at, org_id, agent_id, item_id, action, decision, reason, approval_id
+FROM audit ORDER BY id DESC LIMIT @max_results::bigint;
