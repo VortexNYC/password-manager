@@ -16,12 +16,15 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/vortexnyc/password-manager/internal/app"
 	"github.com/vortexnyc/password-manager/internal/broker"
@@ -128,8 +131,22 @@ func run() error {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
+	if err := resetPGSS(ctx, dsn); err != nil {
+		log.Printf("pg_stat_statements reset: %v", err)
+	}
+
 	if err := pgbotInspect(ctx, filepath.Join(outDir, "pgbot-before.json")); err != nil {
 		log.Printf("pgbot before: %v", err)
+	}
+
+	cpuPath := filepath.Join(outDir, "cpu.pprof")
+	cpuF, err := os.Create(cpuPath)
+	if err != nil {
+		return fmt.Errorf("create cpu profile: %w", err)
+	}
+	if err := pprof.StartCPUProfile(cpuF); err != nil {
+		_ = cpuF.Close()
+		return fmt.Errorf("start cpu profile: %w", err)
 	}
 
 	k6Script := envOr("LOADTEST_K6_SCRIPT", "tests/load/k6/use.js")
@@ -145,8 +162,24 @@ func run() error {
 	k6Cmd.Stdout = os.Stdout
 	k6Cmd.Stderr = os.Stderr
 	if err := k6Cmd.Run(); err != nil {
+		pprof.StopCPUProfile()
+		_ = cpuF.Close()
 		return fmt.Errorf("k6 run: %w", err)
 	}
+
+	pprof.StopCPUProfile()
+	_ = cpuF.Close()
+
+	heapPath := filepath.Join(outDir, "heap.pprof")
+	heapF, err := os.Create(heapPath)
+	if err != nil {
+		return fmt.Errorf("create heap profile: %w", err)
+	}
+	if err := pprof.WriteHeapProfile(heapF); err != nil {
+		_ = heapF.Close()
+		return fmt.Errorf("write heap profile: %w", err)
+	}
+	_ = heapF.Close()
 
 	// Stop origins and flush any pending audit batches before taking the final
 	// pgbot snapshot, so pg_stat_statements reflects the complete workload.
@@ -316,6 +349,18 @@ func pgbotInspect(ctx context.Context, path string) error {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("pgbot inspect: %w", err)
+	}
+	return nil
+}
+
+func resetPGSS(ctx context.Context, dsn string) error {
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("connect to reset pg_stat_statements: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if _, err := conn.Exec(ctx, "SELECT pg_stat_statements_reset()"); err != nil {
+		return fmt.Errorf("pg_stat_statements_reset: %w", err)
 	}
 	return nil
 }
