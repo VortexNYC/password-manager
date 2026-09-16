@@ -1092,11 +1092,10 @@ func (a *App) Use(ctx context.Context, agentID, itemID, method, rawURL string) (
 }
 
 func (a *App) UseFetch(ctx context.Context, agentID, itemID string, fetch protocol.Fetch) (protocol.UseResult, error) {
-	agent, err := a.Store.Agent(agentID)
-	if err != nil {
-		return protocol.UseResult{}, err
-	}
-	return a.Broker.Use(ctx, agent, protocol.UseRequest{
+	// Broker.Use loads the agent through UseAuth and reloads it before secret
+	// access; an extra Store.Agent call here is redundant and adds a hot-path
+	// round trip.
+	return a.Broker.Use(ctx, protocol.Principal{ID: agentID}, protocol.UseRequest{
 		ItemID: itemID,
 		Action: protocol.ActionFetch,
 		Fetch:  &fetch,
