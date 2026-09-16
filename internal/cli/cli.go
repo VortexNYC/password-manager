@@ -1593,7 +1593,6 @@ func mcpCmd(home *string) *cobra.Command {
 				Handler:           mcpserver.Mux(a, publicURL, issuer),
 				ReadHeaderTimeout: 5 * time.Second,
 				ReadTimeout:       30 * time.Second,
-				WriteTimeout:      60 * time.Second,
 				IdleTimeout:       120 * time.Second,
 				MaxHeaderBytes:    1 << 20,
 			}

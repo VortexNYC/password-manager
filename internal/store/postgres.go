@@ -33,18 +33,12 @@ func OpenPostgres(connString string, key []byte) (*Postgres, error) {
 	config.ConnConfig.RuntimeParams["application_name"] = "password-manager"
 	config.ConnConfig.RuntimeParams["statement_timeout"] = "5000"
 	config.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "30000"
-	if config.MaxConns == 0 {
-		config.MaxConns = 20
-	}
+	config.MaxConns = 20
 	if config.MinConns == 0 {
 		config.MinConns = 2
 	}
-	if config.MaxConnLifetime == 0 {
-		config.MaxConnLifetime = time.Hour
-	}
-	if config.MaxConnIdleTime == 0 {
-		config.MaxConnIdleTime = time.Minute * 30
-	}
+	config.MaxConnLifetime = time.Hour
+	config.MaxConnIdleTime = time.Minute * 30
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {

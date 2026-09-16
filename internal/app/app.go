@@ -548,7 +548,11 @@ func (a *App) AgentFromOIDC(ctx context.Context, rawToken string) (protocol.Prin
 	if IsSessionToken(rawToken) {
 		return a.PrincipalFromSession(rawToken)
 	}
-	return a.Workload.Agent(ctx, rawToken)
+	w := a.Workload
+	if w == nil {
+		w = workload.New(a.Store)
+	}
+	return w.Agent(ctx, rawToken)
 }
 
 // PrincipalFromOIDC is origin identity. Session lease first. Bound agent

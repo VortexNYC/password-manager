@@ -758,17 +758,52 @@ func (s *SQLite) storeOwnerWrapped(ctx context.Context, o protocol.Owner, wrappe
 	return err
 }
 
+type sqliteTxSource struct {
+	tx *sql.Tx
+}
+
+func (ts sqliteTxSource) loadOwnerWrapped(ctx context.Context, o protocol.Owner) ([]byte, error) {
+	var wrapped []byte
+	err := ts.tx.QueryRowContext(ctx, `SELECT wrapped FROM owner_keys WHERE owner_kind=? AND owner_id=?`, o.Kind, o.ID).Scan(&wrapped)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return wrapped, err
+}
+
+func (ts sqliteTxSource) storeOwnerWrapped(ctx context.Context, o protocol.Owner, wrapped []byte) error {
+	_, err := ts.tx.ExecContext(ctx, `INSERT INTO owner_keys(owner_kind, owner_id, wrapped) VALUES(?,?,?)
+		ON CONFLICT(owner_kind, owner_id) DO NOTHING`, o.Kind, o.ID, wrapped)
+	return err
+}
+
 // rewrapLegacy moves secrets sealed with master onto the owner DEK.
 // Existing vaults stay readable. The grant still does not get a key.
 func (s *SQLite) rewrapLegacy() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	var committed bool
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+			s.km.mu.Lock()
+			s.km.deks = map[string][]byte{}
+			s.km.mu.Unlock()
+		}
+	}()
+
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM owner_keys`).Scan(&n); err != nil {
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM owner_keys`).Scan(&n); err != nil {
 		return err
 	}
 	if n > 0 {
-		return nil
+		committed = true
+		return tx.Commit()
 	}
-	rows, err := s.db.Query(`SELECT id, owner_kind, owner_id, secret FROM items`)
+
+	rows, err := tx.Query(`SELECT id, owner_kind, owner_id, secret FROM items`)
 	if err != nil {
 		return err
 	}
@@ -789,15 +824,21 @@ func (s *SQLite) rewrapLegacy() error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(items) == 0 {
-		return nil
+	if err := rows.Close(); err != nil {
+		return err
 	}
+	if len(items) == 0 {
+		committed = true
+		return tx.Commit()
+	}
+
+	ts := sqliteTxSource{tx: tx}
 	for _, r := range items {
 		plain, err := crypto.Open(s.km.key, r.blob)
 		if err != nil {
 			return fmt.Errorf("store: legacy secret %s: %w", r.id, err)
 		}
-		dek, err := s.ownerDEK(r.owner)
+		dek, err := s.km.ownerDEK(context.Background(), ts, r.owner)
 		if err != nil {
 			return err
 		}
@@ -805,9 +846,10 @@ func (s *SQLite) rewrapLegacy() error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.db.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, r.id); err != nil {
+		if _, err := tx.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, r.id); err != nil {
 			return err
 		}
 	}
-	return nil
+	committed = true
+	return tx.Commit()
 }

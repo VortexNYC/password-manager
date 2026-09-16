@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -40,7 +41,17 @@ func openTestPostgres(t *testing.T) *Postgres {
 		t.Fatalf("close setup conn: %v", err)
 	}
 
-	s, err := OpenPostgres(dsn+"?search_path="+schema, key)
+	searchDSN := dsn
+	if parsed, err := url.Parse(dsn); err == nil && (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") {
+		q := parsed.Query()
+		q.Set("search_path", schema)
+		parsed.RawQuery = q.Encode()
+		searchDSN = parsed.String()
+	} else {
+		searchDSN = strings.TrimSpace(dsn) + " search_path=" + schema
+	}
+
+	s, err := OpenPostgres(searchDSN, key)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
