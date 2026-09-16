@@ -68,6 +68,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	useProxy := envOr("LOADTEST_PROXY", "1") != "0"
+
 	dsn := os.Getenv("PG_TEST_DSN")
 	if dsn == "" {
 		return errors.New("PG_TEST_DSN is required")
@@ -117,14 +119,27 @@ func run() error {
 		return err
 	}
 
-	proxyURL, proxySrv, proxyLn, err := startProxy(origins)
-	if err != nil {
-		return fmt.Errorf("start proxy: %w", err)
+	var k6Origins []string
+	var proxyURL string
+	if useProxy {
+		var proxySrv *http.Server
+		var proxyLn net.Listener
+		proxyURL, proxySrv, proxyLn, err = startProxy(origins)
+		if err != nil {
+			return fmt.Errorf("start proxy: %w", err)
+		}
+		defer func() { _ = proxySrv.Close() }()
+		go func() { _ = proxySrv.Serve(proxyLn) }()
+		k6Origins = []string{proxyURL}
+		log.Printf("origin replicas=%d proxy=%s upstream=%s", len(origins), proxyURL, upstreamURL)
+	} else {
+		proxyURL = origins[0].url
+		k6Origins = make([]string, len(origins))
+		for i, o := range origins {
+			k6Origins[i] = o.url
+		}
+		log.Printf("origin replicas=%d direct upstream=%s", len(origins), upstreamURL)
 	}
-	defer func() { _ = proxySrv.Close() }()
-	go func() { _ = proxySrv.Serve(proxyLn) }()
-
-	log.Printf("origin replicas=%d proxy=%s upstream=%s", len(origins), proxyURL, upstreamURL)
 
 	outDir := envOr("LOADTEST_OUT", "tests/load/k6/out")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -154,6 +169,7 @@ func run() error {
 	k6Args := []string{"run", "--summary-export", k6Out, k6Script}
 	k6Cmd := exec.CommandContext(ctx, "k6", k6Args...)
 	k6Cmd.Env = append(os.Environ(),
+		"VEIL_ORIGINS="+strings.Join(k6Origins, ","),
 		"VEIL_ORIGIN="+proxyURL,
 		"VEIL_AGENT_TOKEN="+token,
 		"VEIL_ITEM_ID="+item.ID,

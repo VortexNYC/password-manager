@@ -17,7 +17,8 @@ export const options = {
   },
 };
 
-const origin = __ENV.VEIL_ORIGIN || 'http://127.0.0.1:8080';
+const rawOrigins = __ENV.VEIL_ORIGINS || __ENV.VEIL_ORIGIN || 'http://127.0.0.1:8080';
+const origins = rawOrigins.split(',').map((s) => s.trim());
 const token = __ENV.VEIL_AGENT_TOKEN;
 const item = __ENV.VEIL_ITEM_ID;
 const upstream = __ENV.VEIL_UPSTREAM_URL || 'https://httpbin.org/get';
@@ -26,6 +27,9 @@ export default function () {
   if (!token || !item) {
     fail('VEIL_AGENT_TOKEN and VEIL_ITEM_ID are required');
   }
+
+  const idx = (Number(__VU) + Number(__ITER)) % origins.length;
+  const origin = origins[idx];
 
   const res = http.post(
     `${origin}/v1/use`,

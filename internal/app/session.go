@@ -52,6 +52,27 @@ func newSessionToken() (string, error) {
 	return SessionPrefix + hex.EncodeToString(b[:]), nil
 }
 
+// AgentFromSession resolves a session token to the agent ID it was minted for,
+// without re-loading the agent. The broker's UseAuth path performs the final
+// agent reload before secret access, so this is safe for the Use hot path.
+func (a *App) AgentFromSession(rawToken string) (string, error) {
+	raw := strings.TrimSpace(rawToken)
+	if !IsSessionToken(raw) {
+		return "", fmt.Errorf("app: not a session")
+	}
+	sess, err := a.Store.SessionByHash(sessionHash(raw))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return "", fmt.Errorf("app: unauthorized")
+		}
+		return "", err
+	}
+	if !sess.ExpiresAt.After(time.Now()) {
+		return "", ErrSessionExpired
+	}
+	return sess.AgentID, nil
+}
+
 func (a *App) PrincipalFromSession(rawToken string) (protocol.Principal, error) {
 	raw := strings.TrimSpace(rawToken)
 	if !IsSessionToken(raw) {

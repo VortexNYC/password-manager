@@ -148,6 +148,51 @@ pprof (Run A CPU) top-line observations:
 - `internal/app.(*App).PrincipalFromSession` 8.72% (session + agent lookup),
   `internal/publicapi.(*Server).useItem` 24.39% (full handler).
 
+### 5. Direct-origin geometry + consolidated session resolution
+
+Code changes:
+
+- `cmd/loadtest` can bypass the local `httputil.ReverseProxy` with
+  `LOADTEST_PROXY=0`. k6 is then passed a comma-separated `VEIL_ORIGINS` list
+  containing every replica URL and distributes requests across them.
+- `internal/publicapi/api.go` adds a `/v1/use` fast path for session tokens:
+  `AgentFromSession` resolves the token hash to the session's `agent_id` without
+  loading the agent. `Broker.Use` then performs the authoritative `UseAuth`
+  snapshot and the final agent reload before secret access.
+- `PrincipalFromSession` still resolves the agent for endpoints that need the
+  full principal; only `/v1/use` skips the session-side agent lookup.
+
+With 3 replicas, 150 VUs, `VEIL_AUDIT_FLUSH_INTERVAL=20ms`, and a fresh loadtest
+DB:
+
+| Run | Proxy | Requests | Throughput | avg | p95 | max |
+|---|---|---|---|---|---|---|
+| `3rep-20ms-proxy-session` | yes | 800,260 | 6,669.1 req/s | 10.07 ms | 29.02 ms | 3.03 s |
+| `3rep-20ms-direct-session` | no | 1,046,804 | 8,724.5 req/s | 7.69 ms | 22.64 ms | 1.65 s |
+
+Direct-origin vs. proxied: **+30.9% throughput**, **-23.6% avg latency**,
+**-22.0% p95 latency**. This is the same workload and the same Mac; the only
+difference is removing the `httputil.ReverseProxy` hop.
+
+Hot-path DB queries (`3rep-20ms-direct-session`):
+
+| Query | Calls | Mean (ms) | Total (ms) | /request |
+|---|---|---|---|---|
+| `UseAuth` (LEFT JOIN of agents/items/grants/approvals) | 1,046,804 | 0.0339 | 35,465.1 | 1 |
+| `sessions` (session resolution) | 1,046,804 | 0.0152 | 15,878.0 | 1 |
+| `agents` (final reload before secret) | 1,046,804 | 0.0137 | 14,350.1 | 1 |
+| `items` secret lookup | 1,046,804 | 0.0139 | 14,595.4 | 1 |
+| `audit` COPY | 17,351 | 1.065 | 18,479.2 | 0.017 (batches) |
+
+`agents` calls dropped from 2 per request (post-`UseAuth` consolidated) to 1.
+Per `Use`, the origin now performs exactly 4 synchronous DB round trips
+(`sessions`, `UseAuth`, final `agents`, `items` secret) plus an async audit
+`COPY`.
+
+pprof (`3rep-20ms-direct-session` CPU) is still dominated by network/runtime
+wait states (`syscall.rawsyscalln` ~50%, runtime waits ~30%), confirming the
+database is not the primary limiter even when the proxy is removed.
+
 ## Interpretation
 
 1. **Authorization read consolidation worked.** `UseAuth` collapsed the
@@ -156,23 +201,34 @@ pprof (Run A CPU) top-line observations:
    cut `agents` lookups from 4 to 2 per request. The 3-replica 20ms result is
    6,960 req/s, a ~27.7% gain over the prior 5,449 req/s baseline.
 2. **The database is not the primary limiter.** Hot-path DB queries still run in
-   ~0.012–0.036 ms with a cache hit ratio of 1.0 and no waiting/blocked
-   connections. Per request there are only ~5 synchronous DB round trips now
-   (`sessions` lookup, session `agents` lookup, `UseAuth`, final `agents` reload,
-   `items` secret), plus an async audit `COPY`.
-3. **The remaining time is mostly local network/runtime overhead.** The pprof CPU
-   profile shows >50% of samples in `syscall.rawsyscalln` and runtime wait
-   states (`pthread_cond_wait`, `usleep`, `kevent`). This is loopback I/O and
-   Go runtime scheduling between k6, the local reverse proxy, three origins,
-   and the upstream test server, not DB work or JSON/crypto/scrub.
-4. **Run-to-run variance is high on a single Mac.** Identical 3-replica 20ms
-   runs varied from ~5.2k to ~7.0k req/s. The DB metrics are stable, so the
-   variance is in the local network stack and k6 scheduling. Treat the numbers
-   as directional, not a capacity guarantee.
-5. **A 20ms audit flush still outperforms 5ms.** The clean 20ms run was ~6,960
-   req/s vs ~5,248 req/s for 5ms in the same configuration, a ~32.6% difference
-   in this run. The larger flush batches more audit events and reduces COPY
-   overhead, at the cost of a slightly larger in-memory window.
+   ~0.012–0.036 ms with a cache hit ratio near 1.0 and no waiting/blocked
+   connections. Per `Use` there are now 4 synchronous DB round trips
+   (`sessions`, `UseAuth`, final `agents`, `items` secret), plus an async audit
+   `COPY`.
+3. **The local reverse proxy was a real limiter in this test geometry.** Removing
+   the `httputil.ReverseProxy` hop and running k6 directly against the origin
+   replicas increased throughput by ~31% and lowered latency by ~23% in the same
+   150-VU/20ms configuration. This is a single-Mac measurement and not a
+   production capacity claim, but it confirms the proxy was adding measurable
+   overhead to the loopback path.
+4. **Session-resolution consolidation worked.** Resolving only `sessions.agent_id`
+   in `/v1/use` and letting `Broker.Use`/`UseAuth` own the authoritative agent
+   snapshot dropped `agents` lookups from 2 to 1 per request. Fail-closed
+   revocation behavior is preserved by the final `Store.Agent` reload before
+   secret access.
+5. **The remaining time is still local network/runtime overhead.** The pprof CPU
+   profile for the direct-origin run shows the majority of samples in
+   `syscall.rawsyscalln` and runtime wait states. This is loopback I/O and Go
+   runtime scheduling between k6, the origins, and the upstream test server, not
+   DB work or JSON/crypto/scrub.
+6. **Run-to-run variance is high on a single Mac.** Identical 3-replica 20ms
+   runs varied from ~5.2k to ~8.7k req/s depending on proxy and distribution.
+   The DB metrics are stable, so the variance is in the local network stack and
+   k6 scheduling. Treat the numbers as directional, not a capacity guarantee.
+7. **A 20ms audit flush still outperforms 5ms.** The clean 20ms direct-origin run
+   was ~8,724 req/s vs ~6,669 req/s for the proxied 20ms run and ~5,248 req/s
+   for the consolidated `UseAuth` 5ms run. Larger audit batches reduce `COPY`
+   overhead.
 
 ## Decisions
 
@@ -184,27 +240,33 @@ pprof (Run A CPU) top-line observations:
 | `Store.UseAuth` consolidation | **Kept** | Cuts DB round trips and raises throughput; fail-closed final agent reload is preserved. |
 | Remove `App.UseFetch` pre-call | **Kept** | The broker already reloads the agent; the extra `Store.Agent` was pure overhead. |
 | Add pprof to harness | **Kept** | Confirms the remaining time is network/runtime, not DB. |
+| Bypass `httputil.ReverseProxy` in load-test geometry | **Kept** | Separates proxy overhead from origin capacity; shows a meaningful gain in this harness. |
+| `AgentFromSession` fast path for `/v1/use` | **Kept** | Removes one `agents` lookup per session-based `Use` while keeping full `PrincipalFromSession` for other endpoints. |
 
 ## Next optimization
 
-pprof shows the remaining time is primarily local network I/O and runtime
-scheduling, not DB, JSON, crypto, or scrub. The next foundational slice should
-attack those limits before adding caching or rate limiting:
+The hot path is now 4 synchronous DB round trips per `Use` plus an async audit
+`COPY`. pprof shows the remaining time is still local network/runtime overhead
+on a single Mac, not DB query execution. Before adding a fail-closed cache or
+distributed rate limiting, we need a cleaner view of origin capacity:
 
-1. **Remove the local reverse proxy from the test path.** The test currently
-   routes k6 -> proxy -> origin -> upstream -> origin -> proxy -> k6. Running k6
-   against a single origin or against a fast L7 load balancer on the same host
-   will separate proxy overhead from origin capacity. The current `httputil`
-   round-robin proxy is a measurement convenience, not production architecture.
-2. **Consolidate session resolution with `UseAuth`.** `PrincipalFromSession` does
-   a separate `sessions` + `agents` lookup before `Broker.Use` starts. A single
-   `UseAuth`-style join that also resolves the session by hash would remove the
-   remaining extra round trip (but it must not leak the secret to the resolver).
-3. **Run a multi-host load test.** Single-Mac loopback variance is high. A `k6`
-   runner on a second core/host with the origin on one machine and the load
-   generator on another will give a clearer picture of whether the origin or the
-   local test stack is the limiter.
-4. **Only after those are measured and flat, consider a short-lived, fail-closed
-   cache** for session/grant metadata with explicit invalidation and distributed
-   rate limiting.
+1. **Consolidate the session and `UseAuth` lookups into one round trip.** The
+   `/v1/use` hot path still calls `sessions` then `UseAuth`. A
+   session-aware `UseAuth` that resolves the token hash and joins to the grant
+   decision in a single query would reduce the hot path to ~3 round trips
+   (`UseAuth`, final `agents`, `items` secret) and remove the separate `sessions`
+   lookup entirely. It must fail closed and never expose the item secret to the
+   resolver.
+2. **Move the final `agents` reload into `UseAuth` if it can be done safely.**
+   The final reload is the revocation race guard. If we can express
+   `UseAuth` as a single snapshot that is still authoritative at the moment we
+   read the secret, we could remove the extra `agents` call. This is the highest
+   DB-side win remaining.
+3. **Run a multi-host / multi-process load test.** Single-Mac loopback variance
+   is high. A `k6` runner on a separate core or host with the origin and Postgres
+   on another machine will separate test-stack overhead from real origin
+   capacity.
+4. **Only after the hot path is flat and measured away from loopback, consider a
+   short-lived, fail-closed cache** for session/grant metadata with explicit
+   invalidation and distributed rate limiting.
 

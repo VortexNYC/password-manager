@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -533,8 +534,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.requireAgent(w, r)
-	if !ok {
+	agentID, err := s.resolveAgentID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var in UseRequest
@@ -550,7 +552,7 @@ func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 	for k, v := range in.Headers {
 		h.Add(k, v)
 	}
-	got, err := s.App.UseFetch(r.Context(), p.ID, in.Item, protocol.Fetch{
+	got, err := s.App.UseFetch(r.Context(), agentID, in.Item, protocol.Fetch{
 		Method: in.Method,
 		URL:    in.URL,
 		Header: h,
@@ -747,6 +749,27 @@ func (s *Server) resolve(r *http.Request) (protocol.Principal, error) {
 		return s.Identity(r.Context(), raw)
 	}
 	return s.App.PrincipalFromOIDC(r.Context(), raw)
+}
+
+func (s *Server) resolveAgentID(r *http.Request) (string, error) {
+	raw := bearer(r.Header.Get("Authorization"))
+	if app.IsSessionToken(raw) {
+		return s.App.AgentFromSession(raw)
+	}
+	var p protocol.Principal
+	var err error
+	if s.Identity != nil {
+		p, err = s.Identity(r.Context(), raw)
+	} else {
+		p, err = s.App.PrincipalFromOIDC(r.Context(), raw)
+	}
+	if err != nil {
+		return "", err
+	}
+	if p.Kind != protocol.PrincipalAgent {
+		return "", fmt.Errorf("not an agent")
+	}
+	return p.ID, nil
 }
 
 func (s *Server) requirePrincipal(w http.ResponseWriter, r *http.Request) (protocol.Principal, bool) {
