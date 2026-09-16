@@ -35,54 +35,94 @@ func (s *Sync) Append(ctx context.Context, e protocol.AuditEvent) error {
 
 func (s *Sync) Close() error { return nil }
 
+// ErrClosed is returned by Async.Append after Close has started.
+var ErrClosed = errors.New("audit: closed")
+
 // Async queues events in memory and flushes them from a worker.
 //
-// Backpressure: Append blocks until the queue has room or the context is
-// canceled. If the caller's context is canceled before the event is queued,
-// the event is dropped and ctx.Err() is returned.
+// Backpressure: Append blocks until the queue has room, the auditor is closed,
+// or the caller's context is canceled. If the caller's context is canceled
+// before the event is queued, the event is dropped and ctx.Err() is returned.
 type Async struct {
 	store store.Store
 	ch    chan protocol.AuditEvent
 
-	wg  sync.WaitGroup
-	mu  sync.Mutex
-	err error
+	mu       sync.Mutex
+	closed   bool
+	senderWg sync.WaitGroup
+	stopCh   chan struct{}
+
+	workerDone chan struct{}
+	workerWg   sync.WaitGroup
+
+	errMu sync.Mutex
+	err   error
+
+	closeOnce sync.Once
 }
 
 func NewAsync(s store.Store, cap int) *Async {
-	a := &Async{store: s, ch: make(chan protocol.AuditEvent, cap)}
-	a.wg.Add(1)
+	a := &Async{
+		store:      s,
+		ch:         make(chan protocol.AuditEvent, cap),
+		stopCh:     make(chan struct{}),
+		workerDone: make(chan struct{}),
+	}
+	a.workerWg.Add(1)
 	go a.loop()
 	return a
 }
 
 func (a *Async) Append(ctx context.Context, e protocol.AuditEvent) error {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return ErrClosed
+	}
+	a.senderWg.Add(1)
+	a.mu.Unlock()
+
 	select {
 	case a.ch <- e:
+		a.senderWg.Done()
 		return nil
+	case <-a.stopCh:
+		a.senderWg.Done()
+		return ErrClosed
 	case <-ctx.Done():
+		a.senderWg.Done()
 		return ctx.Err()
 	}
 }
 
 func (a *Async) loop() {
-	defer a.wg.Done()
+	defer a.workerWg.Done()
+	defer close(a.workerDone)
 	for e := range a.ch {
 		if err := a.store.AppendAudit(e); err != nil {
-			a.mu.Lock()
+			a.errMu.Lock()
 			if a.err == nil {
 				a.err = err
 			}
-			a.mu.Unlock()
+			a.errMu.Unlock()
 		}
 	}
 }
 
 func (a *Async) Close() error {
-	close(a.ch)
-	a.wg.Wait()
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.closeOnce.Do(func() {
+		a.mu.Lock()
+		a.closed = true
+		a.mu.Unlock()
+
+		close(a.stopCh)
+		a.senderWg.Wait()
+		close(a.ch)
+	})
+
+	<-a.workerDone
+	a.errMu.Lock()
+	defer a.errMu.Unlock()
 	return a.err
 }
 
@@ -91,9 +131,12 @@ var (
 	_ Auditor = (*Async)(nil)
 )
 
-// IsDropped returns true if an Append returned because the caller's context
-// was canceled before the event could be queued. This is a best-effort signal
-// and should be logged; it does not make the event durable.
+// IsDropped returns true if an Append returned because the auditor was closed
+// or the caller's context was canceled before the event could be queued. This
+// is a best-effort signal and should be logged; it does not make the event durable.
 func IsDropped(err error) bool {
+	if errors.Is(err, ErrClosed) {
+		return true
+	}
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

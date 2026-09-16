@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -23,16 +24,53 @@ func OpenSQLite(path string, key []byte) (*SQLite, error) {
 	if len(key) != crypto.KeySize {
 		return nil, fmt.Errorf("store: key must be %d bytes", crypto.KeySize)
 	}
-	db, err := sql.Open("sqlite", path)
+
+	dsn := sqliteDSN(path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+
+	// In-memory databases are per-connection; keep the pool to one so a test
+	// cannot open a second empty database. File-backed vaults can use a few
+	// connections with busy-timeout queuing.
+	if path == ":memory:" || strings.HasPrefix(path, "file::memory:") {
+		db.SetMaxOpenConns(1)
+	} else {
+		db.SetMaxOpenConns(4)
+	}
+	db.SetConnMaxLifetime(time.Hour)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
 	s := &SQLite{db: db, km: newKeyManager(key)}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+func sqliteDSN(path string) string {
+	// The modernc driver accepts either a bare filename or a file: URI. Build
+	// the DSN so connection-level pragmas are set on every pooled connection.
+	u, err := url.Parse(path)
+	if err == nil && (u.Scheme == "file" || u.Scheme == "") && path != ":memory:" && !strings.HasPrefix(path, "file::memory:") {
+		q := u.Query()
+		q.Set("_busy_timeout", "5000")
+		q.Set("_journal_mode", "wal")
+		q.Set("_fk", "1")
+		q.Set("_txlock", "immediate")
+		u.RawQuery = q.Encode()
+		return u.String()
+	}
+
+	// For paths that do not parse as a simple URL (including :memory:),
+	// append query parameters directly.
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_busy_timeout=5000&_journal_mode=wal&_fk=1&_txlock=immediate"
 }
 
 func (s *SQLite) migrate() error {
@@ -714,7 +752,7 @@ func (s *SQLite) AppendAudit(e protocol.AuditEvent) error {
 }
 
 func (s *SQLite) Audit() ([]protocol.AuditEvent, error) {
-	rows, err := s.db.Query(`SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY at DESC LIMIT ?`, maxListResults)
+	rows, err := s.db.Query(`SELECT at, org_id, agent_id, item_id, action, decision, reason, approval_id FROM audit ORDER BY rowid DESC LIMIT ?`, maxListResults)
 	if err != nil {
 		return nil, err
 	}

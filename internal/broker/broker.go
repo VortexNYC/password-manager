@@ -107,7 +107,7 @@ func (b *Broker) appendAudit(ctx context.Context, e protocol.AuditEvent) {
 	if timeout <= 0 {
 		timeout = defaultAuditTimeout
 	}
-	auditCtx, cancel := context.WithTimeout(ctx, timeout)
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	if err := b.Auditor.Append(auditCtx, e); err != nil {
 		if audit.IsDropped(err) {

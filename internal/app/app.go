@@ -153,7 +153,7 @@ func OpenPostgres(dsn string) (*App, error) {
 		return nil, err
 	}
 	cfg := config{OrgID: DefaultOrg, HumanID: DefaultHuman}
-	if _, err := s.Human(cfg.HumanID); err == store.ErrNotFound {
+	if _, err := s.Human(cfg.HumanID); errors.Is(err, store.ErrNotFound) {
 		if err := s.PutHuman(protocol.Principal{Kind: protocol.PrincipalHuman, ID: cfg.HumanID, OrgID: cfg.OrgID}); err != nil {
 			_ = s.Close()
 			return nil, err

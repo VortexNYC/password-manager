@@ -48,14 +48,17 @@ func TestAsyncAuditorFlushesOnClose(t *testing.T) {
 }
 
 func TestAsyncAuditorRespectsContextCancellation(t *testing.T) {
-	m := store.NewMemory()
+	m := &slowStore{Memory: store.NewMemory(), delay: 5 * time.Second}
 	a := NewAsync(m, 0)
+
+	// Occupy the worker so the next send cannot proceed.
+	if err := a.Append(context.Background(), protocol.AuditEvent{AgentID: "first"}); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	// A zero-capacity channel means the send cannot proceed without the worker
-	// reading first; with the context already canceled, Append should return.
-	err := a.Append(ctx, protocol.AuditEvent{})
+	err := a.Append(ctx, protocol.AuditEvent{AgentID: "second"})
 	if err != context.Canceled {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
@@ -64,8 +67,8 @@ func TestAsyncAuditorRespectsContextCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	events, _ := m.Audit()
-	if len(events) != 0 {
-		t.Fatalf("canceled event was flushed: %+v", events)
+	if len(events) != 1 || events[0].AgentID != "first" {
+		t.Fatalf("flushed events=%+v", events)
 	}
 }
 
