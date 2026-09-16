@@ -346,7 +346,12 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.ln = ln
-	s.srv = &http.Server{Handler: s.httpProxy}
+	s.srv = &http.Server{
+		Handler:           s.httpProxy,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	go func() { _ = s.srv.Serve(ln) }()
 	return nil
 }

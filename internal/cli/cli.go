@@ -1570,7 +1570,15 @@ func mcpCmd(home *string) *cobra.Command {
 				return err
 			}
 			defer func() { _ = otelStop(context.Background()) }()
-			srv := &http.Server{Addr: listen, Handler: mcpserver.Mux(a, publicURL, issuer)}
+			srv := &http.Server{
+				Addr:              listen,
+				Handler:           mcpserver.Mux(a, publicURL, issuer),
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       30 * time.Second,
+				WriteTimeout:      60 * time.Second,
+				IdleTimeout:       120 * time.Second,
+				MaxHeaderBytes:    1 << 20,
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), publicURL)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
