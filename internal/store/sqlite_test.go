@@ -538,6 +538,11 @@ func TestSQLiteWrongKeyDoesNotCrashWithLegacyItem(t *testing.T) {
 		"legacy", "org", "legacy", protocol.ItemAPIKey, protocol.OwnerOrg, "org", "[]", blob, 0); err != nil {
 		t.Fatal(err)
 	}
+	// Reset the marker so the next open attempts the legacy rewrap with the
+	// wrong key and proves it does not crash.
+	if _, err := s.db.Exec(`DELETE FROM schema_version WHERE name='rewrap_legacy'`); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
