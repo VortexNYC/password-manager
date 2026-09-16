@@ -30,7 +30,7 @@ during the run to avoid log I/O becoming the measured limiter.
 | `LOADTEST_REPLICAS` | 1 | origin replica count |
 | `VEIL_VUS` | 50 | k6 virtual users |
 | `VEIL_AUDIT_FLUSH_INTERVAL` | 5ms | max delay before an audit batch is flushed |
-| `VEIL_MASTER_KEY` | required | 64-hex master key |
+| `VEIL_MASTER_KEY` | generated if unset | 64-hex master key for the origin; generated when empty |
 | `VEIL_LOG_LEVEL` | warn | suppress per-request INFO logs during benchmarks |
 
 ## Results

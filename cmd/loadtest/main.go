@@ -148,6 +148,10 @@ func run() error {
 		return fmt.Errorf("k6 run: %w", err)
 	}
 
+	// Stop origins and flush any pending audit batches before taking the final
+	// pgbot snapshot, so pg_stat_statements reflects the complete workload.
+	closeOrigins(origins)
+
 	if err := pgbotInspect(ctx, filepath.Join(outDir, "pgbot-after.json")); err != nil {
 		log.Printf("pgbot after: %v", err)
 	}
@@ -215,6 +219,8 @@ func closeOrigins(origins []*origin) {
 			defer wg.Done()
 			_ = o.srv.Close()
 			_ = o.app.Close()
+			o.srv = nil
+			o.app = nil
 		}(o)
 	}
 	wg.Wait()

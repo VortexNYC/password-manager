@@ -1,7 +1,8 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
 
-const vus = parseInt(__ENV.VEIL_VUS || '50', 10);
+const parsedVus = Number.parseInt(__ENV.VEIL_VUS || '50', 10);
+const vus = Number.isInteger(parsedVus) && parsedVus > 0 ? parsedVus : 50;
 
 export const options = {
   stages: [

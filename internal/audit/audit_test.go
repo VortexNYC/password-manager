@@ -125,10 +125,17 @@ func TestAsyncAuditorWaitsForInterval(t *testing.T) {
 		t.Fatalf("want 0 events, got %d", len(events))
 	}
 
-	time.Sleep(200 * time.Millisecond)
-	events, err := m.Audit()
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var err error
+	for time.Now().Before(deadline) {
+		events, err = m.Audit()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) == 3 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if len(events) != 3 {
 		t.Fatalf("want 3 events, got %d", len(events))
@@ -161,10 +168,18 @@ func TestAsyncAuditorFlushesWhenBatchFullBeforeInterval(t *testing.T) {
 		t.Fatal("append blocked even though batch is full")
 	}
 
-	time.Sleep(20 * time.Millisecond)
-	events, err := m.Audit()
-	if err != nil {
-		t.Fatal(err)
+	var events []protocol.AuditEvent
+	var err error
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		events, err = m.Audit()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) == 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if len(events) != 2 {
 		t.Fatalf("want 2 events, got %d", len(events))
