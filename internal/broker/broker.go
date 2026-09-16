@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/semaphore"
 
+	"github.com/vortexnyc/password-manager/internal/audit"
 	"github.com/vortexnyc/password-manager/internal/grant"
 	"github.com/vortexnyc/password-manager/internal/material"
 	"github.com/vortexnyc/password-manager/internal/protocol"
@@ -32,34 +33,43 @@ import (
 
 var ErrOverloaded = errors.New("broker: origin overloaded")
 
+const defaultAuditTimeout = 500 * time.Millisecond
+
 type Clock func() time.Time
 
 type Broker struct {
-	Store    store.Store
-	HTTP     *http.Client
-	Now      Clock
-	useLimit *semaphore.Weighted
+	Store        store.Store
+	Auditor      audit.Auditor
+	AuditTimeout time.Duration
+	HTTP         *http.Client
+	Now          Clock
+	useLimit     *semaphore.Weighted
 }
 
 func New(s store.Store) *Broker {
-	return newBroker(s, 0)
+	return newBroker(s, nil, 0)
 }
 
 // NewWithInFlight creates a Broker that allows at most n concurrent Use calls.
 // n <= 0 means unlimited.
 func NewWithInFlight(s store.Store, n int) *Broker {
-	return newBroker(s, n)
+	return newBroker(s, nil, n)
 }
 
-func newBroker(s store.Store, inFlight int) *Broker {
+func newBroker(s store.Store, a audit.Auditor, inFlight int) *Broker {
 	// Clone the default transport so outbound connections to the same upstream
 	// are reused instead of churned. The default MaxIdleConnsPerHost is only 2.
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConns = 100
 	t.MaxIdleConnsPerHost = 100
+	if a == nil {
+		a = &audit.Sync{Store: s}
+	}
 	b := &Broker{
-		Store: s,
-		Now:   time.Now,
+		Store:        s,
+		Auditor:      a,
+		AuditTimeout: defaultAuditTimeout,
+		Now:          time.Now,
 		HTTP: &http.Client{
 			Timeout:   15 * time.Second,
 			Transport: t,
@@ -90,6 +100,22 @@ func (b *Broker) now() time.Time {
 		return time.Now()
 	}
 	return b.Now()
+}
+
+func (b *Broker) appendAudit(ctx context.Context, e protocol.AuditEvent) {
+	timeout := b.AuditTimeout
+	if timeout <= 0 {
+		timeout = defaultAuditTimeout
+	}
+	auditCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := b.Auditor.Append(auditCtx, e); err != nil {
+		if audit.IsDropped(err) {
+			slog.Warn("audit event dropped", "error", err, "agent", e.AgentID, "item", e.ItemID)
+		} else {
+			slog.Error("audit append failed", "error", err, "agent", e.AgentID, "item", e.ItemID)
+		}
+	}
 }
 
 func (b *Broker) client() *http.Client {
@@ -129,10 +155,12 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	item, err := b.Store.Item(req.ItemID)
 	if err != nil {
 		dec := protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "item_not_found"}
-		LogEvent(protocol.AuditEvent{
+		evt := protocol.AuditEvent{
 			Time: now, OrgID: agent.OrgID, AgentID: agent.ID, ItemID: req.ItemID,
 			Action: req.Action, Decision: dec.Decision, Reason: dec.Reason,
-		}, req.ItemID, "", 0)
+		}
+		b.appendAudit(ctx, evt)
+		LogEvent(evt, req.ItemID, "", 0)
 		spanUse(span, agent.ID, req.ItemID, dec, 0, "")
 		return dec, nil
 	}
@@ -186,7 +214,7 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	host := hostPath(target)
 	status := 0
 	defer func() {
-		_ = b.Store.AppendAudit(event)
+		b.appendAudit(ctx, event)
 		LogEvent(event, item.Name, host, status)
 		spanUse(span, agent.ID, item.Name, dec, status, host)
 	}()

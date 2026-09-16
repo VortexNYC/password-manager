@@ -1572,6 +1572,7 @@ func mcpCmd(home *string) *cobra.Command {
 				}
 			}
 			a.Broker = broker.NewWithInFlight(a.Store, maxInFlight)
+			a.Broker.Auditor = a.Auditor
 			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			publicURL = mcpPublicURL(publicURL, listen)
 			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")

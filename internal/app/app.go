@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/vortexnyc/password-manager/internal/audit"
 	"github.com/vortexnyc/password-manager/internal/broker"
 	"github.com/vortexnyc/password-manager/internal/crypto"
 	"github.com/vortexnyc/password-manager/internal/device"
@@ -52,6 +54,7 @@ type App struct {
 	OrgID    string
 	HumanID  string
 	Store    store.Store
+	Auditor  audit.Auditor
 	Broker   *broker.Broker
 	Human    *human.Verifier
 	Workload *workload.Checker
@@ -92,7 +95,7 @@ func Init(dir string) (*App, error) {
 		_ = s.Close()
 		return nil, err
 	}
-	return finish(dir, cfg, s)
+	return finish(dir, cfg, s, &audit.Sync{Store: s})
 }
 
 func Open(dir string) (*App, error) {
@@ -112,7 +115,7 @@ func Open(dir string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return finish(dir, cfg, s)
+	return finish(dir, cfg, s, &audit.Sync{Store: s})
 }
 
 func hasKeyMaterial(dir string) bool {
@@ -159,7 +162,7 @@ func OpenPostgres(dsn string) (*App, error) {
 		_ = s.Close()
 		return nil, err
 	}
-	return finish("", cfg, s)
+	return finish("", cfg, s, audit.NewAsync(s, auditBufferCapacity()))
 }
 
 func loadMasterFromEnv() ([]byte, error) {
@@ -170,15 +173,29 @@ func loadMasterFromEnv() ([]byte, error) {
 	return decodeMasterEnv(env)
 }
 
-func finish(dir string, cfg config, s store.Store) (*App, error) {
+func auditBufferCapacity() int {
+	env := os.Getenv("VEIL_AUDIT_BUFFER")
+	if env == "" {
+		return 1024
+	}
+	n, err := strconv.Atoi(env)
+	if err != nil || n <= 0 {
+		return 1024
+	}
+	return n
+}
+
+func finish(dir string, cfg config, s store.Store, auditor audit.Auditor) (*App, error) {
 	a := &App{
 		Dir:      dir,
 		OrgID:    cfg.OrgID,
 		HumanID:  cfg.HumanID,
 		Store:    s,
+		Auditor:  auditor,
 		Broker:   broker.New(s),
 		Workload: workload.New(s),
 	}
+	a.Broker.Auditor = auditor
 	if err := a.attachHydra(); err != nil {
 		_ = s.Close()
 		return nil, err
@@ -213,8 +230,19 @@ func firstEnv(keys ...string) string {
 }
 
 func (a *App) Close() error {
+	var errs []error
+	if a.Auditor != nil {
+		if err := a.Auditor.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if a.Store != nil {
-		return a.Store.Close()
+		if err := a.Store.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errs[0]
 	}
 	return nil
 }
