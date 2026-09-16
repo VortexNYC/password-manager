@@ -48,13 +48,14 @@ type config struct {
 }
 
 type App struct {
-	Dir     string
-	OrgID   string
-	HumanID string
-	Store   store.Store
-	Broker  *broker.Broker
-	Human   *human.Verifier
-	Members MemberCheck
+	Dir      string
+	OrgID    string
+	HumanID  string
+	Store    store.Store
+	Broker   *broker.Broker
+	Human    *human.Verifier
+	Workload *workload.Checker
+	Members  MemberCheck
 }
 
 func Init(dir string) (*App, error) {
@@ -139,11 +140,12 @@ func OpenOrInit(dir string) (*App, error) {
 
 func finish(dir string, cfg config, s store.Store) (*App, error) {
 	a := &App{
-		Dir:     dir,
-		OrgID:   cfg.OrgID,
-		HumanID: cfg.HumanID,
-		Store:   s,
-		Broker:  broker.New(s),
+		Dir:      dir,
+		OrgID:    cfg.OrgID,
+		HumanID:  cfg.HumanID,
+		Store:    s,
+		Broker:   broker.New(s),
+		Workload: workload.New(s),
 	}
 	if err := a.attachHydra(); err != nil {
 		_ = s.Close()
@@ -514,7 +516,7 @@ func (a *App) AgentFromOIDC(ctx context.Context, rawToken string) (protocol.Prin
 	if IsSessionToken(rawToken) {
 		return a.PrincipalFromSession(rawToken)
 	}
-	return workload.New(a.Store).Agent(ctx, rawToken)
+	return a.Workload.Agent(ctx, rawToken)
 }
 
 // PrincipalFromOIDC is origin identity. Session lease first. Bound agent

@@ -18,9 +18,10 @@ import (
 )
 
 type testIssuer struct {
-	URL    string
-	key    *rsa.PrivateKey
-	server *httptest.Server
+	URL         string
+	key         *rsa.PrivateKey
+	server      *httptest.Server
+	discoveries int
 }
 
 func newTestIssuer(t *testing.T) *testIssuer {
@@ -32,6 +33,7 @@ func newTestIssuer(t *testing.T) *testIssuer {
 	iss := &testIssuer{key: key}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		iss.discoveries++
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"issuer":                                iss.URL,
 			"jwks_uri":                              iss.URL + "/keys",
@@ -130,5 +132,33 @@ func TestWrongSubjectDenied(t *testing.T) {
 	tok := iss.token(t, "someone-else", "password-manager", time.Now().Add(time.Hour))
 	if _, err := c.Agent(context.Background(), tok); err == nil {
 		t.Fatal("wrong subject accepted")
+	}
+}
+
+func TestProviderDiscoveryCachedAcrossCalls(t *testing.T) {
+	iss := newTestIssuer(t)
+	mem := store.NewMemory()
+	if err := mem.PutAgent(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "flue", OrgID: "org"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.PutWorkload(protocol.Workload{
+		AgentID:  "flue",
+		Issuer:   iss.URL,
+		Subject:  "repo:vortexnyc/password-manager:ref:refs/heads/main",
+		Audience: "password-manager",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	c := New(mem)
+	tok := iss.token(t, "repo:vortexnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	if _, err := c.Agent(context.Background(), tok); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Agent(context.Background(), tok); err != nil {
+		t.Fatal(err)
+	}
+	if iss.discoveries != 1 {
+		t.Fatalf("provider discovery called %d times, want 1", iss.discoveries)
 	}
 }
