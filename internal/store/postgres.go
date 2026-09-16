@@ -480,8 +480,10 @@ func (p *Postgres) DeleteItem(id string) error {
 }
 
 func (p *Postgres) Versions(itemID string) ([]protocol.ItemVersion, error) {
+	// Keep the newest maxListResults snapshots, then return them in
+	// chronological order (oldest first) so callers can restore by index.
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, item_id, at FROM item_versions WHERE item_id=$1 ORDER BY id LIMIT $2`, itemID, maxListResults)
+	rows, err := p.pool.Query(ctx, `SELECT id, item_id, at FROM item_versions WHERE item_id=$1 ORDER BY id DESC LIMIT $2`, itemID, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +498,13 @@ func (p *Postgres) Versions(itemID string) ([]protocol.ItemVersion, error) {
 		v.Time = at.UTC()
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
 }
 
 func (p *Postgres) RestoreVersion(itemID string, versionID int64) error {

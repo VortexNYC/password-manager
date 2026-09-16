@@ -211,6 +211,10 @@ func (m *Memory) Versions(itemID string) ([]protocol.ItemVersion, error) {
 			out = append(out, v)
 		}
 	}
+	// Bound to the newest maxListResults and keep chronological order.
+	if len(out) > maxListResults {
+		out = out[len(out)-maxListResults:]
+	}
 	return out, nil
 }
 

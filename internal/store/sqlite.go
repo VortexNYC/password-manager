@@ -576,7 +576,9 @@ func (s *SQLite) DeleteItem(id string) error {
 }
 
 func (s *SQLite) Versions(itemID string) ([]protocol.ItemVersion, error) {
-	rows, err := s.db.Query(`SELECT id, item_id, at FROM item_versions WHERE item_id=? ORDER BY id LIMIT ?`, itemID, maxListResults)
+	// Keep the newest maxListResults snapshots, then return them in
+	// chronological order (oldest first) so callers can restore by index.
+	rows, err := s.db.Query(`SELECT id, item_id, at FROM item_versions WHERE item_id=? ORDER BY id DESC LIMIT ?`, itemID, maxListResults)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +593,13 @@ func (s *SQLite) Versions(itemID string) ([]protocol.ItemVersion, error) {
 		v.Time, _ = time.Parse(time.RFC3339Nano, at)
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
 }
 
 func (s *SQLite) RestoreVersion(itemID string, versionID int64) error {
