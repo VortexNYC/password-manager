@@ -131,7 +131,7 @@ func run() error {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	if err := pgbotInspect(filepath.Join(outDir, "pgbot-before.json")); err != nil {
+	if err := pgbotInspect(ctx, filepath.Join(outDir, "pgbot-before.json")); err != nil {
 		log.Printf("pgbot before: %v", err)
 	}
 
@@ -151,7 +151,7 @@ func run() error {
 		return fmt.Errorf("k6 run: %w", err)
 	}
 
-	if err := pgbotInspect(filepath.Join(outDir, "pgbot-after.json")); err != nil {
+	if err := pgbotInspect(ctx, filepath.Join(outDir, "pgbot-after.json")); err != nil {
 		log.Printf("pgbot after: %v", err)
 	}
 
@@ -174,8 +174,8 @@ func upstreamHandler() http.Handler {
 	})
 }
 
-func pgbotInspect(path string) error {
-	cmd := exec.Command("pgbot", "inspect", "--format", "json")
+func pgbotInspect(ctx context.Context, path string) error {
+	cmd := exec.CommandContext(ctx, "pgbot", "inspect", "--format", "json")
 	out, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create pgbot output file: %w", err)
