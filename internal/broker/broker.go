@@ -38,11 +38,17 @@ type Broker struct {
 }
 
 func New(s store.Store) *Broker {
+	// Clone the default transport so outbound connections to the same upstream
+	// are reused instead of churned. The default MaxIdleConnsPerHost is only 2.
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = 100
+	t.MaxIdleConnsPerHost = 100
 	return &Broker{
 		Store: s,
 		Now:   time.Now,
 		HTTP: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout:   15 * time.Second,
+			Transport: t,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) == 0 {
 					return nil
