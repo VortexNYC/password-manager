@@ -657,6 +657,86 @@ func (s *SQLite) Secret(id string) (Secret, error) {
 	return Secret(plain), nil
 }
 
+func (s *SQLite) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
+	row := s.db.QueryRow(`SELECT
+		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
+		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
+		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
+		ap.id, ap.grant_id, ap.human_id, ap.expires_at
+	FROM (SELECT ? AS agent_id, ? AS item_id, ? AS now) AS v
+	LEFT JOIN agents a ON a.id = v.agent_id
+	LEFT JOIN items i ON i.id = v.item_id
+	LEFT JOIN grants g ON g.agent_id = v.agent_id AND g.item_id = i.id
+	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
+		agentID, itemID, now.Unix())
+
+	var (
+		aID, aOrgID, aOwnerKind, aOwnerID, aRevoked sql.NullString
+		iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID, iLogin sql.NullString
+		iURIs, iTags                                          []byte
+		iHasTOTP, iArchived, iHasFile                         sql.NullInt64
+		gID, gOrgID, gAgentID, gItemID, gLevel                sql.NullString
+		gActions                                              []byte
+		gExpires, apExpires                                   sql.NullInt64
+		apID, apGrantID, apHumanID                            sql.NullString
+	)
+	if err := row.Scan(
+		&aID, &aOrgID, &aOwnerKind, &aOwnerID, &aRevoked,
+		&iID, &iOrgID, &iName, &iKind, &iOwnerKind, &iOwnerID, &iURIs, &iHasTOTP, &iTags, &iArchived, &iHasFile, &iLogin,
+		&gID, &gOrgID, &gAgentID, &gItemID, &gLevel, &gActions, &gExpires,
+		&apID, &apGrantID, &apHumanID, &apExpires,
+	); err != nil {
+		return UseAuth{}, err
+	}
+
+	var r UseAuth
+	if aID.Valid && aID.String != "" {
+		r.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: aID.String, OrgID: aOrgID.String}
+		r.Agent.Owner.Kind = protocol.OwnerKind(aOwnerKind.String)
+		r.Agent.Owner.ID = aOwnerID.String
+		if aRevoked.Valid && aRevoked.String != "" {
+			t, err := time.Parse(time.RFC3339, aRevoked.String)
+			if err != nil {
+				return UseAuth{}, err
+			}
+			tr := t.UTC()
+			r.Agent.RevokedAt = &tr
+		}
+	}
+	if iID.Valid && iID.String != "" {
+		r.Item = protocol.Item{ID: iID.String, OrgID: iOrgID.String, Name: iName.String, Kind: protocol.ItemKind(iKind.String)}
+		r.Item.Owner.Kind = protocol.OwnerKind(iOwnerKind.String)
+		r.Item.Owner.ID = iOwnerID.String
+		if len(iURIs) > 0 {
+			_ = json.Unmarshal(iURIs, &r.Item.URIs)
+		}
+		if len(iTags) > 0 {
+			_ = json.Unmarshal(iTags, &r.Item.Tags)
+		}
+		r.Item.HasTOTP = iHasTOTP.Int64 != 0
+		r.Item.Archived = iArchived.Int64 != 0
+		r.Item.HasFile = iHasFile.Int64 != 0
+		r.Item.Login = iLogin.String
+	}
+	if gID.Valid && gID.String != "" {
+		g := &protocol.Grant{ID: gID.String, OrgID: gOrgID.String, AgentID: gAgentID.String, ItemID: gItemID.String, Level: protocol.GrantLevel(gLevel.String)}
+		if len(gActions) > 0 {
+			_ = json.Unmarshal(gActions, &g.Actions)
+		}
+		if gExpires.Valid {
+			t := time.Unix(gExpires.Int64, 0).UTC()
+			g.ExpiresAt = &t
+		}
+		r.Grant = g
+	}
+	if apID.Valid && apID.String != "" {
+		if apExpires.Valid {
+			r.Approval = &protocol.Approval{ID: apID.String, GrantID: apGrantID.String, HumanID: apHumanID.String, ExpiresAt: time.Unix(apExpires.Int64, 0).UTC()}
+		}
+	}
+	return r, nil
+}
+
 func (s *SQLite) PutGrant(g protocol.Grant) error {
 	actions, err := json.Marshal(g.Actions)
 	if err != nil {

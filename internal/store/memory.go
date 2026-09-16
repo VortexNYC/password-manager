@@ -294,6 +294,27 @@ func (m *Memory) Grant(id string) (*protocol.Grant, error) {
 	return nil, ErrNotFound
 }
 
+func (m *Memory) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var r UseAuth
+	if a, ok := m.agents[agentID]; ok {
+		r.Agent = a
+	}
+	if item, ok := m.items[itemID]; ok {
+		r.Item = item
+	}
+	if g, ok := m.grants[grantKey(agentID, itemID)]; ok {
+		cp := g
+		r.Grant = &cp
+		if a, ok := m.approvals[g.ID]; ok && now.Before(a.ExpiresAt) {
+			ap := a
+			r.Approval = &ap
+		}
+	}
+	return r, nil
+}
+
 func (m *Memory) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

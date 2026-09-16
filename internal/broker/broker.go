@@ -141,19 +141,19 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		defer b.useLimit.Release(1)
 	}
 
-	// Second authorization check: the agent may have been revoked between the
-	// initial resolution and this Use. Tests may pass a bare principal with no
-	// store entry; do not fail those. Unknown agents fall through to grant
-	// evaluation, which will deny as no_grant. A real store error fails closed.
-	current, err := b.Store.Agent(agent.ID)
-	if err == nil {
-		agent = current
-	} else if !errors.Is(err, store.ErrNotFound) {
+	auth, err := b.Store.UseAuth(agent.ID, req.ItemID, now)
+	if err != nil {
 		return protocol.UseResult{}, err
 	}
 
-	item, err := b.Store.Item(req.ItemID)
-	if err != nil {
+	// Tests may pass a bare principal with no store entry; do not fail those.
+	// A real store error fails closed above. Unknown agents fall through to
+	// grant evaluation, which will deny as no_grant.
+	if auth.Agent.ID != "" {
+		agent = auth.Agent
+	}
+
+	if auth.Item.ID == "" {
 		dec := protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "item_not_found"}
 		evt := protocol.AuditEvent{
 			Time: now, OrgID: agent.OrgID, AgentID: agent.ID, ItemID: req.ItemID,
@@ -164,28 +164,19 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 		spanUse(span, agent.ID, req.ItemID, dec, 0, "")
 		return dec, nil
 	}
-	g, err := b.Store.GrantFor(agent.ID, req.ItemID)
-	if err != nil {
-		return protocol.UseResult{}, err
-	}
+
+	item := auth.Item
 	target := ""
 	if req.Fetch != nil {
 		target = req.Fetch.URL
 	}
-	var appr *protocol.Approval
-	if g != nil {
-		appr, err = b.Store.LiveApproval(g.ID, now)
-		if err != nil {
-			return protocol.UseResult{}, err
-		}
-	}
 	dec := grant.Evaluate(grant.Input{
 		Principal: agent,
 		Item:      item,
-		Grant:     g,
+		Grant:     auth.Grant,
 		Action:    req.Action,
 		TargetURL: target,
-		Approval:  appr,
+		Approval:  auth.Approval,
 		Now:       now,
 	})
 

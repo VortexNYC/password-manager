@@ -564,6 +564,85 @@ func (p *Postgres) Secret(id string) (Secret, error) {
 	return Secret(plain), nil
 }
 
+func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
+	ctx := context.Background()
+	row := p.pool.QueryRow(ctx, `SELECT
+		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
+		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
+		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
+		ap.id, ap.grant_id, ap.human_id, ap.expires_at
+	FROM (SELECT $1::text AS agent_id, $2::text AS item_id, $3::timestamptz AS now) AS v
+	LEFT JOIN agents a ON a.id = v.agent_id
+	LEFT JOIN items i ON i.id = v.item_id
+	LEFT JOIN grants g ON g.agent_id = v.agent_id AND g.item_id = i.id
+	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
+		agentID, itemID, now.UTC())
+
+	var (
+		aID, aOrgID, aOwnerKind, aOwnerID                                 sql.NullString
+		aRevoked                                                          sql.NullTime
+		iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID                   sql.NullString
+		iURIs, iTags                                                      sql.NullString
+		iHasTOTP, iArchived, iHasFile                                     sql.NullBool
+		iLogin                                                            sql.NullString
+		gID, gOrgID, gAgentID, gItemID, gLevel, gActions                  sql.NullString
+		gExpires                                                          sql.NullTime
+		apID, apGrantID, apHumanID                                        sql.NullString
+		apExpires                                                         sql.NullTime
+	)
+	if err := row.Scan(
+		&aID, &aOrgID, &aOwnerKind, &aOwnerID, &aRevoked,
+		&iID, &iOrgID, &iName, &iKind, &iOwnerKind, &iOwnerID, &iURIs, &iHasTOTP, &iTags, &iArchived, &iHasFile, &iLogin,
+		&gID, &gOrgID, &gAgentID, &gItemID, &gLevel, &gActions, &gExpires,
+		&apID, &apGrantID, &apHumanID, &apExpires,
+	); err != nil {
+		return UseAuth{}, err
+	}
+
+	var r UseAuth
+	if aID.Valid && aID.String != "" {
+		r.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: aID.String, OrgID: aOrgID.String}
+		r.Agent.Owner.Kind = protocol.OwnerKind(aOwnerKind.String)
+		r.Agent.Owner.ID = aOwnerID.String
+		if aRevoked.Valid {
+			t := aRevoked.Time.UTC()
+			r.Agent.RevokedAt = &t
+		}
+	}
+	if iID.Valid && iID.String != "" {
+		r.Item = protocol.Item{ID: iID.String, OrgID: iOrgID.String, Name: iName.String, Kind: protocol.ItemKind(iKind.String)}
+		r.Item.Owner.Kind = protocol.OwnerKind(iOwnerKind.String)
+		r.Item.Owner.ID = iOwnerID.String
+		if iURIs.Valid && iURIs.String != "" {
+			_ = json.Unmarshal([]byte(iURIs.String), &r.Item.URIs)
+		}
+		if iTags.Valid && iTags.String != "" {
+			_ = json.Unmarshal([]byte(iTags.String), &r.Item.Tags)
+		}
+		r.Item.HasTOTP = iHasTOTP.Bool
+		r.Item.Archived = iArchived.Bool
+		r.Item.HasFile = iHasFile.Bool
+		r.Item.Login = iLogin.String
+	}
+	if gID.Valid && gID.String != "" {
+		g := &protocol.Grant{ID: gID.String, OrgID: gOrgID.String, AgentID: gAgentID.String, ItemID: gItemID.String, Level: protocol.GrantLevel(gLevel.String)}
+		if gActions.Valid && gActions.String != "" {
+			_ = json.Unmarshal([]byte(gActions.String), &g.Actions)
+		}
+		if gExpires.Valid {
+			t := gExpires.Time.UTC()
+			g.ExpiresAt = &t
+		}
+		r.Grant = g
+	}
+	if apID.Valid && apID.String != "" {
+		if apExpires.Valid {
+			r.Approval = &protocol.Approval{ID: apID.String, GrantID: apGrantID.String, HumanID: apHumanID.String, ExpiresAt: apExpires.Time.UTC()}
+		}
+	}
+	return r, nil
+}
+
 func (p *Postgres) PutGrant(g protocol.Grant) error {
 	ctx := context.Background()
 	actions, err := json.Marshal(g.Actions)
