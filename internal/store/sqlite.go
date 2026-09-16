@@ -1,11 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/vortexnyc/password-manager/internal/crypto"
@@ -15,10 +15,8 @@ import (
 )
 
 type SQLite struct {
-	db   *sql.DB
-	key  []byte
-	mu   sync.Mutex
-	deks map[string][]byte
+	db *sql.DB
+	km *keyManager
 }
 
 func OpenSQLite(path string, key []byte) (*SQLite, error) {
@@ -29,7 +27,7 @@ func OpenSQLite(path string, key []byte) (*SQLite, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &SQLite{db: db, key: append([]byte(nil), key...), deks: map[string][]byte{}}
+	s := &SQLite{db: db, km: newKeyManager(key)}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -739,4 +737,77 @@ func (s *SQLite) ListSessions() ([]protocol.Session, error) {
 		out = append(out, sess)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLite) ownerDEK(o protocol.Owner) ([]byte, error) {
+	return s.km.ownerDEK(context.Background(), s, o)
+}
+
+func (s *SQLite) loadOwnerWrapped(ctx context.Context, o protocol.Owner) ([]byte, error) {
+	var wrapped []byte
+	err := s.db.QueryRow(`SELECT wrapped FROM owner_keys WHERE owner_kind=? AND owner_id=?`, o.Kind, o.ID).Scan(&wrapped)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return wrapped, err
+}
+
+func (s *SQLite) storeOwnerWrapped(ctx context.Context, o protocol.Owner, wrapped []byte) error {
+	_, err := s.db.Exec(`INSERT INTO owner_keys(owner_kind, owner_id, wrapped) VALUES(?,?,?)
+		ON CONFLICT(owner_kind, owner_id) DO NOTHING`, o.Kind, o.ID, wrapped)
+	return err
+}
+
+// rewrapLegacy moves secrets sealed with master onto the owner DEK.
+// Existing vaults stay readable. The grant still does not get a key.
+func (s *SQLite) rewrapLegacy() error {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM owner_keys`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT id, owner_kind, owner_id, secret FROM items`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type row struct {
+		id    string
+		owner protocol.Owner
+		blob  []byte
+	}
+	var items []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.owner.Kind, &r.owner.ID, &r.blob); err != nil {
+			return err
+		}
+		items = append(items, r)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	for _, r := range items {
+		plain, err := crypto.Open(s.km.key, r.blob)
+		if err != nil {
+			return fmt.Errorf("store: legacy secret %s: %w", r.id, err)
+		}
+		dek, err := s.ownerDEK(r.owner)
+		if err != nil {
+			return err
+		}
+		blob, err := crypto.Seal(dek, plain)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, r.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
