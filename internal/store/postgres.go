@@ -8,10 +8,18 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vortexnyc/password-manager/internal/crypto"
 	"github.com/vortexnyc/password-manager/internal/protocol"
 )
+
+// pgConn is the surface we need from a pgx connection or transaction.
+type pgConn interface {
+	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...interface{}) pgx.Row
+	Query(context.Context, string, ...interface{}) (pgx.Rows, error)
+}
 
 // Postgres is a pgx-backed Store for the origin. Secrets are encrypted with
 // per-owner data keys before they are written, same as the SQLite store.
@@ -307,25 +315,22 @@ func (p *Postgres) ListHumans() ([]protocol.Principal, error) {
 	return out, rows.Err()
 }
 
-func (p *Postgres) snapshot(id string) error {
+func (p *Postgres) snapshot(c pgConn, id string) error {
 	ctx := context.Background()
 	var blob []byte
-	err := p.pool.QueryRow(ctx, `SELECT secret FROM items WHERE id=$1`, id).Scan(&blob)
+	err := c.QueryRow(ctx, `SELECT secret FROM items WHERE id=$1`, id).Scan(&blob)
 	if err == pgx.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	_, err = p.pool.Exec(ctx, `INSERT INTO item_versions(item_id, at, secret) VALUES($1,$2,$3)`,
+	_, err = c.Exec(ctx, `INSERT INTO item_versions(item_id, at, secret) VALUES($1,$2,$3)`,
 		id, time.Now().UTC(), blob)
 	return err
 }
 
 func (p *Postgres) PutItem(item protocol.Item, secret Secret) error {
-	if err := p.snapshot(item.ID); err != nil {
-		return err
-	}
 	uris, err := json.Marshal(item.URIs)
 	if err != nil {
 		return err
@@ -348,8 +353,33 @@ func (p *Postgres) PutItem(item protocol.Item, secret Secret) error {
 	if err != nil {
 		return err
 	}
+
 	ctx := context.Background()
-	_, err = p.pool.Exec(ctx, `INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var existingOwner protocol.Owner
+	err = tx.QueryRow(ctx, `SELECT owner_kind, owner_id FROM items WHERE id=$1`, item.ID).Scan(&existingOwner.Kind, &existingOwner.ID)
+	if err == nil {
+		if existingOwner != item.Owner {
+			return fmt.Errorf("store: cannot change item owner")
+		}
+	} else if err != pgx.ErrNoRows {
+		return err
+	}
+
+	if err := p.snapshot(tx, item.ID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT(id) DO UPDATE SET
 			org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
@@ -359,7 +389,14 @@ func (p *Postgres) PutItem(item protocol.Item, secret Secret) error {
 			login=excluded.login`,
 		item.ID, item.OrgID, item.Name, item.Kind, item.Owner.Kind, item.Owner.ID,
 		string(uris), blob, item.HasTOTP, string(tags), item.Archived, item.HasFile, item.Login)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (p *Postgres) scanItem(row pgx.Row) (protocol.Item, error) {
@@ -463,20 +500,38 @@ func (p *Postgres) Versions(itemID string) ([]protocol.ItemVersion, error) {
 }
 
 func (p *Postgres) RestoreVersion(itemID string, versionID int64) error {
-	if err := p.snapshot(itemID); err != nil {
+	ctx := context.Background()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	if err := p.snapshot(tx, itemID); err != nil {
+		return err
+	}
 	var blob []byte
-	err := p.pool.QueryRow(ctx, `SELECT secret FROM item_versions WHERE id=$1 AND item_id=$2`, versionID, itemID).Scan(&blob)
+	err = tx.QueryRow(ctx, `SELECT secret FROM item_versions WHERE id=$1 AND item_id=$2`, versionID, itemID).Scan(&blob)
 	if err == pgx.ErrNoRows {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	_, err = p.pool.Exec(ctx, `UPDATE items SET secret=$1 WHERE id=$2`, blob, itemID)
-	return err
+	_, err = tx.Exec(ctx, `UPDATE items SET secret=$1 WHERE id=$2`, blob, itemID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (p *Postgres) Secret(id string) (Secret, error) {

@@ -332,24 +332,26 @@ func (s *SQLite) ListHumans() ([]protocol.Principal, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) snapshot(id string) error {
+type sqlExecer interface {
+	QueryRow(string, ...interface{}) *sql.Row
+	Exec(string, ...interface{}) (sql.Result, error)
+}
+
+func (s *SQLite) snapshot(c sqlExecer, id string) error {
 	var blob []byte
-	err := s.db.QueryRow(`SELECT secret FROM items WHERE id=?`, id).Scan(&blob)
+	err := c.QueryRow(`SELECT secret FROM items WHERE id=?`, id).Scan(&blob)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO item_versions(item_id, at, secret) VALUES(?,?,?)`,
+	_, err = c.Exec(`INSERT INTO item_versions(item_id, at, secret) VALUES(?,?,?)`,
 		id, time.Now().UTC().Format(time.RFC3339Nano), blob)
 	return err
 }
 
 func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
-	if err := s.snapshot(item.ID); err != nil {
-		return err
-	}
 	uris, err := json.Marshal(item.URIs)
 	if err != nil {
 		return err
@@ -384,7 +386,32 @@ func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
 	if item.HasFile {
 		hf = 1
 	}
-	_, err = s.db.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var existingOwner protocol.Owner
+	err = tx.QueryRow(`SELECT owner_kind, owner_id FROM items WHERE id=?`, item.ID).Scan(&existingOwner.Kind, &existingOwner.ID)
+	if err == nil {
+		if existingOwner != item.Owner {
+			return fmt.Errorf("store: cannot change item owner")
+		}
+	} else if err != sql.ErrNoRows {
+		return err
+	}
+
+	if err := s.snapshot(tx, item.ID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO items(id, org_id, name, kind, owner_kind, owner_id, uris, secret, has_totp, tags, archived, has_file, login)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			org_id=excluded.org_id, name=excluded.name, kind=excluded.kind,
@@ -393,7 +420,14 @@ func (s *SQLite) PutItem(item protocol.Item, secret Secret) error {
 			tags=excluded.tags, archived=excluded.archived, has_file=excluded.has_file,
 			login=excluded.login`,
 		item.ID, item.OrgID, item.Name, item.Kind, item.Owner.Kind, item.Owner.ID, uris, blob, has, tags, arch, hf, item.Login)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (s *SQLite) scanItem(scan func(dest ...any) error) (protocol.Item, error) {
@@ -502,19 +536,37 @@ func (s *SQLite) Versions(itemID string) ([]protocol.ItemVersion, error) {
 }
 
 func (s *SQLite) RestoreVersion(itemID string, versionID int64) error {
-	if err := s.snapshot(itemID); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err := s.snapshot(tx, itemID); err != nil {
 		return err
 	}
 	var blob []byte
-	err := s.db.QueryRow(`SELECT secret FROM item_versions WHERE id=? AND item_id=?`, versionID, itemID).Scan(&blob)
+	err = tx.QueryRow(`SELECT secret FROM item_versions WHERE id=? AND item_id=?`, versionID, itemID).Scan(&blob)
 	if err == sql.ErrNoRows {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, itemID)
-	return err
+	_, err = tx.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, itemID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (s *SQLite) Secret(id string) (Secret, error) {
@@ -799,8 +851,11 @@ func (s *SQLite) rewrapLegacy() error {
 		return err
 	}
 	if n > 0 {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 		committed = true
-		return tx.Commit()
+		return nil
 	}
 
 	rows, err := tx.Query(`SELECT id, owner_kind, owner_id, secret FROM items`)
@@ -828,8 +883,11 @@ func (s *SQLite) rewrapLegacy() error {
 		return err
 	}
 	if len(items) == 0 {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 		committed = true
-		return tx.Commit()
+		return nil
 	}
 
 	ts := sqliteTxSource{tx: tx}
@@ -850,6 +908,9 @@ func (s *SQLite) rewrapLegacy() error {
 			return err
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 	committed = true
-	return tx.Commit()
+	return nil
 }
