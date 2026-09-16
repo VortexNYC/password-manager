@@ -138,6 +138,38 @@ func OpenOrInit(dir string) (*App, error) {
 	return Init(dir)
 }
 
+// OpenPostgres opens a stateless origin backed by a Postgres DSN.
+// The master key is read from the VEIL_MASTER_KEY environment variable (hex).
+func OpenPostgres(dsn string) (*App, error) {
+	key, err := loadMasterFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	s, err := store.OpenPostgres(dsn, key)
+	if err != nil {
+		return nil, err
+	}
+	cfg := config{OrgID: DefaultOrg, HumanID: DefaultHuman}
+	if _, err := s.Human(cfg.HumanID); err == store.ErrNotFound {
+		if err := s.PutHuman(protocol.Principal{Kind: protocol.PrincipalHuman, ID: cfg.HumanID, OrgID: cfg.OrgID}); err != nil {
+			_ = s.Close()
+			return nil, err
+		}
+	} else if err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	return finish("", cfg, s)
+}
+
+func loadMasterFromEnv() ([]byte, error) {
+	env := os.Getenv("VEIL_MASTER_KEY")
+	if env == "" {
+		return nil, fmt.Errorf("app: VEIL_MASTER_KEY is required for stateless origin")
+	}
+	return decodeMasterEnv(env)
+}
+
 func finish(dir string, cfg config, s store.Store) (*App, error) {
 	a := &App{
 		Dir:      dir,

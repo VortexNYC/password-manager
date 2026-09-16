@@ -148,6 +148,13 @@ func openOrInitApp(home string) (*app.App, error) {
 	return loadApp(home, true)
 }
 
+func openOriginApp(home string) (*app.App, error) {
+	if dsn := os.Getenv("VEIL_POSTGRES_DSN"); dsn != "" {
+		return app.OpenPostgres(dsn)
+	}
+	return openOrInitApp(home)
+}
+
 func loadApp(home string, initEmpty bool) (*app.App, error) {
 	if originBase() != "" {
 		return nil, fmt.Errorf("PWM_ORIGIN is set; origin is the vault")
@@ -1551,7 +1558,7 @@ func mcpCmd(home *string) *cobra.Command {
 		Use:   "mcp",
 		Short: "Serve Streamable HTTP MCP. Bearer is the agent. Tools cannot return secrets.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := openOrInitApp(*home)
+			a, err := openOriginApp(*home)
 			if err != nil {
 				return err
 			}
