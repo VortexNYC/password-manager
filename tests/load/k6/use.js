@@ -41,7 +41,7 @@ export default function () {
     'decision is allow': (r) => {
       try {
         return r.json('decision') === 'allow';
-      } catch (e) {
+      } catch {
         return false;
       }
     },
