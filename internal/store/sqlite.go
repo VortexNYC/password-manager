@@ -113,6 +113,10 @@ func (s *SQLite) migrate() error {
 			expires_at INTEGER NOT NULL,
 			UNIQUE(secret_hash)
 		)`,
+		`CREATE TABLE IF NOT EXISTS schema_version (
+			name TEXT PRIMARY KEY,
+			version INTEGER NOT NULL
+		)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return err
@@ -831,6 +835,7 @@ func (ts sqliteTxSource) storeOwnerWrapped(ctx context.Context, o protocol.Owner
 
 // rewrapLegacy moves secrets sealed with master onto the owner DEK.
 // Existing vaults stay readable. The grant still does not get a key.
+// It is idempotent and tracks completion in schema_version.
 func (s *SQLite) rewrapLegacy() error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -846,65 +851,52 @@ func (s *SQLite) rewrapLegacy() error {
 		}
 	}()
 
-	var n int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM owner_keys`).Scan(&n); err != nil {
-		return err
-	}
-	if n > 0 {
+	var version int
+	err = tx.QueryRow(`SELECT version FROM schema_version WHERE name='rewrap_legacy'`).Scan(&version)
+	if err == nil && version >= 1 {
 		if err := tx.Commit(); err != nil {
 			return err
 		}
 		committed = true
 		return nil
-	}
-
-	rows, err := tx.Query(`SELECT id, owner_kind, owner_id, secret FROM items`)
-	if err != nil {
+	} else if err != nil && err != sql.ErrNoRows {
 		return err
-	}
-	defer rows.Close()
-	type row struct {
-		id    string
-		owner protocol.Owner
-		blob  []byte
-	}
-	var items []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.owner.Kind, &r.owner.ID, &r.blob); err != nil {
-			return err
-		}
-		items = append(items, r)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if len(items) == 0 {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-		committed = true
-		return nil
 	}
 
 	ts := sqliteTxSource{tx: tx}
-	for _, r := range items {
-		plain, err := crypto.Open(s.km.key, r.blob)
-		if err != nil {
-			return fmt.Errorf("store: legacy secret %s: %w", r.id, err)
-		}
-		dek, err := s.km.ownerDEK(context.Background(), ts, r.owner)
-		if err != nil {
-			return err
-		}
-		blob, err := crypto.Seal(dek, plain)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, r.id); err != nil {
+
+	// Rewrap current item secrets.
+	items, err := tx.Query(`SELECT id, owner_kind, owner_id, secret FROM items`)
+	if err != nil {
+		return err
+	}
+	_, resolvedItems, totalItems, err := s.rewrapRows(items, ts, func(id string, blob []byte) error {
+		_, err := tx.Exec(`UPDATE items SET secret=? WHERE id=?`, blob, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	// Rewrap historical item versions with their item's owner.
+	vers, err := tx.Query(`SELECT v.id, i.owner_kind, i.owner_id, v.secret FROM item_versions v JOIN items i ON v.item_id = i.id`)
+	if err != nil {
+		return err
+	}
+	_, resolvedVersions, totalVersions, err := s.rewrapRows(vers, ts, func(id string, blob []byte) error {
+		_, err := tx.Exec(`UPDATE item_versions SET secret=? WHERE id=?`, blob, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	// Mark complete only once the vault has at least one item/version and every
+	// row in this transaction has been verified owner-sealed or rewrapped. Empty
+	// vaults are not marked so a legacy secret copied into the file before the
+	// next open will still be rewrapped.
+	if totalItems+totalVersions > 0 && resolvedItems == totalItems && resolvedVersions == totalVersions {
+		if _, err := tx.Exec(`INSERT INTO schema_version(name, version) VALUES('rewrap_legacy', 1) ON CONFLICT(name) DO UPDATE SET version=excluded.version`); err != nil {
 			return err
 		}
 	}
@@ -913,4 +905,82 @@ func (s *SQLite) rewrapLegacy() error {
 	}
 	committed = true
 	return nil
+}
+
+func (s *SQLite) rewrapRows(rows *sql.Rows, ts sqliteTxSource, update func(id string, blob []byte) error) (bool, int, int, error) {
+	defer rows.Close()
+	type row struct {
+		id    string
+		owner protocol.Owner
+		blob  []byte
+	}
+	var list []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.owner.Kind, &r.owner.ID, &r.blob); err != nil {
+			return false, 0, 0, err
+		}
+		list = append(list, r)
+	}
+	if err := rows.Err(); err != nil {
+		return false, 0, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return false, 0, 0, err
+	}
+
+	rewrapped := 0
+	resolved := 0
+	for _, r := range list {
+		plain, err := crypto.Open(s.km.key, r.blob)
+		if err == nil {
+			// Master-sealed and key is correct. Create or load the owner DEK and
+			// rewrap. ownerDEK only creates when the master key can decrypt,
+			// which we just proved.
+			dek, err := s.km.ownerDEK(context.Background(), ts, r.owner)
+			if err != nil {
+				return false, 0, 0, err
+			}
+			blob, err := crypto.Seal(dek, plain)
+			if err != nil {
+				return false, 0, 0, err
+			}
+			if err := update(r.id, blob); err != nil {
+				return false, 0, 0, err
+			}
+			rewrapped++
+			resolved++
+			continue
+		}
+		if err != crypto.ErrAuth {
+			return false, 0, 0, err
+		}
+
+		// Master failed. It may be owner-sealed, or the master key may be wrong.
+		// Load the wrapped owner key without creating one, and only trust the
+		// row if the master key can unwrap it.
+		wrapped, err := ts.loadOwnerWrapped(context.Background(), r.owner)
+		if err == ErrNotFound {
+			// No owner key and master cannot open; the key is likely wrong or the
+			// row is corrupt. Skip without failing so opening with a wrong key
+			// still succeeds.
+			continue
+		}
+		if err != nil {
+			return false, 0, 0, err
+		}
+		dek, err := crypto.Open(s.km.key, wrapped)
+		if err == crypto.ErrAuth {
+			// Wrong master key. Skip this row.
+			continue
+		}
+		if err != nil {
+			return false, 0, 0, err
+		}
+		if _, err := crypto.Open(dek, r.blob); err != nil {
+			return false, 0, 0, fmt.Errorf("store: %s secret is neither master nor owner sealed: %w", r.id, err)
+		}
+		resolved++
+	}
+	return rewrapped > 0, resolved, len(list), nil
 }
