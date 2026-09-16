@@ -380,6 +380,112 @@ Interpretation of this run:
   scheduling and single-Mac loopback overhead, but it is a clean multi-process
   baseline.
 
+### 8. Multi-host: Mac k6 → Railway (origin ×3, Postgres, upstream)
+
+Topology:
+
+- **k6 + `cmd/loadtest` (external mode)** run on the local Mac and drive the
+  public Railway domain `origin-production-5416.up.railway.app`.
+- **Railway project `veil-loadtest`** (throwaway): Postgres 18, three `origin`
+  replicas, and `upstream` (`hashicorp/http-echo`) — all in `sfo`.
+- Origin→Postgres and origin→upstream stay on `*.railway.internal`; only
+  k6→origin crosses the public internet (~84 ms WAN RTT NYC→SFO).
+- Seeding goes through `railway connect --tunnel-only` (SSH tunnel to
+  `127.0.0.1:55432`); `VEIL_MASTER_KEY` matches the origins' key.
+- `VEIL_MAX_IN_FLIGHT_USE=1000` per replica (3,000 total admission capacity).
+- The Railway Postgres image ships only `plpgsql` — no `pg_stat_statements` —
+  so pgbot reports connections/locks/cache but no per-query timing.
+
+Code changes:
+
+- `internal/publicapi/api.go`: the generic `/v1/use` error path now logs the
+  underlying error (`slog.Warn("use failed", "item", …, "err", …)`); the client
+  still gets the opaque `400 use failed`.
+- `internal/broker/broker.go`: non-sentinel store errors are stage-tagged
+  (`useauth:` / `consume:` / `secret:`) so logs identify the failing call.
+- `tests/load/k6/use.js`: a `veil_fail_status` counter plus sampled failure
+  bodies for the first VUs.
+
+#### 8.1 500 VUs
+
+| Metric | Value |
+|---|---|
+| Requests | 263,073 |
+| Throughput | 2,192.06 req/s |
+| Latency avg / med / p95 / max | 102.57 / 94.66 / 145.09 / 937.02 ms |
+| Errors | **0%** |
+
+Railway edge metrics for the same window: origin-side p50 **11 ms**,
+p95 **27 ms**; origin CPU ~0.25/8 per replica; Postgres CPU low. WAN transit
+accounts for ~80 ms of the ~103 ms client-visible average — the service itself
+is fast.
+
+#### 8.2 2000 VUs — rescheduled replica set (bad run)
+
+| Metric | Value |
+|---|---|
+| Requests | 647,269 |
+| Offered throughput | 5,390.52 req/s |
+| Checks | 66.57% |
+| Edge status split | 430,888 2xx / 214,162 4xx / 2,219 5xx |
+
+The 4xx were literal `400 use failed` responses — origin-side generic store
+errors before the audit point. The run overlapped a Railway reschedule of the
+replica set; ~1/3 of requests failed, matching one wedged replica's traffic
+share. Same signature as the earlier zombie-pool incident: `pg_stat_activity`
+showed ~63 "idle" `password-manager` connections that were blackholed on the
+client side — pgx pool conns whose TCP died silently (no FIN) during the
+reschedule. **A graceful `pg_terminate_backend` of all 80 conns mid-burst on a
+healthy deploy produced zero errors** — the failure needs silent packet-level
+death, which a reschedule produces and a clean kill does not.
+
+#### 8.3 2000 VUs — fresh replicas (valid run)
+
+| Metric | Value |
+|---|---|
+| Requests | 665,123 |
+| Offered throughput | 5,540.47 req/s |
+| Checks | 99.54% |
+| Failures | 3,026 (0.45%) — every sampled failure `503 origin overloaded` |
+| Latency avg / med / p95 / max | 162.53 / 107.47 / 470.35 / 879.22 ms |
+
+All sampled failures were **designed admission shedding**: per-replica in-flight
+cap 1000, uneven edge→replica distribution at 2000 VUs, momentary overflow on
+the hot replica. No `400` store errors observed; no `fetch_failed` denies.
+
+Post-run DB state: 60 `password-manager` pool conns (3×`MaxConns=20`), 0
+deadlocks, no lock waits. Under load the dominant wait was `LWLock WALWrite`
+(~18 waiters) — commits bound on WAL flush, not row locks. The shared
+`loadtest-agent` row in `ConsumeSession`'s `UPDATE … FROM agents` did **not**
+produce observable tuple-lock pileups.
+
+#### 8.4 Findings
+
+1. **WAN dominates client latency.** At 500 VUs the service adds only ~10–30 ms
+   on top of ~85 ms of transit. Measuring Veil's server-side ceiling from a
+   single remote client requires saturating concurrency, not accuracy of p50.
+2. **The audit channel is the next real limiter.** `Async.Append` blocks on the
+   request path up to `AuditTimeout` (500 ms) when the 1024-event buffer
+   saturates; at ~5.5k req/s sustained it began dropping events
+   (`audit event dropped` / `context deadline exceeded` warns, ~1.4k in the
+   582k-req run). Consequence: **the audit table is not a reliable failure
+   classifier under load** — dropped events self-select for exactly the busiest
+   windows.
+3. **Rescheduled replicas can strand pgx pools.** A replica whose pooled conns
+   blackhole during a reschedule emits fast generic errors (`400 use failed`)
+   until the pool detects and replaces them. pgx recovers on its own once a
+   query observes the dead conn, but each bad conn costs one request. Options:
+   bounded retry on conn-level errors in the `UseSession` path, or
+   `HealthCheckPeriod`/keepalive tuning. Not yet changed.
+4. **Admission shedding works as designed.** `503 origin overloaded` is the
+   only observed failure mode on a healthy deploy; it is fail-fast and cheap.
+   Raising the cap trades sheds for queueing (run at cap 1000: p95 470 ms vs
+   cap 300: faster rejects, more sheds).
+5. **Client-cancel noise exists but is invisible.** `r.Context()` propagates
+   into the upstream fetch; a disconnecting client produces `context canceled`
+   fetch aborts → `deny/fetch_failed` audit + a 400 written to a dead conn.
+   Harmless but noisy in logs under client-timeout load.
+
 ## Next optimization
 
 The session-token hot path is now **3 synchronous DB round trips** per `Use`
@@ -392,11 +498,12 @@ requests is already handled by the `UseAuthSession` join and the
 
 Before adding a fail-closed cache or distributed rate limiting:
 
-1. **Run a multi-host load test.** Single-Mac loopback variance and child-process
-   scheduling noise are still clouding the numbers. A `k6` runner on a separate
-   core or host with the origin and Postgres on other machines will separate
-   test-stack overhead from real origin capacity. The corrected process run
-   (4,574 req/s, 14.68 ms avg) is still capped by the local test geometry.
+1. **Multi-host load test is done** (§8). Origin-side service time is 7–37 ms;
+   the measured ceilings are now (a) per-replica admission cap and (b) the
+   async audit channel, which saturates near ~5.5k req/s sustained and then
+   blocks the request path up to `AuditTimeout` while dropping events. Raising
+   `VEIL_AUDIT_BUFFER`, larger COPY batches (>64), or drop-oldest semantics are
+   the candidates — measure before changing.
 2. **Investigate the agent-token `Use` path only if it becomes a hot path.** The
    agent-token `Use` still performs a final `Store.Agent` reload after `UseAuth`
    to guard against revocation races. Folding that reload into `UseAuth` would

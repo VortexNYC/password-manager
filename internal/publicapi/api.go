@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -577,6 +578,7 @@ func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		slog.Warn("use failed", "item", in.Item, "err", err)
 		http.Error(w, "use failed", http.StatusBadRequest)
 		return
 	}

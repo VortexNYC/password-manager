@@ -1,5 +1,8 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
+import { Counter } from 'k6/metrics';
+
+const failByStatus = new Counter('veil_fail_status');
 
 const parsedVus = Number.parseInt(__ENV.VEIL_VUS || '50', 10);
 const vus = Number.isInteger(parsedVus) && parsedVus > 0 ? parsedVus : 50;
@@ -56,4 +59,10 @@ export default function () {
       }
     },
   });
+  if (res.status !== 200) {
+    failByStatus.add(1, { status: String(res.status) });
+    if (__VU <= 10) {
+      console.log(`fail vu=${__VU} status=${res.status} body=${String(res.body).slice(0, 160)}`);
+    }
+  }
 }
