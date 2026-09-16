@@ -59,6 +59,9 @@ func (m *Memory) ListAgents() ([]protocol.Principal, error) {
 	for _, p := range m.agents {
 		out = append(out, p)
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -112,6 +115,9 @@ func (m *Memory) ListHumans() ([]protocol.Principal, error) {
 	for _, p := range m.humans {
 		out = append(out, p)
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -161,6 +167,9 @@ func (m *Memory) ListItems() ([]protocol.Item, error) {
 			continue
 		}
 		out = append(out, item)
+	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
 	}
 	return out, nil
 }
@@ -303,6 +312,9 @@ func (m *Memory) ListGrants() ([]protocol.Grant, error) {
 	for _, g := range m.grants {
 		out = append(out, g)
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -375,6 +387,9 @@ func (m *Memory) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error) 
 			out = append(out, w)
 		}
 	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
+	}
 	return out, nil
 }
 
@@ -403,6 +418,9 @@ func (m *Memory) ListSessions() ([]protocol.Session, error) {
 	out := make([]protocol.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
 		out = append(out, s)
+	}
+	if len(out) > maxListResults {
+		out = out[:maxListResults]
 	}
 	return out, nil
 }
