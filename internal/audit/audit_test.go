@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -91,6 +92,49 @@ func TestAsyncAuditorDropsWhenBackloggedAndContextExpires(t *testing.T) {
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A backed-up auditor must flush full batches, not only what arrived inside
+// one flush interval. Under sustained load the channel always has queued
+// events; the worker should pull up to its batch size each cycle so drain
+// capacity stays above arrival rate.
+func TestAsyncAuditorDrainsBacklogInLargeBatches(t *testing.T) {
+	m := store.NewMemory()
+	rec := &batchRecorder{Memory: m, gate: make(chan struct{})}
+	a := NewAsyncWithInterval(rec, 512, time.Second)
+
+	const total = 200
+	for i := 0; i < total; i++ {
+		if err := a.Append(context.Background(), protocol.AuditEvent{AgentID: "a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// All events are queued before the worker's first flush proceeds.
+	close(rec.gate)
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.sizes) != 1 || rec.sizes[0] != total {
+		t.Fatalf("want one flush of %d events, got batches %v", total, rec.sizes)
+	}
+}
+
+type batchRecorder struct {
+	*store.Memory
+	mu    sync.Mutex
+	gate  chan struct{}
+	sizes []int
+}
+
+func (s *batchRecorder) AppendAudits(events []protocol.AuditEvent) error {
+	<-s.gate
+	s.mu.Lock()
+	s.sizes = append(s.sizes, len(events))
+	s.mu.Unlock()
+	return s.Memory.AppendAudits(events)
 }
 
 type slowStore struct {

@@ -78,8 +78,8 @@ func NewAsyncWithInterval(s store.Store, cap int, interval time.Duration) *Async
 	if batchSize < 1 {
 		batchSize = 1
 	}
-	if batchSize > 64 {
-		batchSize = 64
+	if batchSize > 256 {
+		batchSize = 256
 	}
 	a := &Async{
 		store:         s,
@@ -156,6 +156,11 @@ func (a *Async) loop() {
 			if !timer.Stop() {
 				<-timer.C
 			}
+		} else {
+			// The interval elapsed with a partial batch. Pull whatever else is
+			// already queued so a backed-up channel drains at batch size, not
+			// at the rate events arrived inside the interval.
+			a.drainBatch(&batch)
 		}
 		if len(batch) > 0 {
 			a.flush(batch)
