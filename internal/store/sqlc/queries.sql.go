@@ -11,6 +11,22 @@ import (
 	"time"
 )
 
+const approvalByGrant = `-- name: ApprovalByGrant :one
+SELECT grant_id, id, human_id, expires_at FROM approvals WHERE grant_id = $1::text
+`
+
+func (q *Queries) ApprovalByGrant(ctx context.Context, grantID string) (Approval, error) {
+	row := q.db.QueryRow(ctx, approvalByGrant, grantID)
+	var i Approval
+	err := row.Scan(
+		&i.GrantID,
+		&i.ID,
+		&i.HumanID,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const archiveItem = `-- name: ArchiveItem :execrows
 UPDATE items SET archived = TRUE WHERE id = $1::text
 `
@@ -90,6 +106,51 @@ DELETE FROM item_versions WHERE item_id = $1::text
 func (q *Queries) DeleteItemVersions(ctx context.Context, itemID string) error {
 	_, err := q.db.Exec(ctx, deleteItemVersions, itemID)
 	return err
+}
+
+const grantByID = `-- name: GrantByID :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE id = $1::text
+`
+
+func (q *Queries) GrantByID(ctx context.Context, id string) (Grant, error) {
+	row := q.db.QueryRow(ctx, grantByID, id)
+	var i Grant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.AgentID,
+		&i.ItemID,
+		&i.Level,
+		&i.Actions,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const grantFor = `-- name: GrantFor :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE agent_id = $1::text AND item_id = $2::text
+`
+
+type GrantForParams struct {
+	AgentID string
+	ItemID  string
+}
+
+func (q *Queries) GrantFor(ctx context.Context, arg GrantForParams) (Grant, error) {
+	row := q.db.QueryRow(ctx, grantFor, arg.AgentID, arg.ItemID)
+	var i Grant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.AgentID,
+		&i.ItemID,
+		&i.Level,
+		&i.Actions,
+		&i.ExpiresAt,
+	)
+	return i, err
 }
 
 const itemByID = `-- name: ItemByID :one
@@ -261,6 +322,39 @@ func (q *Queries) ItemVersions(ctx context.Context, arg ItemVersionsParams) ([]I
 	return items, nil
 }
 
+const listGrants = `-- name: ListGrants :many
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants ORDER BY id LIMIT $1::bigint
+`
+
+func (q *Queries) ListGrants(ctx context.Context, maxResults int64) ([]Grant, error) {
+	rows, err := q.db.Query(ctx, listGrants, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Grant
+	for rows.Next() {
+		var i Grant
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.AgentID,
+			&i.ItemID,
+			&i.Level,
+			&i.Actions,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listItems = `-- name: ListItems :many
 SELECT id, org_id, name, kind, owner_kind, owner_id, uris, has_totp, tags, archived, has_file, login
 FROM items WHERE archived = FALSE ORDER BY name LIMIT $1::bigint
@@ -350,6 +444,61 @@ func (q *Queries) ListSessions(ctx context.Context, maxResults int64) ([]Session
 		return nil, err
 	}
 	return items, nil
+}
+
+const putApproval = `-- name: PutApproval :exec
+INSERT INTO approvals(grant_id, id, human_id, expires_at)
+VALUES($1::text, $2::text, $3::text, $4::timestamptz)
+ON CONFLICT(grant_id) DO UPDATE SET
+    id=excluded.id, human_id=excluded.human_id, expires_at=excluded.expires_at
+`
+
+type PutApprovalParams struct {
+	GrantID   string
+	ID        string
+	HumanID   string
+	ExpiresAt time.Time
+}
+
+func (q *Queries) PutApproval(ctx context.Context, arg PutApprovalParams) error {
+	_, err := q.db.Exec(ctx, putApproval,
+		arg.GrantID,
+		arg.ID,
+		arg.HumanID,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
+const putGrant = `-- name: PutGrant :exec
+INSERT INTO grants(id, org_id, agent_id, item_id, level, actions, expires_at)
+VALUES($1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7)
+ON CONFLICT(agent_id, item_id) DO UPDATE SET
+    id=excluded.id, org_id=excluded.org_id, level=excluded.level,
+    actions=excluded.actions, expires_at=excluded.expires_at
+`
+
+type PutGrantParams struct {
+	ID        string
+	OrgID     string
+	AgentID   string
+	ItemID    string
+	Level     string
+	Actions   string
+	ExpiresAt sql.NullTime
+}
+
+func (q *Queries) PutGrant(ctx context.Context, arg PutGrantParams) error {
+	_, err := q.db.Exec(ctx, putGrant,
+		arg.ID,
+		arg.OrgID,
+		arg.AgentID,
+		arg.ItemID,
+		arg.Level,
+		arg.Actions,
+		arg.ExpiresAt,
+	)
+	return err
 }
 
 const putItem = `-- name: PutItem :exec

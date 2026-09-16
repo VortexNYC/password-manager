@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -338,99 +337,6 @@ func (p *Postgres) ListHumans() ([]protocol.Principal, error) {
 		out = append(out, h)
 	}
 	return out, rows.Err()
-}
-
-func (p *Postgres) PutGrant(g protocol.Grant) error {
-	ctx := context.Background()
-	actions, err := json.Marshal(g.Actions)
-	if err != nil {
-		return err
-	}
-	_, err = p.pool.Exec(ctx, `INSERT INTO grants(id, org_id, agent_id, item_id, level, actions, expires_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT(agent_id, item_id) DO UPDATE SET
-			id=excluded.id, org_id=excluded.org_id, level=excluded.level,
-			actions=excluded.actions, expires_at=excluded.expires_at`,
-		g.ID, g.OrgID, g.AgentID, g.ItemID, g.Level, string(actions), g.ExpiresAt)
-	return err
-}
-
-func scanPostgresGrant(row pgx.Row) (*protocol.Grant, error) {
-	var g protocol.Grant
-	var actions string
-	var exp sql.NullTime
-	err := row.Scan(&g.ID, &g.OrgID, &g.AgentID, &g.ItemID, &g.Level, &actions, &exp)
-	if err == pgx.ErrNoRows {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if len(actions) > 0 {
-		_ = json.Unmarshal([]byte(actions), &g.Actions)
-	}
-	if exp.Valid {
-		t := exp.Time.UTC()
-		g.ExpiresAt = &t
-	}
-	return &g, nil
-}
-
-func (p *Postgres) Grant(id string) (*protocol.Grant, error) {
-	return scanPostgresGrant(p.pool.QueryRow(context.Background(), `SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants WHERE id=$1`, id))
-}
-
-func (p *Postgres) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
-	g, err := scanPostgresGrant(p.pool.QueryRow(context.Background(), `SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants WHERE agent_id=$1 AND item_id=$2`, agentID, itemID))
-	if err == ErrNotFound {
-		return nil, nil
-	}
-	return g, err
-}
-
-func (p *Postgres) ListGrants() ([]protocol.Grant, error) {
-	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id, org_id, agent_id, item_id, level, actions, expires_at FROM grants ORDER BY id LIMIT $1`, maxListResults)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []protocol.Grant
-	for rows.Next() {
-		g, err := scanPostgresGrant(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *g)
-	}
-	return out, rows.Err()
-}
-
-func (p *Postgres) PutApproval(a protocol.Approval) error {
-	ctx := context.Background()
-	_, err := p.pool.Exec(ctx, `INSERT INTO approvals(grant_id, id, human_id, expires_at) VALUES($1,$2,$3,$4)
-		ON CONFLICT(grant_id) DO UPDATE SET id=excluded.id, human_id=excluded.human_id, expires_at=excluded.expires_at`,
-		a.GrantID, a.ID, a.HumanID, a.ExpiresAt.UTC())
-	return err
-}
-
-func (p *Postgres) LiveApproval(grantID string, now time.Time) (*protocol.Approval, error) {
-	ctx := context.Background()
-	var a protocol.Approval
-	var exp time.Time
-	err := p.pool.QueryRow(ctx, `SELECT grant_id, id, human_id, expires_at FROM approvals WHERE grant_id=$1`, grantID).
-		Scan(&a.GrantID, &a.ID, &a.HumanID, &exp)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	a.ExpiresAt = exp.UTC()
-	if !now.Before(a.ExpiresAt) {
-		return nil, nil
-	}
-	return &a, nil
 }
 
 func (p *Postgres) PutWorkload(w protocol.Workload) error {

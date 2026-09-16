@@ -170,3 +170,31 @@ UPDATE items SET secret = @secret::bytea WHERE id = @id::text;
 
 -- name: ItemSecretOwner :one
 SELECT secret, owner_kind, owner_id FROM items WHERE id = @id::text;
+
+-- name: PutGrant :exec
+INSERT INTO grants(id, org_id, agent_id, item_id, level, actions, expires_at)
+VALUES(@id::text, @org_id::text, @agent_id::text, @item_id::text, @level::text, @actions::text, sqlc.narg(expires_at))
+ON CONFLICT(agent_id, item_id) DO UPDATE SET
+    id=excluded.id, org_id=excluded.org_id, level=excluded.level,
+    actions=excluded.actions, expires_at=excluded.expires_at;
+
+-- name: GrantByID :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE id = @id::text;
+
+-- name: GrantFor :one
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants WHERE agent_id = @agent_id::text AND item_id = @item_id::text;
+
+-- name: ListGrants :many
+SELECT id, org_id, agent_id, item_id, level, actions, expires_at
+FROM grants ORDER BY id LIMIT @max_results::bigint;
+
+-- name: PutApproval :exec
+INSERT INTO approvals(grant_id, id, human_id, expires_at)
+VALUES(@grant_id::text, @id::text, @human_id::text, @expires_at::timestamptz)
+ON CONFLICT(grant_id) DO UPDATE SET
+    id=excluded.id, human_id=excluded.human_id, expires_at=excluded.expires_at;
+
+-- name: ApprovalByGrant :one
+SELECT grant_id, id, human_id, expires_at FROM approvals WHERE grant_id = @grant_id::text;

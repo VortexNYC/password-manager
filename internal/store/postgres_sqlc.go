@@ -517,3 +517,84 @@ func (p *Postgres) Secret(id string) (Secret, error) {
 	}
 	return Secret(plain), nil
 }
+
+func grantFromSqlc(r *sqlc.Grant) *protocol.Grant {
+	g := &protocol.Grant{
+		ID: r.ID, OrgID: r.OrgID, AgentID: r.AgentID, ItemID: r.ItemID,
+		Level: protocol.GrantLevel(r.Level),
+	}
+	if len(r.Actions) > 0 {
+		_ = json.Unmarshal([]byte(r.Actions), &g.Actions)
+	}
+	if r.ExpiresAt.Valid {
+		t := r.ExpiresAt.Time.UTC()
+		g.ExpiresAt = &t
+	}
+	return g
+}
+
+func (p *Postgres) PutGrant(g protocol.Grant) error {
+	actions, err := json.Marshal(g.Actions)
+	if err != nil {
+		return err
+	}
+	return p.sqlc.PutGrant(context.Background(), sqlc.PutGrantParams{
+		ID: g.ID, OrgID: g.OrgID, AgentID: g.AgentID, ItemID: g.ItemID,
+		Level: string(g.Level), Actions: string(actions), ExpiresAt: nullTime(g.ExpiresAt),
+	})
+}
+
+func (p *Postgres) Grant(id string) (*protocol.Grant, error) {
+	r, err := p.sqlc.GrantByID(context.Background(), id)
+	if err == pgx.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return grantFromSqlc(&r), nil
+}
+
+func (p *Postgres) GrantFor(agentID, itemID string) (*protocol.Grant, error) {
+	r, err := p.sqlc.GrantFor(context.Background(), sqlc.GrantForParams{AgentID: agentID, ItemID: itemID})
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return grantFromSqlc(&r), nil
+}
+
+func (p *Postgres) ListGrants() ([]protocol.Grant, error) {
+	rows, err := p.sqlc.ListGrants(context.Background(), maxListResults)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]protocol.Grant, 0, len(rows))
+	for i := range rows {
+		out = append(out, *grantFromSqlc(&rows[i]))
+	}
+	return out, nil
+}
+
+func (p *Postgres) PutApproval(a protocol.Approval) error {
+	return p.sqlc.PutApproval(context.Background(), sqlc.PutApprovalParams{
+		GrantID: a.GrantID, ID: a.ID, HumanID: a.HumanID, ExpiresAt: a.ExpiresAt.UTC(),
+	})
+}
+
+func (p *Postgres) LiveApproval(grantID string, now time.Time) (*protocol.Approval, error) {
+	r, err := p.sqlc.ApprovalByGrant(context.Background(), grantID)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	a := protocol.Approval{GrantID: r.GrantID, ID: r.ID, HumanID: r.HumanID, ExpiresAt: r.ExpiresAt.UTC()}
+	if !now.Before(a.ExpiresAt) {
+		return nil, nil
+	}
+	return &a, nil
+}
