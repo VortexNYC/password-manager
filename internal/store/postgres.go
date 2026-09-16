@@ -564,6 +564,64 @@ func (p *Postgres) Secret(id string) (Secret, error) {
 	return Secret(plain), nil
 }
 
+type useAuthRow struct {
+	aID, aOrgID, aOwnerKind, aOwnerID                                 sql.NullString
+	aRevoked                                                          sql.NullTime
+	iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID                   sql.NullString
+	iURIs, iTags                                                      sql.NullString
+	iHasTOTP, iArchived, iHasFile                                     sql.NullBool
+	iLogin                                                            sql.NullString
+	gID, gOrgID, gAgentID, gItemID, gLevel, gActions                  sql.NullString
+	gExpires                                                          sql.NullTime
+	apID, apGrantID, apHumanID                                        sql.NullString
+	apExpires                                                         sql.NullTime
+}
+
+func useAuthFromRow(r *useAuthRow) (UseAuth, error) {
+	var out UseAuth
+	if r.aID.Valid && r.aID.String != "" {
+		out.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: r.aID.String, OrgID: r.aOrgID.String}
+		out.Agent.Owner.Kind = protocol.OwnerKind(r.aOwnerKind.String)
+		out.Agent.Owner.ID = r.aOwnerID.String
+		if r.aRevoked.Valid {
+			t := r.aRevoked.Time.UTC()
+			out.Agent.RevokedAt = &t
+		}
+	}
+	if r.iID.Valid && r.iID.String != "" {
+		out.Item = protocol.Item{ID: r.iID.String, OrgID: r.iOrgID.String, Name: r.iName.String, Kind: protocol.ItemKind(r.iKind.String)}
+		out.Item.Owner.Kind = protocol.OwnerKind(r.iOwnerKind.String)
+		out.Item.Owner.ID = r.iOwnerID.String
+		if r.iURIs.Valid && r.iURIs.String != "" {
+			_ = json.Unmarshal([]byte(r.iURIs.String), &out.Item.URIs)
+		}
+		if r.iTags.Valid && r.iTags.String != "" {
+			_ = json.Unmarshal([]byte(r.iTags.String), &out.Item.Tags)
+		}
+		out.Item.HasTOTP = r.iHasTOTP.Bool
+		out.Item.Archived = r.iArchived.Bool
+		out.Item.HasFile = r.iHasFile.Bool
+		out.Item.Login = r.iLogin.String
+	}
+	if r.gID.Valid && r.gID.String != "" {
+		g := &protocol.Grant{ID: r.gID.String, OrgID: r.gOrgID.String, AgentID: r.gAgentID.String, ItemID: r.gItemID.String, Level: protocol.GrantLevel(r.gLevel.String)}
+		if r.gActions.Valid && r.gActions.String != "" {
+			_ = json.Unmarshal([]byte(r.gActions.String), &g.Actions)
+		}
+		if r.gExpires.Valid {
+			t := r.gExpires.Time.UTC()
+			g.ExpiresAt = &t
+		}
+		out.Grant = g
+	}
+	if r.apID.Valid && r.apID.String != "" {
+		if r.apExpires.Valid {
+			out.Approval = &protocol.Approval{ID: r.apID.String, GrantID: r.apGrantID.String, HumanID: r.apHumanID.String, ExpiresAt: r.apExpires.Time.UTC()}
+		}
+	}
+	return out, nil
+}
+
 func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
 	ctx := context.Background()
 	row := p.pool.QueryRow(ctx, `SELECT
@@ -578,69 +636,49 @@ func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, erro
 	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
 		agentID, itemID, now.UTC())
 
-	var (
-		aID, aOrgID, aOwnerKind, aOwnerID                                 sql.NullString
-		aRevoked                                                          sql.NullTime
-		iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID                   sql.NullString
-		iURIs, iTags                                                      sql.NullString
-		iHasTOTP, iArchived, iHasFile                                     sql.NullBool
-		iLogin                                                            sql.NullString
-		gID, gOrgID, gAgentID, gItemID, gLevel, gActions                  sql.NullString
-		gExpires                                                          sql.NullTime
-		apID, apGrantID, apHumanID                                        sql.NullString
-		apExpires                                                         sql.NullTime
-	)
+	var r useAuthRow
 	if err := row.Scan(
-		&aID, &aOrgID, &aOwnerKind, &aOwnerID, &aRevoked,
-		&iID, &iOrgID, &iName, &iKind, &iOwnerKind, &iOwnerID, &iURIs, &iHasTOTP, &iTags, &iArchived, &iHasFile, &iLogin,
-		&gID, &gOrgID, &gAgentID, &gItemID, &gLevel, &gActions, &gExpires,
-		&apID, &apGrantID, &apHumanID, &apExpires,
+		&r.aID, &r.aOrgID, &r.aOwnerKind, &r.aOwnerID, &r.aRevoked,
+		&r.iID, &r.iOrgID, &r.iName, &r.iKind, &r.iOwnerKind, &r.iOwnerID, &r.iURIs, &r.iHasTOTP, &r.iTags, &r.iArchived, &r.iHasFile, &r.iLogin,
+		&r.gID, &r.gOrgID, &r.gAgentID, &r.gItemID, &r.gLevel, &r.gActions, &r.gExpires,
+		&r.apID, &r.apGrantID, &r.apHumanID, &r.apExpires,
 	); err != nil {
 		return UseAuth{}, err
 	}
+	return useAuthFromRow(&r)
+}
 
-	var r UseAuth
-	if aID.Valid && aID.String != "" {
-		r.Agent = protocol.Principal{Kind: protocol.PrincipalAgent, ID: aID.String, OrgID: aOrgID.String}
-		r.Agent.Owner.Kind = protocol.OwnerKind(aOwnerKind.String)
-		r.Agent.Owner.ID = aOwnerID.String
-		if aRevoked.Valid {
-			t := aRevoked.Time.UTC()
-			r.Agent.RevokedAt = &t
-		}
+func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
+	ctx := context.Background()
+	row := p.pool.QueryRow(ctx, `SELECT
+		s.id,
+		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,
+		i.id, i.org_id, i.name, i.kind, i.owner_kind, i.owner_id, i.uris, i.has_totp, i.tags, i.archived, i.has_file, i.login,
+		g.id, g.org_id, g.agent_id, g.item_id, g.level, g.actions, g.expires_at,
+		ap.id, ap.grant_id, ap.human_id, ap.expires_at
+	FROM (SELECT $1::bytea AS session_hash, $2::text AS item_id, $3::timestamptz AS now) AS v
+	LEFT JOIN sessions s ON s.secret_hash = v.session_hash AND s.expires_at > v.now
+	LEFT JOIN agents a ON a.id = s.agent_id
+	LEFT JOIN items i ON i.id = v.item_id
+	LEFT JOIN grants g ON g.agent_id = s.agent_id AND g.item_id = i.id
+	LEFT JOIN approvals ap ON ap.grant_id = g.id AND ap.expires_at > v.now`,
+		sessionHash, itemID, now.UTC())
+
+	var sID sql.NullString
+	var r useAuthRow
+	if err := row.Scan(
+		&sID,
+		&r.aID, &r.aOrgID, &r.aOwnerKind, &r.aOwnerID, &r.aRevoked,
+		&r.iID, &r.iOrgID, &r.iName, &r.iKind, &r.iOwnerKind, &r.iOwnerID, &r.iURIs, &r.iHasTOTP, &r.iTags, &r.iArchived, &r.iHasFile, &r.iLogin,
+		&r.gID, &r.gOrgID, &r.gAgentID, &r.gItemID, &r.gLevel, &r.gActions, &r.gExpires,
+		&r.apID, &r.apGrantID, &r.apHumanID, &r.apExpires,
+	); err != nil {
+		return UseAuth{}, err
 	}
-	if iID.Valid && iID.String != "" {
-		r.Item = protocol.Item{ID: iID.String, OrgID: iOrgID.String, Name: iName.String, Kind: protocol.ItemKind(iKind.String)}
-		r.Item.Owner.Kind = protocol.OwnerKind(iOwnerKind.String)
-		r.Item.Owner.ID = iOwnerID.String
-		if iURIs.Valid && iURIs.String != "" {
-			_ = json.Unmarshal([]byte(iURIs.String), &r.Item.URIs)
-		}
-		if iTags.Valid && iTags.String != "" {
-			_ = json.Unmarshal([]byte(iTags.String), &r.Item.Tags)
-		}
-		r.Item.HasTOTP = iHasTOTP.Bool
-		r.Item.Archived = iArchived.Bool
-		r.Item.HasFile = iHasFile.Bool
-		r.Item.Login = iLogin.String
+	if !sID.Valid || sID.String == "" {
+		return UseAuth{}, ErrNotFound
 	}
-	if gID.Valid && gID.String != "" {
-		g := &protocol.Grant{ID: gID.String, OrgID: gOrgID.String, AgentID: gAgentID.String, ItemID: gItemID.String, Level: protocol.GrantLevel(gLevel.String)}
-		if gActions.Valid && gActions.String != "" {
-			_ = json.Unmarshal([]byte(gActions.String), &g.Actions)
-		}
-		if gExpires.Valid {
-			t := gExpires.Time.UTC()
-			g.ExpiresAt = &t
-		}
-		r.Grant = g
-	}
-	if apID.Valid && apID.String != "" {
-		if apExpires.Valid {
-			r.Approval = &protocol.Approval{ID: apID.String, GrantID: apGrantID.String, HumanID: apHumanID.String, ExpiresAt: apExpires.Time.UTC()}
-		}
-	}
-	return r, nil
+	return useAuthFromRow(&r)
 }
 
 func (p *Postgres) PutGrant(g protocol.Grant) error {

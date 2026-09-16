@@ -297,6 +297,10 @@ func (m *Memory) Grant(id string) (*protocol.Grant, error) {
 func (m *Memory) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.useAuthLocked(agentID, itemID, now), nil
+}
+
+func (m *Memory) useAuthLocked(agentID, itemID string, now time.Time) UseAuth {
 	var r UseAuth
 	if a, ok := m.agents[agentID]; ok {
 		r.Agent = a
@@ -312,7 +316,17 @@ func (m *Memory) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error)
 			r.Approval = &ap
 		}
 	}
-	return r, nil
+	return r
+}
+
+func (m *Memory) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sess, ok := m.sessions[sessionHashKey(sessionHash)]
+	if !ok || !now.Before(sess.ExpiresAt) {
+		return UseAuth{}, ErrNotFound
+	}
+	return m.useAuthLocked(sess.AgentID, itemID, now), nil
 }
 
 func (m *Memory) GrantFor(agentID, itemID string) (*protocol.Grant, error) {

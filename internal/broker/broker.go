@@ -31,7 +31,10 @@ import (
 	"github.com/vortexnyc/password-manager/internal/store"
 )
 
-var ErrOverloaded = errors.New("broker: origin overloaded")
+var (
+	ErrOverloaded  = errors.New("broker: origin overloaded")
+	ErrUnauthorized = errors.New("broker: unauthorized")
+)
 
 const defaultAuditTimeout = 500 * time.Millisecond
 
@@ -145,7 +148,36 @@ func (b *Broker) Use(ctx context.Context, agent protocol.Principal, req protocol
 	if err != nil {
 		return protocol.UseResult{}, err
 	}
+	return b.useAuthorized(ctx, span, agent, req, auth, now)
+}
 
+func (b *Broker) UseSession(ctx context.Context, sessionHash []byte, req protocol.UseRequest) (protocol.UseResult, error) {
+	ctx, span := otel.Tracer("veil").Start(ctx, "use")
+	defer span.End()
+	now := b.now()
+
+	if b.useLimit != nil {
+		if !b.useLimit.TryAcquire(1) {
+			span.SetStatus(codes.Error, "origin_overload")
+			return protocol.UseResult{}, ErrOverloaded
+		}
+		defer b.useLimit.Release(1)
+	}
+
+	auth, err := b.Store.UseAuthSession(sessionHash, req.ItemID, now)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return protocol.UseResult{}, ErrUnauthorized
+		}
+		return protocol.UseResult{}, err
+	}
+	if auth.Agent.ID == "" {
+		return protocol.UseResult{}, ErrUnauthorized
+	}
+	return b.useAuthorized(ctx, span, auth.Agent, req, auth, now)
+}
+
+func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent protocol.Principal, req protocol.UseRequest, auth store.UseAuth, now time.Time) (protocol.UseResult, error) {
 	// Tests may pass a bare principal with no store entry; do not fail those.
 	// A real store error fails closed above. Unknown agents fall through to
 	// grant evaluation, which will deny as no_grant.

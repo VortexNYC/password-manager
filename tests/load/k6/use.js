@@ -18,7 +18,7 @@ export const options = {
 };
 
 const rawOrigins = __ENV.VEIL_ORIGINS || __ENV.VEIL_ORIGIN || 'http://127.0.0.1:8080';
-const origins = rawOrigins.split(',').map((s) => s.trim());
+const origins = rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
 const token = __ENV.VEIL_AGENT_TOKEN;
 const item = __ENV.VEIL_ITEM_ID;
 const upstream = __ENV.VEIL_UPSTREAM_URL || 'https://httpbin.org/get';

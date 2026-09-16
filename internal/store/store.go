@@ -53,6 +53,10 @@ type Store interface {
 	// UseAuth returns the agent, item, grant, and live approval for a Use
 	// request in a single round trip. It never returns a secret.
 	UseAuth(agentID, itemID string, now time.Time) (UseAuth, error)
+	// UseAuthSession is the same as UseAuth but resolves a session by its
+	// secret hash first. If the session is missing, expired, or maps to a
+	// missing agent, it returns ErrNotFound.
+	UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error)
 
 	PutGrant(protocol.Grant) error
 	Grant(id string) (*protocol.Grant, error)

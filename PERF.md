@@ -193,6 +193,43 @@ pprof (`3rep-20ms-direct-session` CPU) is still dominated by network/runtime
 wait states (`syscall.rawsyscalln` ~50%, runtime waits ~30%), confirming the
 database is not the primary limiter even when the proxy is removed.
 
+### 6. Session-aware `UseAuth` join
+
+Code changes:
+
+- `Store.UseAuthSession` resolves a session by secret hash and joins the
+  authorization decision (`sessions` → `agents` → `items` → `grants` →
+  `approvals`) in a single query for Postgres. Memory and SQLite resolve the
+  session and reuse the existing `UseAuth` path.
+- `Broker.UseSession` calls `Store.UseAuthSession`, then performs the final
+  `Store.Agent` reload and the rest of the `Use` flow.
+- `App.UseFetchSession` hashes the session token and calls `Broker.UseSession`.
+- `internal/publicapi/api.go` routes session-token `POST /v1/use` directly to
+  `App.UseFetchSession`; OIDC tokens still use `App.UseFetch`.
+
+With 3 replicas, 150 VUs, `VEIL_AUDIT_FLUSH_INTERVAL=20ms`, direct origin, and a
+fresh loadtest DB:
+
+- Requests: **1,392,393**
+- Throughput: **11,603.3 req/s** (+33.0% vs the prior 8,724.5 req/s direct run)
+- Latency: avg **5.77 ms**, med **2.33 ms**, p95 **16.12 ms**, max **804.5 ms**
+- Errors: **0%**
+- Cache hit ratio: **0.9995**
+- No waiting/blocked connections or deadlocks
+
+Hot-path DB queries (`3rep-20ms-direct-useauthsession`):
+
+| Query | Calls | Mean (ms) | Total (ms) | /request |
+|---|---|---|---|---|
+| `UseAuthSession` (LEFT JOIN sessions/agents/items/grants/approvals) | 1,392,393 | 0.044 | 61,255.7 | 1 |
+| `items` secret lookup | 1,392,393 | 0.0149 | 20,781.1 | 1 |
+| `agents` final reload | 1,392,393 | 0.0146 | 20,339.6 | 1 |
+| `audit` COPY | 22,484 | 0.9084 | 20,425.5 | 0.016 (batches) |
+
+The separate `sessions` lookup is gone. Per `Use` there are now **3**
+synchronous DB round trips (`UseAuthSession`, final `agents`, `items` secret)
+plus an async audit `COPY`.
+
 ## Interpretation
 
 1. **Authorization read consolidation worked.** `UseAuth` collapsed the
@@ -201,9 +238,9 @@ database is not the primary limiter even when the proxy is removed.
    cut `agents` lookups from 4 to 2 per request. The 3-replica 20ms result is
    6,960 req/s, a ~27.7% gain over the prior 5,449 req/s baseline.
 2. **The database is not the primary limiter.** Hot-path DB queries still run in
-   ~0.012–0.036 ms with a cache hit ratio near 1.0 and no waiting/blocked
-   connections. Per `Use` there are now 4 synchronous DB round trips
-   (`sessions`, `UseAuth`, final `agents`, `items` secret), plus an async audit
+   ~0.015–0.044 ms with a cache hit ratio near 1.0 and no waiting/blocked
+   connections. Per `Use` there are now 3 synchronous DB round trips
+   (`UseAuthSession`, final `agents`, `items` secret), plus an async audit
    `COPY`.
 3. **The local reverse proxy was a real limiter in this test geometry.** Removing
    the `httputil.ReverseProxy` hop and running k6 directly against the origin
@@ -229,6 +266,13 @@ database is not the primary limiter even when the proxy is removed.
    was ~8,724 req/s vs ~6,669 req/s for the proxied 20ms run and ~5,248 req/s
    for the consolidated `UseAuth` 5ms run. Larger audit batches reduce `COPY`
    overhead.
+8. **Session-aware `UseAuth` is the next big win.** Joining `sessions` into the
+   `UseAuth` snapshot removed the standalone `sessions` call and cut the hot
+   path to 3 DB round trips. Throughput rose from 8,724 req/s to 11,603 req/s
+   (+33%) and p95 fell from 22.64 ms to 16.12 ms (-29%) in the same
+   150-VU/20ms direct-origin configuration. Fail-closed behavior is preserved:
+   `UseAuthSession` returns `ErrNotFound` for missing or expired sessions, and
+   the final `Store.Agent` reload still guards against revocation races.
 
 ## Decisions
 
@@ -241,32 +285,25 @@ database is not the primary limiter even when the proxy is removed.
 | Remove `App.UseFetch` pre-call | **Kept** | The broker already reloads the agent; the extra `Store.Agent` was pure overhead. |
 | Add pprof to harness | **Kept** | Confirms the remaining time is network/runtime, not DB. |
 | Bypass `httputil.ReverseProxy` in load-test geometry | **Kept** | Separates proxy overhead from origin capacity; shows a meaningful gain in this harness. |
-| `AgentFromSession` fast path for `/v1/use` | **Kept** | Removes one `agents` lookup per session-based `Use` while keeping full `PrincipalFromSession` for other endpoints. |
+| `UseAuthSession` join for session-token `/v1/use` | **Kept** | Removes the standalone `sessions` lookup and the intermediate `AgentFromSession` step; fail-closed revocation race guard is preserved. |
 
 ## Next optimization
 
-The hot path is now 4 synchronous DB round trips per `Use` plus an async audit
-`COPY`. pprof shows the remaining time is still local network/runtime overhead
-on a single Mac, not DB query execution. Before adding a fail-closed cache or
-distributed rate limiting, we need a cleaner view of origin capacity:
+The hot path is now 3 synchronous DB round trips per `Use` (`UseAuthSession`,
+final `agents`, `items` secret) plus an async audit `COPY`. pprof still shows the
+majority of time in local network/runtime wait states on a single Mac. Before
+adding a fail-closed cache or distributed rate limiting, the next moves are:
 
-1. **Consolidate the session and `UseAuth` lookups into one round trip.** The
-   `/v1/use` hot path still calls `sessions` then `UseAuth`. A
-   session-aware `UseAuth` that resolves the token hash and joins to the grant
-   decision in a single query would reduce the hot path to ~3 round trips
-   (`UseAuth`, final `agents`, `items` secret) and remove the separate `sessions`
-   lookup entirely. It must fail closed and never expose the item secret to the
-   resolver.
-2. **Move the final `agents` reload into `UseAuth` if it can be done safely.**
-   The final reload is the revocation race guard. If we can express
-   `UseAuth` as a single snapshot that is still authoritative at the moment we
-   read the secret, we could remove the extra `agents` call. This is the highest
-   DB-side win remaining.
-3. **Run a multi-host / multi-process load test.** Single-Mac loopback variance
+1. **Move the final `agents` reload into `UseAuthSession` if it can be done
+   safely.** The final reload is the revocation race guard. If we can express
+   `UseAuthSession` as a single snapshot that is still authoritative at the moment
+   we read the secret, we could remove the extra `agents` call and cut the hot
+   path to 2 round trips. This is the highest DB-side win remaining.
+2. **Run a multi-host / multi-process load test.** Single-Mac loopback variance
    is high. A `k6` runner on a separate core or host with the origin and Postgres
    on another machine will separate test-stack overhead from real origin
    capacity.
-4. **Only after the hot path is flat and measured away from loopback, consider a
+3. **Only after the hot path is flat and measured away from loopback, consider a
    short-lived, fail-closed cache** for session/grant metadata with explicit
    invalidation and distributed rate limiting.
 

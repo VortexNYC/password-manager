@@ -657,6 +657,17 @@ func (s *SQLite) Secret(id string) (Secret, error) {
 	return Secret(plain), nil
 }
 
+func (s *SQLite) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
+	sess, err := s.SessionByHash(sessionHash)
+	if err != nil {
+		return UseAuth{}, err
+	}
+	if !now.Before(sess.ExpiresAt) {
+		return UseAuth{}, ErrNotFound
+	}
+	return s.UseAuth(sess.AgentID, itemID, now)
+}
+
 func (s *SQLite) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error) {
 	row := s.db.QueryRow(`SELECT
 		a.id, a.org_id, a.owner_kind, a.owner_id, a.revoked_at,

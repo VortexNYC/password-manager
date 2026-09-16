@@ -1102,6 +1102,19 @@ func (a *App) UseFetch(ctx context.Context, agentID, itemID string, fetch protoc
 	})
 }
 
+func (a *App) UseSession(ctx context.Context, rawToken, itemID, method, rawURL string) (protocol.UseResult, error) {
+	return a.UseFetchSession(ctx, rawToken, itemID, protocol.Fetch{Method: method, URL: rawURL})
+}
+
+func (a *App) UseFetchSession(ctx context.Context, rawToken, itemID string, fetch protocol.Fetch) (protocol.UseResult, error) {
+	hash := sessionHash(rawToken)
+	return a.Broker.UseSession(ctx, hash, protocol.UseRequest{
+		ItemID: itemID,
+		Action: protocol.ActionFetch,
+		Fetch:  &fetch,
+	})
+}
+
 func (a *App) ChildEnv(ctx context.Context, agentID string) ([]string, error) {
 	agent, err := a.Store.Agent(agentID)
 	if err != nil {
