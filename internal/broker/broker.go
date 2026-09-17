@@ -169,7 +169,7 @@ func (b *Broker) UseSession(ctx context.Context, sessionHash []byte, req protoco
 		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrSessionExpired) || errors.Is(err, store.ErrSessionRevoked) || errors.Is(err, store.ErrDenied) {
 			return protocol.UseResult{}, ErrUnauthorized
 		}
-		return protocol.UseResult{}, err
+		return protocol.UseResult{}, fmt.Errorf("useauth: %w", err)
 	}
 	if auth.Agent.ID == "" {
 		return protocol.UseResult{}, ErrUnauthorized
@@ -246,14 +246,14 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 				dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "session_revoked"}
 				return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), nil
 			}
-			return protocol.UseResult{}, err
+			return protocol.UseResult{}, fmt.Errorf("consume: %w", err)
 		}
 		agent = current
 	}
 
 	secret, err := b.Store.Secret(item.ID)
 	if err != nil {
-		return protocol.UseResult{}, err
+		return protocol.UseResult{}, fmt.Errorf("secret: %w", err)
 	}
 	env := material.Unpack(secret)
 	fr, code, access, err := b.fetch(ctx, req.Fetch, env, now)

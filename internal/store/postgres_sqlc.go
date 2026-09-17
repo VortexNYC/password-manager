@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/veilnyc/password-manager/internal/crypto"
 	"github.com/veilnyc/password-manager/internal/protocol"
 	"github.com/veilnyc/password-manager/internal/store/sqlc"
@@ -104,12 +105,25 @@ func (p *Postgres) UseAuth(agentID, itemID string, now time.Time) (UseAuth, erro
 	return useAuthFromSqlcRow(&row)
 }
 
+// retryOnDeadConn runs fn once more when the error is a connection-level
+// failure that provably never reached the server (pgconn.SafeToRetry) — e.g.
+// a pooled conn silently blackholed by a host reschedule. Exactly one retry.
+func retryOnDeadConn[T any](fn func() (T, error)) (T, error) {
+	v, err := fn()
+	if err != nil && pgconn.SafeToRetry(err) {
+		v, err = fn()
+	}
+	return v, err
+}
+
 func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Time) (UseAuth, error) {
 	ctx := context.Background()
-	row, err := p.sqlc.UseAuthSession(ctx, sqlc.UseAuthSessionParams{
-		SessionHash: sessionHash,
-		ItemID:      itemID,
-		Now:         now.UTC(),
+	row, err := retryOnDeadConn(func() (sqlc.UseAuthSessionRow, error) {
+		return p.sqlc.UseAuthSession(ctx, sqlc.UseAuthSessionParams{
+			SessionHash: sessionHash,
+			ItemID:      itemID,
+			Now:         now.UTC(),
+		})
 	})
 	if err != nil {
 		return UseAuth{}, err
@@ -123,9 +137,11 @@ func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Ti
 
 func (p *Postgres) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
 	ctx := context.Background()
-	row, err := p.sqlc.ConsumeSession(ctx, sqlc.ConsumeSessionParams{
-		SessionHash: sessionHash,
-		Now:         now.UTC(),
+	row, err := retryOnDeadConn(func() (sqlc.ConsumeSessionRow, error) {
+		return p.sqlc.ConsumeSession(ctx, sqlc.ConsumeSessionParams{
+			SessionHash: sessionHash,
+			Now:         now.UTC(),
+		})
 	})
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -500,7 +516,9 @@ func (p *Postgres) RestoreVersion(itemID string, versionID int64) error {
 }
 
 func (p *Postgres) Secret(id string) (Secret, error) {
-	r, err := p.sqlc.ItemSecretOwner(context.Background(), id)
+	r, err := retryOnDeadConn(func() (sqlc.ItemSecretOwnerRow, error) {
+		return p.sqlc.ItemSecretOwner(context.Background(), id)
+	})
 	if err == pgx.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -600,9 +618,11 @@ func (p *Postgres) LiveApproval(grantID string, now time.Time) (*protocol.Approv
 }
 
 func (p *Postgres) loadOwnerWrapped(ctx context.Context, o protocol.Owner) ([]byte, error) {
-	wrapped, err := p.sqlc.OwnerWrapped(ctx, sqlc.OwnerWrappedParams{
-		OwnerKind: string(o.Kind),
-		OwnerID:   o.ID,
+	wrapped, err := retryOnDeadConn(func() ([]byte, error) {
+		return p.sqlc.OwnerWrapped(ctx, sqlc.OwnerWrappedParams{
+			OwnerKind: string(o.Kind),
+			OwnerID:   o.ID,
+		})
 	})
 	if err == pgx.ErrNoRows {
 		return nil, ErrNotFound
@@ -771,9 +791,11 @@ func (p *Postgres) AppendAudits(events []protocol.AuditEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
-	_, err := p.pool.CopyFrom(context.Background(), pgx.Identifier{"audit"}, []string{
-		"at", "org_id", "agent_id", "item_id", "action", "decision", "reason", "approval_id",
-	}, &auditCopySource{events: events})
+	_, err := retryOnDeadConn(func() (int64, error) {
+		return p.auditPool.CopyFrom(context.Background(), pgx.Identifier{"audit"}, []string{
+			"at", "org_id", "agent_id", "item_id", "action", "decision", "reason", "approval_id",
+		}, &auditCopySource{events: events})
+	})
 	return err
 }
 

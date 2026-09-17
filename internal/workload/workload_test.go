@@ -24,11 +24,11 @@ type testIssuer struct {
 	discoveries int
 }
 
-func newTestIssuer(t *testing.T) *testIssuer {
-	t.Helper()
+func newTestIssuer(tb testing.TB) *testIssuer {
+	tb.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	iss := &testIssuer{key: key}
 	mux := http.NewServeMux()
@@ -54,15 +54,15 @@ func newTestIssuer(t *testing.T) *testIssuer {
 	})
 	iss.server = httptest.NewServer(mux)
 	iss.URL = iss.server.URL
-	t.Cleanup(iss.server.Close)
+	tb.Cleanup(iss.server.Close)
 	return iss
 }
 
-func (i *testIssuer) token(t *testing.T, sub, aud string, exp time.Time) string {
-	t.Helper()
+func (i *testIssuer) token(tb testing.TB, sub, aud string, exp time.Time) string {
+	tb.Helper()
 	sig, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: i.key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "test"))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	raw, err := jwt.Signed(sig).Claims(jwt.Claims{
 		Issuer:   i.URL,
@@ -72,7 +72,7 @@ func (i *testIssuer) token(t *testing.T, sub, aud string, exp time.Time) string 
 		IssuedAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
 	}).Serialize()
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return raw
 }
@@ -160,5 +160,68 @@ func TestProviderDiscoveryCachedAcrossCalls(t *testing.T) {
 	}
 	if iss.discoveries != 1 {
 		t.Fatalf("provider discovery called %d times, want 1", iss.discoveries)
+	}
+}
+
+// Steady-state cost of one workload auth: RS256 verify + three store reads,
+// provider and JWKS already cached. Reported per-op so the number is directly
+// comparable against the measured session-token path.
+func BenchmarkAgentVerify(b *testing.B) {
+	iss := newTestIssuer(b)
+	mem := store.NewMemory()
+	if err := mem.PutAgent(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "flue", OrgID: "org"}); err != nil {
+		b.Fatal(err)
+	}
+	if err := mem.PutWorkload(protocol.Workload{
+		AgentID:  "flue",
+		Issuer:   iss.URL,
+		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
+		Audience: "password-manager",
+	}); err != nil {
+		b.Fatal(err)
+	}
+	c := New(mem)
+	tok := iss.token(b, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	// Warm the provider/JWKS cache so the loop measures steady state.
+	if _, err := c.Agent(context.Background(), tok); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := c.Agent(context.Background(), tok); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAgentVerifyParallel(b *testing.B) {
+	iss := newTestIssuer(b)
+	mem := store.NewMemory()
+	if err := mem.PutAgent(protocol.Principal{Kind: protocol.PrincipalAgent, ID: "flue", OrgID: "org"}); err != nil {
+		b.Fatal(err)
+	}
+	if err := mem.PutWorkload(protocol.Workload{
+		AgentID:  "flue",
+		Issuer:   iss.URL,
+		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
+		Audience: "password-manager",
+	}); err != nil {
+		b.Fatal(err)
+	}
+	c := New(mem)
+	tok := iss.token(b, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	if _, err := c.Agent(context.Background(), tok); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := c.Agent(context.Background(), tok); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	if iss.discoveries != 1 {
+		b.Fatalf("provider discovery called %d times, want 1", iss.discoveries)
 	}
 }

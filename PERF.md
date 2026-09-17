@@ -380,31 +380,237 @@ Interpretation of this run:
   scheduling and single-Mac loopback overhead, but it is a clean multi-process
   baseline.
 
+### 8. Multi-host: Mac k6 → Railway (origin ×3, Postgres, upstream)
+
+Topology:
+
+- **k6 + `cmd/loadtest` (external mode)** run on the local Mac and drive the
+  public Railway domain `origin-production-5416.up.railway.app`.
+- **Railway project `veil-loadtest`** (throwaway): Postgres 18, three `origin`
+  replicas, and `upstream` (`hashicorp/http-echo`) — all in `sfo`.
+- Origin→Postgres and origin→upstream stay on `*.railway.internal`; only
+  k6→origin crosses the public internet (~84 ms WAN RTT NYC→SFO).
+- Seeding goes through `railway connect --tunnel-only` (SSH tunnel to
+  `127.0.0.1:55432`); `VEIL_MASTER_KEY` matches the origins' key.
+- `VEIL_MAX_IN_FLIGHT_USE=1000` per replica (3,000 total admission capacity).
+- The Railway Postgres image ships only `plpgsql` — no `pg_stat_statements` —
+  so pgbot reports connections/locks/cache but no per-query timing.
+
+Code changes:
+
+- `internal/publicapi/api.go`: the generic `/v1/use` error path now logs the
+  underlying error (`slog.Warn("use failed", "item", …, "err", …)`); the client
+  still gets the opaque `400 use failed`.
+- `internal/broker/broker.go`: non-sentinel store errors are stage-tagged
+  (`useauth:` / `consume:` / `secret:`) so logs identify the failing call.
+- `tests/load/k6/use.js`: a `veil_fail_status` counter plus sampled failure
+  bodies for the first VUs.
+
+#### 8.1 500 VUs
+
+| Metric | Value |
+|---|---|
+| Requests | 263,073 |
+| Throughput | 2,192.06 req/s |
+| Latency avg / med / p95 / max | 102.57 / 94.66 / 145.09 / 937.02 ms |
+| Errors | **0%** |
+
+Railway edge metrics for the same window: origin-side p50 **11 ms**,
+p95 **27 ms**; origin CPU ~0.25/8 per replica; Postgres CPU low. WAN transit
+accounts for ~80 ms of the ~103 ms client-visible average — the service itself
+is fast.
+
+#### 8.2 2000 VUs — rescheduled replica set (bad run)
+
+| Metric | Value |
+|---|---|
+| Requests | 647,269 |
+| Offered throughput | 5,390.52 req/s |
+| Checks | 66.57% |
+| Edge status split | 430,888 2xx / 214,162 4xx / 2,219 5xx |
+
+The 4xx were literal `400 use failed` responses — origin-side generic store
+errors before the audit point. The run overlapped a Railway reschedule of the
+replica set; ~1/3 of requests failed, matching one wedged replica's traffic
+share. Same signature as the earlier zombie-pool incident: `pg_stat_activity`
+showed ~63 "idle" `password-manager` connections that were blackholed on the
+client side — pgx pool conns whose TCP died silently (no FIN) during the
+reschedule. **A graceful `pg_terminate_backend` of all 80 conns mid-burst on a
+healthy deploy produced zero errors** — the failure needs silent packet-level
+death, which a reschedule produces and a clean kill does not.
+
+#### 8.3 2000 VUs — fresh replicas (valid run)
+
+| Metric | Value |
+|---|---|
+| Requests | 665,123 |
+| Offered throughput | 5,540.47 req/s |
+| Checks | 99.54% |
+| Failures | 3,026 (0.45%) — every sampled failure `503 origin overloaded` |
+| Latency avg / med / p95 / max | 162.53 / 107.47 / 470.35 / 879.22 ms |
+
+All sampled failures were **designed admission shedding**: per-replica in-flight
+cap 1000, uneven edge→replica distribution at 2000 VUs, momentary overflow on
+the hot replica. No `400` store errors observed; no `fetch_failed` denies.
+
+Post-run DB state: 60 `password-manager` pool conns (3×`MaxConns=20`), 0
+deadlocks, no lock waits. Under load the dominant wait was `LWLock WALWrite`
+(~18 waiters) — commits bound on WAL flush, not row locks. The shared
+`loadtest-agent` row in `ConsumeSession`'s `UPDATE … FROM agents` did **not**
+produce observable tuple-lock pileups.
+
+#### 8.4 Findings
+
+1. **WAN dominates client latency.** At 500 VUs the service adds only ~10–30 ms
+   on top of ~85 ms of transit. Measuring Veil's server-side ceiling from a
+   single remote client requires saturating concurrency, not accuracy of p50.
+2. **The audit channel is the next real limiter.** `Async.Append` blocks on the
+   request path up to `AuditTimeout` (500 ms) when the 1024-event buffer
+   saturates; at ~5.5k req/s sustained it began dropping events
+   (`audit event dropped` / `context deadline exceeded` warns, ~1.4k in the
+   582k-req run). Consequence: **the audit table is not a reliable failure
+   classifier under load** — dropped events self-select for exactly the busiest
+   windows.
+3. **Rescheduled replicas can strand pgx pools.** A replica whose pooled conns
+   blackhole during a reschedule emits fast generic errors (`400 use failed`)
+   until the pool detects and replaces them. pgx recovers on its own once a
+   query observes the dead conn, but each bad conn costs one request. Options:
+   bounded retry on conn-level errors in the `UseSession` path, or
+   `HealthCheckPeriod`/keepalive tuning. Not yet changed.
+4. **Admission shedding works as designed.** `503 origin overloaded` is the
+   only observed failure mode on a healthy deploy; it is fail-fast and cheap.
+   Raising the cap trades sheds for queueing (run at cap 1000: p95 470 ms vs
+   cap 300: faster rejects, more sheds).
+5. **Client-cancel noise exists but is invisible.** `r.Context()` propagates
+   into the upstream fetch; a disconnecting client produces `context canceled`
+   fetch aborts → `deny/fetch_failed` audit + a 400 written to a dead conn.
+   Harmless but noisy in logs under client-timeout load.
+
+### 9. Audit isolation + corrected local baseline + OIDC cost
+
+Post-§8 changes, all in this branch:
+
+- **Dedicated audit pool**: `AppendAudits` runs `CopyFrom` on a separate
+  2-connection pool (`application_name=password-manager-audit`). Request-path
+  pool contention can no longer starve the audit worker.
+- **Backlog drain**: the async auditor now drains the queue when the flush
+  timer fires and batches up to 256 rows per COPY (was: flush only what
+  arrived during the interval, max 64). Drain capacity is no longer bounded by
+  `events-per-interval / (interval + flush)`.
+- **Bounded safe retry**: `/v1/use` store calls (`UseAuthSession`,
+  `ConsumeSession`, `ItemSecretOwner`, `OwnerWrapped`) and the audit COPY get
+  exactly one retry when `pgconn.SafeToRetry` — i.e. only when the error is a
+  connection-level failure that provably sent no bytes. Covers the
+  reschedule-stranded-conn class from §8.4.3 without retrying partial work.
+
+#### 9.1 Harness bug found
+
+`originBinary()` preferred `exec.LookPath("password-manager")` over building
+the working tree. A day-old PATH binary (predating the `ses_` session-token
+scheme) answered every seeded session with 401 — **8.4M requests, 100%
+unauthorized** — while looking superficially healthy. The earlier local
+baselines predate `ses_` seeding so their absolute numbers were measured on
+that binary's code path; treat them as order-of-magnitude only. The harness now
+always builds `./cmd/password-manager` unless `LOADTEST_ORIGIN_BINARY` is set.
+
+#### 9.2 Corrected local baseline (fixed binary, 200 agents)
+
+`process` mode, 3 child origins, local docker Postgres 18
+(`pg_stat_statements` preloaded), `LOADTEST_AGENTS=200`, `VEIL_VUS=2000`,
+`VEIL_MAX_IN_FLIGHT_USE=1000`, loopback upstream:
+
+| Metric | Value |
+|---|---|
+| Requests | 581,667 |
+| Offered throughput | 4,847 req/s |
+| Checks | 96.94% |
+| Failures | 17,762 (3.05%) — all pre-audit (503 admission shed class) |
+| Latency avg / med / p95 | 186 / 89 / 655 ms |
+| Audit `allow` rows | **563,905 = exactly the 2xx count — zero drops** |
+
+pg_stat_statements, ~564k uses over 200 agent rows:
+
+| Query | calls | mean |
+|---|---|---|
+| `UseAuthSession` (join) | 563,905 | 0.094 ms |
+| `ConsumeSession` (`UPDATE … FROM agents`) | 563,905 | 0.064 ms |
+| `ItemSecretOwner` | 563,905 | 0.020 ms |
+| `COPY audit` | 22,621 | 0.666 ms (≈25 rows/batch = 5 ms interval × arrival rate) |
+
+~0.18 ms of synchronous DB work per `Use`; the 200-agent spread shows **no
+agent-row contention** in `ConsumeSession`. Client-visible p95 655 ms at 2000
+loopback VUs is k6 goroutine scheduling on the Mac, not the server (medians
+match §8's origin-side numbers once WAN is removed).
+
+#### 9.3 Multi-tenant re-run on Railway (500 agents, fixed origin)
+
+Same topology as §8 (3 origin replicas, shared Railway PG, private upstream),
+but `LOADTEST_AGENTS=500` — 2000 sessions spread across 500 agent rows — and
+the origin running the audit-pool fix:
+
+| Metric | Value |
+|---|---|
+| Requests | 589,607 |
+| Offered throughput | 4,912 req/s |
+| Checks | 97.31% |
+| Failures | 15,828 (2.68%) — every sampled failure `503 origin overloaded` |
+| Latency avg / med / p95 | 183 / 98 / 572 ms |
+
+Zero 400s and zero 401s across 500 distinct agents — spreading
+`ConsumeSession`'s `UPDATE … FROM agents` across 500 rows changes nothing vs
+the single-agent run, confirming there was no agent-row hotspot to begin with.
+
+Mid-run `pg_stat_activity`: 60 `password-manager` conns + 3
+`password-manager-audit` conns — pool separation visible in production.
+
+**Audit-drop validation**: replayed the run's 2000 dumped session tokens in a
+120k-request sustained burst (conc 400) — `audit.allow` delta was **exactly
+120,000 for 120,000 `200 allow` responses — zero drops** at WAN scale. The
+same regime pre-fix dropped ~1.4k events.
+
+#### 9.4 OIDC workload-auth cost (benchmark, no network)
+
+`internal/workload` benchmarks against a local httptest issuer with
+provider+JWKS warm (`BenchmarkAgentVerify`, `…Parallel`):
+
+| | per-op | implied capacity |
+|---|---|---|
+| Serial | 32.2 µs | ~31k auth/s per core |
+| Parallel (14 cores) | 6.6 µs | ~150k auth/s aggregate |
+
+Per request that is RS256 verify + 3 store reads (`WorkloadsForIssuer`,
+`Workload`, `Agent`) — against Postgres add ~0.15 ms of indexed lookups.
+Discovery and JWKS are cached per issuer (verified: exactly 1 discovery across
+the whole parallel run). The bearer path is nowhere near the bottleneck at the
+measured `/v1/use` rates. Caveat found: `Checker.provider` holds its mutex
+across `oidc.NewProvider` — a cold issuer serializes *all* workload auths
+behind one discovery HTTP call. Fine at startup; worth a per-issuer
+singleflight if cold issuers ever appear mid-flight.
+
 ## Next optimization
 
-The session-token hot path is now **3 synchronous DB round trips** per `Use`
-(`UseAuthSession`, `ConsumeSession`, `items` secret) plus an async audit `COPY`.
-`UseAuthSession` itself is the largest DB consumer at ~0.06 ms per request, and
-`ConsumeSession` is the second at ~0.04 ms. Fail-closed revocation for session
-requests is already handled by the `UseAuthSession` join and the
-`ConsumeSession` update that checks the bound agent; there is no extra final
-`agents` reload in the session path.
+The session-token hot path is **3 synchronous DB round trips** per `Use`
+(`UseAuthSession`, `ConsumeSession`, `items` secret) plus an async audit `COPY`
+on its own pool — ~0.18 ms DB time total at 4.8k req/s.
 
 Before adding a fail-closed cache or distributed rate limiting:
 
-1. **Run a multi-host load test.** Single-Mac loopback variance and child-process
-   scheduling noise are still clouding the numbers. A `k6` runner on a separate
-   core or host with the origin and Postgres on other machines will separate
-   test-stack overhead from real origin capacity. The corrected process run
-   (4,574 req/s, 14.68 ms avg) is still capped by the local test geometry.
-2. **Investigate the agent-token `Use` path only if it becomes a hot path.** The
+1. **Audit channel: fixed** (§9). Dedicated pool + 256-row drain + safe retry;
+   zero drops at ~4.8k req/s local. Re-validate at WAN scale on Railway, then
+   the next audit lever is `VEIL_AUDIT_BUFFER` sizing and drop-oldest vs
+   block-and-shed policy.
+2. **Connection budget.** `MaxConns=20` main + 2 audit per replica. Against
+   `max_connections=100` the replica ceiling is ~4–5 before headroom for
+   migrations/admin is gone. Document or gate replica scale-out; PgBouncer
+   becomes the answer past ~8 replicas.
+3. **Investigate the agent-token `Use` path only if it becomes a hot path.** The
    agent-token `Use` still performs a final `Store.Agent` reload after `UseAuth`
    to guard against revocation races. Folding that reload into `UseAuth` would
    require holding a row lock on the agent through the upstream `fetch`, which
    would serialize concurrent uses by the same agent and is not a win for the
    high-volume session path. For now, keep the reload; it is a tiny fraction of
    DB time in the session load test.
-3. **Only after the hot path is flat and measured away from loopback, consider a
+4. **Only after the hot path is flat and measured away from loopback, consider a
    short-lived, fail-closed cache** for session/grant metadata with explicit
    invalidation and distributed rate limiting.
 

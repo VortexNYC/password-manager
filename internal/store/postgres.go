@@ -14,9 +14,10 @@ import (
 // Postgres is a pgx-backed Store for the origin. Secrets are encrypted with
 // per-owner data keys before they are written, same as the SQLite store.
 type Postgres struct {
-	pool *pgxpool.Pool
-	km   *keyManager
-	sqlc *sqlc.Queries
+	pool      *pgxpool.Pool
+	auditPool *pgxpool.Pool
+	km        *keyManager
+	sqlc      *sqlc.Queries
 }
 
 // OpenPostgres opens a Postgres-backed store. The supplied key is the master
@@ -47,9 +48,20 @@ func OpenPostgres(connString string, key []byte) (*Postgres, error) {
 		pool.Close()
 		return nil, err
 	}
-	p := &Postgres{pool: pool, km: newKeyManager(key), sqlc: sqlc.New(pool)}
+	// Audit writes get their own small pool so the async auditor's COPY does
+	// not queue behind request-path queries when the main pool is saturated.
+	auditCfg := config.Copy()
+	auditCfg.MaxConns = 2
+	auditCfg.MinConns = 1
+	auditCfg.ConnConfig.RuntimeParams["application_name"] = "password-manager-audit"
+	auditPool, err := pgxpool.NewWithConfig(context.Background(), auditCfg)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	p := &Postgres{pool: pool, auditPool: auditPool, km: newKeyManager(key), sqlc: sqlc.New(pool)}
 	if err := p.migrate(); err != nil {
-		p.pool.Close()
+		p.Close()
 		return nil, err
 	}
 	return p, nil
@@ -184,7 +196,7 @@ func (p *Postgres) migrate() error {
 	return nil
 }
 
-func (p *Postgres) Close() error { p.pool.Close(); return nil }
+func (p *Postgres) Close() error { p.pool.Close(); p.auditPool.Close(); return nil }
 
 func (p *Postgres) ownerDEK(o protocol.Owner) ([]byte, error) {
 	return p.km.ownerDEK(context.Background(), p, o)
