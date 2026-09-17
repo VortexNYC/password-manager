@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -272,6 +273,75 @@ func TestDummyEnvWellKnownCloudflare(t *testing.T) {
 	}
 	if !strings.Contains(joined, "CLOUDFLARE_API_TOKEN="+DummySecret) {
 		t.Fatalf("wrangler token alias missing: %q", env)
+	}
+}
+
+func TestOriginProxyGzipRoundTrip(t *testing.T) {
+	var gz bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	_, _ = gw.Write([]byte(`{"ok":true}`))
+	_ = gw.Close()
+	gzipped := gz.Bytes()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("origin Use intercepts; upstream unreachable")
+	}))
+	t.Cleanup(upstream.Close)
+
+	s, err := NewOrigin("cursor", t.TempDir(), []protocol.Item{{
+		ID: "cf", Name: "cf", Kind: protocol.ItemAPIKey, URIs: []string{upstream.URL},
+	}}, func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error) {
+		return OriginResult{
+			Decision: protocol.DecisionAllow,
+			Status:   http.StatusOK,
+			Header:   http.Header{"Content-Encoding": {"gzip"}, "Content-Type": {"application/json"}},
+			Body:     gzipped,
+		}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(s.CAPEM) {
+		t.Fatal("ca pem")
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy:           http.ProxyURL(s.ProxyURL()),
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+		},
+		Timeout: 8 * time.Second,
+	}
+	req, err := http.NewRequest(http.MethodGet, upstream.URL+"/v4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+DummySecret)
+	req.Header.Set("Accept-Encoding", "gzip")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if !bytes.Equal(body, gzipped) {
+		t.Fatalf("gzip body corrupted on the wire: got %x want %x", body, gzipped)
+	}
+	if res.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding lost: %v", res.Header)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("body does not gunzip: %v", err)
+	}
+	plain, _ := io.ReadAll(zr)
+	if string(plain) != `{"ok":true}` {
+		t.Fatalf("gunzipped %q", plain)
 	}
 }
 
