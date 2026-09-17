@@ -2,7 +2,9 @@ package publicapi
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1063,6 +1065,94 @@ func TestFillTOTPEnroll(t *testing.T) {
 	}
 	if minted.TOTP == seed {
 		t.Fatal("mint returned seed")
+	}
+}
+
+func TestUseBinaryBodySurvivesWire(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+
+	var gz bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	_, _ = gw.Write([]byte(`{"ok":true}`))
+	_ = gw.Close()
+	gzipped := gz.Bytes()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(gzipped)
+	}))
+	defer upstream.Close()
+
+	doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name: "cf", URI: upstream.URL, Secret: secret,
+	})
+	doJSON(t, srv, http.MethodPost, "/v1/agents", "human", CreateAgentRequest{Name: "flue"})
+	doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
+		Agent: "flue", Item: "cf", Level: "level2",
+	})
+
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/use", "agent-flue", UseRequest{
+		Item: "cf", URL: upstream.URL, Method: http.MethodGet,
+		Headers: map[string]string{"Accept-Encoding": "gzip"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("use %d %s", code, raw)
+	}
+	var out UseResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Body != "" {
+		t.Fatalf("binary body must not be emitted as text: %q", out.Body)
+	}
+	got, err := base64.StdEncoding.DecodeString(out.BodyB64)
+	if err != nil {
+		t.Fatalf("body_b64 decode: %v", err)
+	}
+	if !bytes.Equal(got, gzipped) {
+		t.Fatalf("binary body corrupted: got %x want %x", got, gzipped)
+	}
+	if out.Headers.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("headers missing Content-Encoding: %v", out.Headers)
+	}
+	if out.Headers.Get("Content-Type") != "application/json" {
+		t.Fatalf("headers missing Content-Type: %v", out.Headers)
+	}
+}
+
+func TestUseBinaryRequestBodyB64(t *testing.T) {
+	a := testApp(t)
+	srv := apiServer(t, a)
+
+	want := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef}
+	var saw []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		saw, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	defer upstream.Close()
+
+	doJSON(t, srv, http.MethodPost, "/v1/items", "human", CreateItemRequest{
+		Name: "cf", URI: upstream.URL, Secret: secret,
+	})
+	doJSON(t, srv, http.MethodPost, "/v1/agents", "human", CreateAgentRequest{Name: "flue"})
+	doJSON(t, srv, http.MethodPost, "/v1/grants", "human", CreateGrantRequest{
+		Agent: "flue", Item: "cf", Level: "level2",
+	})
+
+	code, raw := doJSON(t, srv, http.MethodPost, "/v1/use", "agent-flue", map[string]any{
+		"item": "cf", "url": upstream.URL, "method": http.MethodPost,
+		"body_b64": base64.StdEncoding.EncodeToString(want),
+	})
+	if code != http.StatusOK {
+		t.Fatalf("use %d %s", code, raw)
+	}
+	if !bytes.Equal(saw, want) {
+		t.Fatalf("binary request body corrupted: got %x want %x", saw, want)
 	}
 }
 

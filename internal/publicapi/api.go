@@ -9,12 +9,14 @@ package publicapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 	"time"
 
 	"github.com/veilnyc/password-manager/internal/app"
@@ -30,6 +32,7 @@ type UseRequest struct {
 	Method  string            `json:"method,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    string            `json:"body,omitempty"`
+	BodyB64 string            `json:"body_b64,omitempty"`
 }
 
 type UseResponse struct {
@@ -37,7 +40,9 @@ type UseResponse struct {
 	Reason     string            `json:"reason,omitempty"`
 	ApprovalID string            `json:"approval_id,omitempty"`
 	Status     int               `json:"status,omitempty"`
+	Headers    http.Header       `json:"headers,omitempty"`
 	Body       string            `json:"body,omitempty"`
+	BodyB64    string            `json:"body_b64,omitempty"`
 }
 
 type ItemsResponse struct {
@@ -548,11 +553,20 @@ func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 	for k, v := range in.Headers {
 		h.Add(k, v)
 	}
+	body := []byte(in.Body)
+	if in.BodyB64 != "" {
+		decoded, err := base64.StdEncoding.DecodeString(in.BodyB64)
+		if err != nil {
+			http.Error(w, "bad body_b64", http.StatusBadRequest)
+			return
+		}
+		body = decoded
+	}
 	fetch := protocol.Fetch{
 		Method: in.Method,
 		URL:    in.URL,
 		Header: h,
-		Body:   []byte(in.Body),
+		Body:   body,
 	}
 	raw := bearer(r.Header.Get("Authorization"))
 
@@ -585,7 +599,12 @@ func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 	out := UseResponse{Decision: got.Decision, Reason: got.Reason, ApprovalID: got.ApprovalID}
 	if got.Fetch != nil {
 		out.Status = got.Fetch.Status
-		out.Body = string(got.Fetch.Body)
+		out.Headers = got.Fetch.Header
+		if utf8.Valid(got.Fetch.Body) {
+			out.Body = string(got.Fetch.Body)
+		} else {
+			out.BodyB64 = base64.StdEncoding.EncodeToString(got.Fetch.Body)
+		}
 	}
 	writeJSON(w, out)
 }
