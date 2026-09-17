@@ -21,7 +21,8 @@ type OriginResult struct {
 	Decision protocol.Decision
 	Reason   string
 	Status   int
-	Body     string
+	Header   http.Header
+	Body     []byte
 }
 
 // OriginUse fetches via origin. The laptop never receives the vault secret.
@@ -128,6 +129,19 @@ func (s *Server) injectOrigin(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 	return nil, originHTTP(req, out)
 }
 
+// hopHeaders are connection-scoped; they never cross the proxy.
+var hopHeaders = map[string]bool{
+	"Connection":          true,
+	"Keep-Alive":          true,
+	"Proxy-Authenticate":  true,
+	"Proxy-Authorization": true,
+	"Te":                  true,
+	"Trailer":             true,
+	"Transfer-Encoding":   true,
+	"Upgrade":             true,
+	"Content-Length":      true,
+}
+
 func originHTTP(req *http.Request, out OriginResult) *http.Response {
 	if out.Decision != protocol.DecisionAllow {
 		return jsonResp(req, http.StatusForbidden, protocol.UseResult{Decision: out.Decision, Reason: out.Reason})
@@ -136,12 +150,22 @@ func originHTTP(req *http.Request, out OriginResult) *http.Response {
 	if status == 0 {
 		status = http.StatusOK
 	}
-	body := []byte(out.Body)
+	body := out.Body
 	h := http.Header{}
-	if len(body) > 0 && body[0] != '{' && body[0] != '[' {
-		h.Set("Content-Type", "text/plain; charset=utf-8")
-	} else {
-		h.Set("Content-Type", "application/json")
+	for k, vs := range out.Header {
+		if hopHeaders[http.CanonicalHeaderKey(k)] {
+			continue
+		}
+		for _, v := range vs {
+			h.Add(k, v)
+		}
+	}
+	if h.Get("Content-Type") == "" {
+		if len(body) > 0 && body[0] != '{' && body[0] != '[' {
+			h.Set("Content-Type", "text/plain; charset=utf-8")
+		} else {
+			h.Set("Content-Type", "application/json")
+		}
 	}
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	return &http.Response{

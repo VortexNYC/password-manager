@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -40,7 +41,7 @@ func TestOriginInjectsViaUseNotSecret(t *testing.T) {
 		sawItem = item
 		sawURL = rawURL
 		sawAuth = header.Get("Authorization")
-		return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: `{"ok":true}`}, nil
+		return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: []byte(`{"ok":true}`)}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +212,7 @@ func TestOriginRevokeFailsClosed(t *testing.T) {
 	revoked := false
 	s, err := NewOrigin("cursor", dir, items, func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error) {
 		if !revoked {
-			return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: `ok`}, nil
+			return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: []byte(`ok`)}, nil
 		}
 		return OriginResult{Decision: protocol.DecisionDeny, Reason: "agent_revoked"}, nil
 	})
@@ -271,5 +272,42 @@ func TestDummyEnvWellKnownCloudflare(t *testing.T) {
 	}
 	if !strings.Contains(joined, "CLOUDFLARE_API_TOKEN="+DummySecret) {
 		t.Fatalf("wrangler token alias missing: %q", env)
+	}
+}
+
+func TestOriginHTTPPassesUpstreamHeadersAndBytes(t *testing.T) {
+	gzipped := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef}
+	req, err := http.NewRequest(http.MethodGet, "https://api.cloudflare.com/v4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := originHTTP(req, OriginResult{
+		Decision: protocol.DecisionAllow,
+		Status:   http.StatusOK,
+		Header: http.Header{
+			"Content-Encoding": {"gzip"},
+			"Content-Type":     {"application/json"},
+			"X-Custom":         {"a", "b"},
+		},
+		Body: gzipped,
+	})
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, gzipped) {
+		t.Fatalf("body corrupted: got %x want %x", body, gzipped)
+	}
+	if res.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding lost: %v", res.Header)
+	}
+	if res.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("Content-Type lost: %v", res.Header)
+	}
+	if got := res.Header.Values("X-Custom"); len(got) != 2 {
+		t.Fatalf("multi-value header lost: %v", res.Header)
+	}
+	if res.ContentLength != int64(len(gzipped)) {
+		t.Fatalf("ContentLength %d", res.ContentLength)
 	}
 }

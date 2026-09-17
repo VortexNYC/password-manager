@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -104,7 +106,11 @@ func originUseCall(ctx context.Context, tok, item, method, rawURL string, header
 		URL:     rawURL,
 		Method:  method,
 		Headers: map[string]string{},
-		Body:    string(body),
+	}
+	if utf8.Valid(body) {
+		in.Body = string(body)
+	} else {
+		in.BodyB64 = base64.StdEncoding.EncodeToString(body)
 	}
 	for k, vs := range header {
 		if len(vs) > 0 {
@@ -123,10 +129,18 @@ func originUseCall(ctx context.Context, tok, item, method, rawURL string, header
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return proxy.OriginResult{}, err
 	}
+	resBody := []byte(out.Body)
+	if out.BodyB64 != "" {
+		resBody, err = base64.StdEncoding.DecodeString(out.BodyB64)
+		if err != nil {
+			return proxy.OriginResult{}, fmt.Errorf("use: bad body_b64: %w", err)
+		}
+	}
 	return proxy.OriginResult{
 		Decision: out.Decision,
 		Reason:   out.Reason,
 		Status:   out.Status,
-		Body:     out.Body,
+		Header:   out.Headers,
+		Body:     resBody,
 	}, nil
 }

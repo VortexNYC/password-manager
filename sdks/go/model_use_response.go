@@ -25,8 +25,12 @@ type UseResponse struct {
 	Reason *string `json:"reason,omitempty"`
 	ApprovalId *string `json:"approval_id,omitempty"`
 	Status *int32 `json:"status,omitempty"`
-	// Upstream body with vault secrets scrubbed.
+	// Upstream response headers, including Content-Type and Content-Encoding.
+	Headers map[string][]string `json:"headers,omitempty"`
+	// Upstream body with vault secrets scrubbed. Present when the body is valid UTF-8.
 	Body *string `json:"body,omitempty"`
+	// Base64 upstream body with vault secrets scrubbed. Present when the body is not valid UTF-8 (gzip, images, protobuf).
+	BodyB64 *string `json:"body_b64,omitempty"`
 }
 
 type _UseResponse UseResponse
@@ -169,6 +173,38 @@ func (o *UseResponse) SetStatus(v int32) {
 	o.Status = &v
 }
 
+// GetHeaders returns the Headers field value if set, zero value otherwise.
+func (o *UseResponse) GetHeaders() map[string][]string {
+	if o == nil || IsNil(o.Headers) {
+		var ret map[string][]string
+		return ret
+	}
+	return o.Headers
+}
+
+// GetHeadersOk returns a tuple with the Headers field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *UseResponse) GetHeadersOk() (map[string][]string, bool) {
+	if o == nil || IsNil(o.Headers) {
+		return map[string][]string{}, false
+	}
+	return o.Headers, true
+}
+
+// HasHeaders returns a boolean if a field has been set.
+func (o *UseResponse) HasHeaders() bool {
+	if o != nil && !IsNil(o.Headers) {
+		return true
+	}
+
+	return false
+}
+
+// SetHeaders gets a reference to the given map[string][]string and assigns it to the Headers field.
+func (o *UseResponse) SetHeaders(v map[string][]string) {
+	o.Headers = v
+}
+
 // GetBody returns the Body field value if set, zero value otherwise.
 func (o *UseResponse) GetBody() string {
 	if o == nil || IsNil(o.Body) {
@@ -201,6 +237,38 @@ func (o *UseResponse) SetBody(v string) {
 	o.Body = &v
 }
 
+// GetBodyB64 returns the BodyB64 field value if set, zero value otherwise.
+func (o *UseResponse) GetBodyB64() string {
+	if o == nil || IsNil(o.BodyB64) {
+		var ret string
+		return ret
+	}
+	return *o.BodyB64
+}
+
+// GetBodyB64Ok returns a tuple with the BodyB64 field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *UseResponse) GetBodyB64Ok() (*string, bool) {
+	if o == nil || IsNil(o.BodyB64) {
+		return nil, false
+	}
+	return o.BodyB64, true
+}
+
+// HasBodyB64 returns a boolean if a field has been set.
+func (o *UseResponse) HasBodyB64() bool {
+	if o != nil && !IsNil(o.BodyB64) {
+		return true
+	}
+
+	return false
+}
+
+// SetBodyB64 gets a reference to the given string and assigns it to the BodyB64 field.
+func (o *UseResponse) SetBodyB64(v string) {
+	o.BodyB64 = &v
+}
+
 func (o UseResponse) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -221,8 +289,14 @@ func (o UseResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
 	}
+	if !IsNil(o.Headers) {
+		toSerialize["headers"] = o.Headers
+	}
 	if !IsNil(o.Body) {
 		toSerialize["body"] = o.Body
+	}
+	if !IsNil(o.BodyB64) {
+		toSerialize["body_b64"] = o.BodyB64
 	}
 	return toSerialize, nil
 }

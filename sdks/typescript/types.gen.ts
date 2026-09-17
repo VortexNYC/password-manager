@@ -50,6 +50,10 @@ export type UseRequest = {
      * Request body. Never the vault secret. Use --body-file on the CLI.
      */
     body?: string;
+    /**
+     * Base64 request body for binary payloads. Takes precedence over body. Never the vault secret.
+     */
+    body_b64?: string;
 };
 
 export type UseResponse = {
@@ -58,9 +62,19 @@ export type UseResponse = {
     approval_id?: string;
     status?: number;
     /**
-     * Upstream body with vault secrets scrubbed.
+     * Upstream response headers, including Content-Type and Content-Encoding.
+     */
+    headers?: {
+        [key: string]: Array<string>;
+    };
+    /**
+     * Upstream body with vault secrets scrubbed. Present when the body is valid UTF-8.
      */
     body?: string;
+    /**
+     * Base64 upstream body with vault secrets scrubbed. Present when the body is not valid UTF-8 (gzip, images, protobuf).
+     */
+    body_b64?: string;
 };
 
 export type AuditEvent = {

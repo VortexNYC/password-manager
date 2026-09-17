@@ -17,8 +17,8 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictBytes, StrictInt, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -31,8 +31,10 @@ class UseResponse(BaseModel):
     reason: Optional[StrictStr] = None
     approval_id: Optional[StrictStr] = None
     status: Optional[StrictInt] = None
-    body: Optional[StrictStr] = Field(default=None, description="Upstream body with vault secrets scrubbed.")
-    __properties: ClassVar[List[str]] = ["decision", "reason", "approval_id", "status", "body"]
+    headers: Optional[Dict[str, List[StrictStr]]] = Field(default=None, description="Upstream response headers, including Content-Type and Content-Encoding.")
+    body: Optional[StrictStr] = Field(default=None, description="Upstream body with vault secrets scrubbed. Present when the body is valid UTF-8.")
+    body_b64: Optional[Union[StrictBytes, StrictStr]] = Field(default=None, description="Base64 upstream body with vault secrets scrubbed. Present when the body is not valid UTF-8 (gzip, images, protobuf).")
+    __properties: ClassVar[List[str]] = ["decision", "reason", "approval_id", "status", "headers", "body", "body_b64"]
 
     @field_validator('decision')
     def decision_validate_enum(cls, value):
@@ -96,7 +98,9 @@ class UseResponse(BaseModel):
             "reason": obj.get("reason"),
             "approval_id": obj.get("approval_id"),
             "status": obj.get("status"),
-            "body": obj.get("body")
+            "headers": obj.get("headers"),
+            "body": obj.get("body"),
+            "body_b64": obj.get("body_b64")
         })
         return _obj
 
