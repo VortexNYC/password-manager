@@ -459,7 +459,12 @@
             "additionalProperties": { "type": "string" },
             "description": "Extra request headers. Never the vault secret."
           },
-          "body": { "type": "string", "description": "Request body. Never the vault secret. Use --body-file on the CLI." }
+          "body": { "type": "string", "description": "Request body. Never the vault secret. Use --body-file on the CLI." },
+          "body_b64": {
+            "type": "string",
+            "format": "byte",
+            "description": "Base64 request body for binary payloads. Takes precedence over body. Never the vault secret."
+          }
         }
       },
       "UseResponse": {
@@ -471,7 +476,17 @@
           "reason": { "type": "string" },
           "approval_id": { "type": "string" },
           "status": { "type": "integer" },
-          "body": { "type": "string", "description": "Upstream body with vault secrets scrubbed." }
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "array", "items": { "type": "string" } },
+            "description": "Upstream response headers, including Content-Type and Content-Encoding."
+          },
+          "body": { "type": "string", "description": "Upstream body with vault secrets scrubbed. Present when the body is valid UTF-8." },
+          "body_b64": {
+            "type": "string",
+            "format": "byte",
+            "description": "Base64 upstream body with vault secrets scrubbed. Present when the body is not valid UTF-8 (gzip, images, protobuf)."
+          }
         }
       },
       "AuditEvent": {

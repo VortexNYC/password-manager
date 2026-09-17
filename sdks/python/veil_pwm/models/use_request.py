@@ -17,8 +17,8 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictBytes, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -32,7 +32,8 @@ class UseRequest(BaseModel):
     method: Optional[StrictStr] = 'GET'
     headers: Optional[Dict[str, StrictStr]] = Field(default=None, description="Extra request headers. Never the vault secret.")
     body: Optional[StrictStr] = Field(default=None, description="Request body. Never the vault secret. Use --body-file on the CLI.")
-    __properties: ClassVar[List[str]] = ["item", "url", "method", "headers", "body"]
+    body_b64: Optional[Union[StrictBytes, StrictStr]] = Field(default=None, description="Base64 request body for binary payloads. Takes precedence over body. Never the vault secret.")
+    __properties: ClassVar[List[str]] = ["item", "url", "method", "headers", "body", "body_b64"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -89,7 +90,8 @@ class UseRequest(BaseModel):
             "url": obj.get("url"),
             "method": obj.get("method") if obj.get("method") is not None else 'GET',
             "headers": obj.get("headers"),
-            "body": obj.get("body")
+            "body": obj.get("body"),
+            "body_b64": obj.get("body_b64")
         })
         return _obj
 

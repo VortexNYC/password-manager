@@ -10,10 +10,12 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -27,13 +29,16 @@ type FetchIn struct {
 	Method  string            `json:"method,omitempty" jsonschema:"HTTP method, default GET"`
 	Headers map[string]string `json:"headers,omitempty" jsonschema:"extra request headers. never the vault secret"`
 	Body    string            `json:"body,omitempty" jsonschema:"request body. never the vault secret"`
+	BodyB64 string            `json:"body_b64,omitempty" jsonschema:"base64 request body for binary payloads. never the vault secret"`
 }
 
 type FetchOut struct {
-	Decision string `json:"decision"`
-	Reason   string `json:"reason,omitempty"`
-	Status   int    `json:"status,omitempty"`
-	Body     string `json:"body,omitempty"`
+	Decision string      `json:"decision"`
+	Reason   string      `json:"reason,omitempty"`
+	Status   int         `json:"status,omitempty"`
+	Headers  http.Header `json:"headers,omitempty"`
+	Body     string      `json:"body,omitempty"`
+	BodyB64  string      `json:"body_b64,omitempty"`
 }
 
 type ListOut struct {
@@ -90,11 +95,22 @@ func Fetch(ctx context.Context, a *app.App, agentID string, in FetchIn) (FetchOu
 	for k, v := range in.Headers {
 		h.Add(k, v)
 	}
+	if in.Body != "" && in.BodyB64 != "" {
+		return FetchOut{}, fmt.Errorf("fetch: body and body_b64 are mutually exclusive")
+	}
+	body := []byte(in.Body)
+	if in.BodyB64 != "" {
+		decoded, err := base64.StdEncoding.DecodeString(in.BodyB64)
+		if err != nil {
+			return FetchOut{}, fmt.Errorf("fetch: bad body_b64: %w", err)
+		}
+		body = decoded
+	}
 	got, err := a.UseFetch(ctx, agentID, in.Item, protocol.Fetch{
 		Method: in.Method,
 		URL:    in.URL,
 		Header: h,
-		Body:   []byte(in.Body),
+		Body:   body,
 	})
 	if err != nil {
 		return FetchOut{}, err
@@ -102,7 +118,12 @@ func Fetch(ctx context.Context, a *app.App, agentID string, in FetchIn) (FetchOu
 	out := FetchOut{Decision: string(got.Decision), Reason: got.Reason}
 	if got.Fetch != nil {
 		out.Status = got.Fetch.Status
-		out.Body = string(got.Fetch.Body)
+		out.Headers = got.Fetch.Header
+		if utf8.Valid(got.Fetch.Body) {
+			out.Body = string(got.Fetch.Body)
+		} else {
+			out.BodyB64 = base64.StdEncoding.EncodeToString(got.Fetch.Body)
+		}
 	}
 	return out, nil
 }

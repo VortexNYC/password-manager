@@ -704,6 +704,7 @@ Next: Mac helper (slice 32). Typed-save / TOTP-from-page on Chrome are CFT-prove
 - [x] No agent-facing Reveal / `item get` / `--secret` argv.
 - [x] HTTPS_PROXY MITM via goproxy; per-vault CA; inject + scrub; unknown hosts denied.
 - [x] `run --agent NAME -- CMD` sets HTTP(S)_PROXY and CA env. Granted secrets go into the child. Broker stdout has no secret.
+- [x] `/v1/use` is binary-safe both directions: `body_b64` carries non-UTF-8 payloads, `headers` returns upstream response headers. `run`'s proxy passes `Content-Encoding` et al. through untouched; clients that send `Accept-Encoding: gzip` get gzip bytes back. Node fetch ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` (Node ≥22.21 / ≥24.5); older releases preload an undici `ProxyAgent`.
 - [x] TOTP seed lives on the item. `pquerna/otp` mints at inject into `X-TOTP`. Seed and code are absent from CLI, MCP, and audit.
 - [x] `--totp-file` only. No `--totp` / `--secret` on argv. No `get_totp` tool. `totp enroll --out-file --qr-file` writes the seed and an otpauth PNG. Stdout has neither.
 - [x] Workload identity is `coreos/go-oidc` verify only. `agent bind` maps issuer+subject to an existing agent. Unknown issuers are rejected before discovery. No token issuance.

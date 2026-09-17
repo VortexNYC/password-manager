@@ -52,6 +52,7 @@ func originMCPServer() *mcp.Server {
 			Method:  in.Method,
 			Headers: in.Headers,
 			Body:    in.Body,
+			BodyB64: in.BodyB64,
 		})
 		if err != nil {
 			return nil, mcpserver.FetchOut{}, err
@@ -68,7 +69,9 @@ func originMCPServer() *mcp.Server {
 			Decision: string(got.Decision),
 			Reason:   got.Reason,
 			Status:   got.Status,
+			Headers:  got.Headers,
 			Body:     got.Body,
+			BodyB64:  got.BodyB64,
 		}, nil
 	})
 	return server

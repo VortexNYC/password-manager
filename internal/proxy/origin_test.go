@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -40,7 +42,7 @@ func TestOriginInjectsViaUseNotSecret(t *testing.T) {
 		sawItem = item
 		sawURL = rawURL
 		sawAuth = header.Get("Authorization")
-		return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: `{"ok":true}`}, nil
+		return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: []byte(`{"ok":true}`)}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +213,7 @@ func TestOriginRevokeFailsClosed(t *testing.T) {
 	revoked := false
 	s, err := NewOrigin("cursor", dir, items, func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error) {
 		if !revoked {
-			return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: `ok`}, nil
+			return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: []byte(`ok`)}, nil
 		}
 		return OriginResult{Decision: protocol.DecisionDeny, Reason: "agent_revoked"}, nil
 	})
@@ -271,5 +273,147 @@ func TestDummyEnvWellKnownCloudflare(t *testing.T) {
 	}
 	if !strings.Contains(joined, "CLOUDFLARE_API_TOKEN="+DummySecret) {
 		t.Fatalf("wrangler token alias missing: %q", env)
+	}
+}
+
+func TestOriginProxyGzipRoundTrip(t *testing.T) {
+	var gz bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	_, _ = gw.Write([]byte(`{"ok":true}`))
+	_ = gw.Close()
+	gzipped := gz.Bytes()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("origin Use intercepts; upstream unreachable")
+	}))
+	t.Cleanup(upstream.Close)
+
+	s, err := NewOrigin("cursor", t.TempDir(), []protocol.Item{{
+		ID: "cf", Name: "cf", Kind: protocol.ItemAPIKey, URIs: []string{upstream.URL},
+	}}, func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error) {
+		return OriginResult{
+			Decision: protocol.DecisionAllow,
+			Status:   http.StatusOK,
+			Header:   http.Header{"Content-Encoding": {"gzip"}, "Content-Type": {"application/json"}},
+			Body:     gzipped,
+		}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(s.CAPEM) {
+		t.Fatal("ca pem")
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy:           http.ProxyURL(s.ProxyURL()),
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+		},
+		Timeout: 8 * time.Second,
+	}
+	req, err := http.NewRequest(http.MethodGet, upstream.URL+"/v4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+DummySecret)
+	req.Header.Set("Accept-Encoding", "gzip")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if !bytes.Equal(body, gzipped) {
+		t.Fatalf("gzip body corrupted on the wire: got %x want %x", body, gzipped)
+	}
+	if res.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding lost: %v", res.Header)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("body does not gunzip: %v", err)
+	}
+	plain, _ := io.ReadAll(zr)
+	if string(plain) != `{"ok":true}` {
+		t.Fatalf("gunzipped %q", plain)
+	}
+}
+
+func TestInjectOriginStripsConnectionNominatedHeaders(t *testing.T) {
+	var saw http.Header
+	s, err := NewOrigin("cursor", t.TempDir(), []protocol.Item{{
+		ID: "cf", Name: "cf", Kind: protocol.ItemAPIKey, URIs: []string{"https://api.cloudflare.com"},
+	}}, func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error) {
+		saw = header
+		return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: []byte(`ok`)}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://api.cloudflare.com/v4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+DummySecret)
+	req.Header.Set("Connection", "keep-alive, X-Trace")
+	req.Header.Set("X-Trace", "abc")
+	req.Header.Set("Proxy-Connection", "keep-alive")
+	req.Header.Set("X-Real", "kept")
+	injectReq, res := s.injectOrigin(req, nil)
+	if injectReq != nil {
+		t.Fatal("expected intercept")
+	}
+	_ = res.Body.Close()
+	if saw.Get("X-Trace") != "" {
+		t.Fatalf("Connection-nominated header forwarded: %v", saw)
+	}
+	if saw.Get("Connection") != "" || saw.Get("Proxy-Connection") != "" {
+		t.Fatalf("hop header forwarded: %v", saw)
+	}
+	if saw.Get("X-Real") != "kept" {
+		t.Fatalf("normal header dropped: %v", saw)
+	}
+}
+
+func TestOriginHTTPPassesUpstreamHeadersAndBytes(t *testing.T) {
+	gzipped := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef}
+	req, err := http.NewRequest(http.MethodGet, "https://api.cloudflare.com/v4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := originHTTP(req, OriginResult{
+		Decision: protocol.DecisionAllow,
+		Status:   http.StatusOK,
+		Header: http.Header{
+			"Content-Encoding": {"gzip"},
+			"Content-Type":     {"application/json"},
+			"X-Custom":         {"a", "b"},
+		},
+		Body: gzipped,
+	})
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, gzipped) {
+		t.Fatalf("body corrupted: got %x want %x", body, gzipped)
+	}
+	if res.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding lost: %v", res.Header)
+	}
+	if res.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("Content-Type lost: %v", res.Header)
+	}
+	if got := res.Header.Values("X-Custom"); len(got) != 2 {
+		t.Fatalf("multi-value header lost: %v", res.Header)
+	}
+	if res.ContentLength != int64(len(gzipped)) {
+		t.Fatalf("ContentLength %d", res.ContentLength)
 	}
 }

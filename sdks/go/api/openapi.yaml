@@ -533,6 +533,7 @@ components:
         headers:
           key: headers
         body: body
+        body_b64: body_b64
       properties:
         item:
           description: Granted item name
@@ -551,6 +552,11 @@ components:
           description: Request body. Never the vault secret. Use --body-file on the
             CLI.
           type: string
+        body_b64:
+          description: Base64 request body for binary payloads. Takes precedence over
+            body. Never the vault secret.
+          format: byte
+          type: string
       required:
       - item
       - url
@@ -561,7 +567,12 @@ components:
         reason: reason
         approval_id: approval_id
         status: 0
+        headers:
+          key:
+          - headers
+          - headers
         body: body
+        body_b64: body_b64
       properties:
         decision:
           enum:
@@ -575,8 +586,19 @@ components:
           type: string
         status:
           type: integer
+        headers:
+          additionalProperties:
+            items:
+              type: string
+          description: "Upstream response headers, including Content-Type and Content-Encoding."
         body:
-          description: Upstream body with vault secrets scrubbed.
+          description: Upstream body with vault secrets scrubbed. Present when the
+            body is valid UTF-8.
+          type: string
+        body_b64:
+          description: "Base64 upstream body with vault secrets scrubbed. Present\
+            \ when the body is not valid UTF-8 (gzip, images, protobuf)."
+          format: byte
           type: string
       required:
       - decision

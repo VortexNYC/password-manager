@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
@@ -1684,14 +1686,21 @@ type useDTO struct {
 	Reason     string            `json:"reason,omitempty"`
 	ApprovalID string            `json:"approval_id,omitempty"`
 	Status     int               `json:"status,omitempty"`
+	Headers    http.Header       `json:"headers,omitempty"`
 	Body       string            `json:"body,omitempty"`
+	BodyB64    string            `json:"body_b64,omitempty"`
 }
 
 func useView(got protocol.UseResult) useDTO {
 	v := useDTO{Decision: got.Decision, Reason: got.Reason, ApprovalID: got.ApprovalID}
 	if got.Fetch != nil {
 		v.Status = got.Fetch.Status
-		v.Body = string(got.Fetch.Body)
+		v.Headers = got.Fetch.Header
+		if utf8.Valid(got.Fetch.Body) {
+			v.Body = string(got.Fetch.Body)
+		} else {
+			v.BodyB64 = base64.StdEncoding.EncodeToString(got.Fetch.Body)
+		}
 	}
 	return v
 }

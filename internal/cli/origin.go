@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -222,7 +223,11 @@ func originUse(cmd *cobra.Command, tokenFile, item, rawURL, method string, heade
 		if err != nil {
 			return err
 		}
-		in.Body = string(b)
+		if utf8.Valid(b) {
+			in.Body = string(b)
+		} else {
+			in.BodyB64 = base64.StdEncoding.EncodeToString(b)
+		}
 	}
 	payload, err := json.Marshal(in)
 	if err != nil {
