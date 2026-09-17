@@ -15,7 +15,7 @@ export default defineConfig({
   },
   github: {
     owner: "VeilNYC",
-    repo: "password-manager",
+    repo: "veil",
     branch: "main",
     dir: "apps/docs",
   },
@@ -29,7 +29,7 @@ export default defineConfig({
   openapi: {
     enabled: true,
     route: "/reference",
-    spec: "../../docs/openapi/password-manager.openapi.json",
+    spec: "../../docs/openapi/veil.openapi.json",
     codeSamples: ["curl", "js", "python"],
   },
   theme: {
@@ -77,6 +77,6 @@ export default defineConfig({
     output: "server",
     adapter: "cloudflare",
     site: "https://veil.nyc",
-    base: "/pwm/docs",
+    base: "/docs",
   },
 });

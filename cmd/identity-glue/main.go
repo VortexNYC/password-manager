@@ -7,7 +7,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/veilnyc/password-manager/identity/glue"
+	"github.com/VortexNYC/veil/identity/glue"
+	"github.com/VortexNYC/veil/internal/envcompat"
 )
 
 func env(key, fallback string) string {
@@ -18,6 +19,7 @@ func env(key, fallback string) string {
 }
 
 func main() {
+	envcompat.BridgeLegacy()
 	g, err := glue.NewHydra(env("HYDRA_ADMIN_URL", "http://127.0.0.1:4445"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -6,6 +6,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	_ = os.Unsetenv("PWM_HYDRA_ISSUER")
+	_ = os.Unsetenv("VEIL_HYDRA_ISSUER")
 	os.Exit(m.Run())
 }

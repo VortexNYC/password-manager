@@ -1,11 +1,11 @@
 # Veil Go SDK
 
-Generated from `docs/openapi/password-manager.openapi.json`. Do not handwrite clients.
+Generated from `docs/openapi/veil.openapi.json`. Do not handwrite clients.
 
-The public module is `github.com/veilnyc/pwm-go`.
+The public module is `github.com/VortexNYC/veil/sdks/go`.
 
 ```bash
-go get github.com/veilnyc/pwm-go
+go get github.com/VortexNYC/veil/sdks/go
 ```
 
 ```go
@@ -15,15 +15,15 @@ import (
 	"context"
 	"os"
 
-	veilpwm "github.com/veilnyc/pwm-go"
+	veil "github.com/VortexNYC/veil/sdks/go"
 )
 
 func main() {
-	cfg := veilpwm.NewConfiguration()
+	cfg := veil.NewConfiguration()
 	cfg.Host = "veil.nyc"
 	cfg.Scheme = "https"
-	cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
-	client := veilpwm.NewAPIClient(cfg)
+	cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("VEIL_OIDC_TOKEN"))
+	client := veil.NewAPIClient(cfg)
 	_, _, _ = client.AgentAPI.ListItems(context.Background()).Execute()
 }
 ```

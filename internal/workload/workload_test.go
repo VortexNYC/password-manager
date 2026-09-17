@@ -13,8 +13,8 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/store"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/store"
 )
 
 type testIssuer struct {
@@ -87,14 +87,14 @@ func TestOIDCTokenResolvesBoundAgent(t *testing.T) {
 	if err := mem.PutWorkload(protocol.Workload{
 		AgentID:  agent.ID,
 		Issuer:   iss.URL,
-		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
-		Audience: "password-manager",
+		Subject:  "repo:VortexNYC/veil:ref:refs/heads/main",
+		Audience: "veil",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	c := New(mem)
-	tok := iss.token(t, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	tok := iss.token(t, "repo:VortexNYC/veil:ref:refs/heads/main", "veil", time.Now().Add(time.Hour))
 	got, err := c.Agent(context.Background(), tok)
 	if err != nil {
 		t.Fatal(err)
@@ -124,12 +124,12 @@ func TestWrongSubjectDenied(t *testing.T) {
 		AgentID:  "flue",
 		Issuer:   iss.URL,
 		Subject:  "the-real-worker",
-		Audience: "password-manager",
+		Audience: "veil",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	c := New(mem)
-	tok := iss.token(t, "someone-else", "password-manager", time.Now().Add(time.Hour))
+	tok := iss.token(t, "someone-else", "veil", time.Now().Add(time.Hour))
 	if _, err := c.Agent(context.Background(), tok); err == nil {
 		t.Fatal("wrong subject accepted")
 	}
@@ -144,14 +144,14 @@ func TestProviderDiscoveryCachedAcrossCalls(t *testing.T) {
 	if err := mem.PutWorkload(protocol.Workload{
 		AgentID:  "flue",
 		Issuer:   iss.URL,
-		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
-		Audience: "password-manager",
+		Subject:  "repo:VortexNYC/veil:ref:refs/heads/main",
+		Audience: "veil",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	c := New(mem)
-	tok := iss.token(t, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	tok := iss.token(t, "repo:VortexNYC/veil:ref:refs/heads/main", "veil", time.Now().Add(time.Hour))
 	if _, err := c.Agent(context.Background(), tok); err != nil {
 		t.Fatal(err)
 	}
@@ -175,13 +175,13 @@ func BenchmarkAgentVerify(b *testing.B) {
 	if err := mem.PutWorkload(protocol.Workload{
 		AgentID:  "flue",
 		Issuer:   iss.URL,
-		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
-		Audience: "password-manager",
+		Subject:  "repo:VortexNYC/veil:ref:refs/heads/main",
+		Audience: "veil",
 	}); err != nil {
 		b.Fatal(err)
 	}
 	c := New(mem)
-	tok := iss.token(b, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	tok := iss.token(b, "repo:VortexNYC/veil:ref:refs/heads/main", "veil", time.Now().Add(time.Hour))
 	// Warm the provider/JWKS cache so the loop measures steady state.
 	if _, err := c.Agent(context.Background(), tok); err != nil {
 		b.Fatal(err)
@@ -203,13 +203,13 @@ func BenchmarkAgentVerifyParallel(b *testing.B) {
 	if err := mem.PutWorkload(protocol.Workload{
 		AgentID:  "flue",
 		Issuer:   iss.URL,
-		Subject:  "repo:veilnyc/password-manager:ref:refs/heads/main",
-		Audience: "password-manager",
+		Subject:  "repo:VortexNYC/veil:ref:refs/heads/main",
+		Audience: "veil",
 	}); err != nil {
 		b.Fatal(err)
 	}
 	c := New(mem)
-	tok := iss.token(b, "repo:veilnyc/password-manager:ref:refs/heads/main", "password-manager", time.Now().Add(time.Hour))
+	tok := iss.token(b, "repo:VortexNYC/veil:ref:refs/heads/main", "veil", time.Now().Add(time.Hour))
 	if _, err := c.Agent(context.Background(), tok); err != nil {
 		b.Fatal(err)
 	}

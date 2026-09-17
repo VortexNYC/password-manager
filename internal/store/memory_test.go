@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 func TestItemJSONDoesNotIncludeSecret(t *testing.T) {

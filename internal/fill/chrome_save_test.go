@@ -13,16 +13,16 @@ import (
 
 	"github.com/chromedp/chromedp"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/publicapi"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 const chromeSavePassword = "typed-chrome-save-pw"
 
 func TestChromeExtensionSave(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	chrome := chromeForTesting(t)
 	if chrome == "" {
@@ -59,8 +59,8 @@ func TestChromeExtensionSave(t *testing.T) {
 }
 
 func TestChromeExtensionSaveCancel(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	chrome := chromeForTesting(t)
 	if chrome == "" {
@@ -75,7 +75,7 @@ func TestChromeExtensionSaveCancel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	debugLog := filepath.Join(home, ".password-manager", "fill-debug.log")
+	debugLog := filepath.Join(home, ".veil", "fill-debug.log")
 	before, _ := os.ReadFile(debugLog)
 
 	stop := make(chan struct{})
@@ -124,8 +124,8 @@ func TestChromeExtensionSaveCancel(t *testing.T) {
 }
 
 func TestChromeExtensionSaveThenEnrollTotp(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	chrome := chromeForTesting(t)
 	if chrome == "" {

@@ -10,7 +10,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 )
 
-const ua = "password-manager"
+const ua = "veil"
 
 type transport struct {
 	base http.RoundTripper

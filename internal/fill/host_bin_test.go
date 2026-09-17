@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 func repoRoot(t *testing.T) string {
@@ -26,8 +26,8 @@ func repoRoot(t *testing.T) string {
 
 func buildPWM(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "password-manager")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/password-manager")
+	bin := filepath.Join(t.TempDir(), "veil")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/veil")
 	cmd.Dir = repoRoot(t)
 	cmd.Env = envBin()
 	out, err := cmd.CombinedOutput()
@@ -40,12 +40,13 @@ func buildPWM(t *testing.T) string {
 func envClean() []string {
 	var out []string
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "PWM_ORIGIN=") ||
-			strings.HasPrefix(e, "PWM_FILL_TOUCHID=") ||
-			strings.HasPrefix(e, "PWM_HOME=") ||
-			strings.HasPrefix(e, "PWM_OIDC_") ||
-			strings.HasPrefix(e, "PWM_HUMAN_") ||
-			strings.HasPrefix(e, "PWM_HYDRA_") {
+		if strings.HasPrefix(e, "VEIL_ORIGIN=") ||
+			strings.HasPrefix(e, "VEIL_FILL_TOUCHID=") ||
+			strings.HasPrefix(e, "VEIL_HOME=") ||
+			strings.HasPrefix(e, "VEIL_OIDC_") ||
+			strings.HasPrefix(e, "VEIL_HUMAN_") ||
+			strings.HasPrefix(e, "VEIL_HYDRA_") ||
+			strings.HasPrefix(e, "PWM_") {
 			continue
 		}
 		out = append(out, e)
@@ -55,9 +56,9 @@ func envClean() []string {
 
 // envBin is compiled-host isolation for make test. It leaves Confirm
 // unattached so those tests fail closed without a Touch ID prompt.
-// Headed CFT must use envProve. Forcing PWM_FILL_TOUCHID=0 on Chrome is a fake.
+// Headed CFT must use envProve. Forcing VEIL_FILL_TOUCHID=0 on Chrome is a fake.
 func envBin() []string {
-	return append(envClean(), "PWM_FILL_TOUCHID=0")
+	return append(envClean(), "VEIL_FILL_TOUCHID=0")
 }
 
 func envProve() []string {
@@ -66,7 +67,7 @@ func envProve() []string {
 
 func TestEnvProveDoesNotDisableTouchID(t *testing.T) {
 	for _, e := range envProve() {
-		if strings.HasPrefix(e, "PWM_FILL_TOUCHID=") {
+		if strings.HasPrefix(e, "VEIL_FILL_TOUCHID=") {
 			t.Fatalf("prove env still sets %s", e)
 		}
 	}
@@ -74,10 +75,10 @@ func TestEnvProveDoesNotDisableTouchID(t *testing.T) {
 
 func pwm(t *testing.T, bin, home string, args ...string) []byte {
 	t.Helper()
-	return pwmEnv(t, bin, home, nil, args...)
+	return veilEnv(t, bin, home, nil, args...)
 }
 
-func pwmEnv(t *testing.T, bin, home string, extra []string, args ...string) []byte {
+func veilEnv(t *testing.T, bin, home string, extra []string, args ...string) []byte {
 	t.Helper()
 	cmd := exec.Command(bin, append([]string{"--home", home}, args...)...)
 	cmd.Env = append(envBin(), extra...)
@@ -219,7 +220,7 @@ func TestCompiledBinaryAddListMatchFill(t *testing.T) {
 }
 
 func TestCompiledBinaryAgainstOriginHTTP(t *testing.T) {
-	t.Setenv("PWM_REPLICA_KEYSTORE", "mem")
+	t.Setenv("VEIL_REPLICA_KEYSTORE", "mem")
 	const login = "stripe@example.com"
 	a, err := app.Init(t.TempDir())
 	if err != nil {
@@ -237,9 +238,9 @@ func TestCompiledBinaryAgainstOriginHTTP(t *testing.T) {
 	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	extra := []string{"PWM_ORIGIN=" + srv.URL, "PWM_HUMAN_TOKEN_FILE=" + tok}
-	pwmEnv(t, bin, home, extra, "item", "add", "stripe", "--uri", "https://dashboard.stripe.com", "--secret-file", secFile, "--login", login)
-	listOut := pwmEnv(t, bin, home, extra, "item", "list")
+	extra := []string{"VEIL_ORIGIN=" + srv.URL, "VEIL_HUMAN_TOKEN_FILE=" + tok}
+	veilEnv(t, bin, home, extra, "item", "add", "stripe", "--uri", "https://dashboard.stripe.com", "--secret-file", secFile, "--login", login)
+	listOut := veilEnv(t, bin, home, extra, "item", "list")
 	var listed []protocol.Item
 	if err := json.Unmarshal(listOut, &listed); err != nil {
 		t.Fatalf("origin list json: %v\n%s", err, listOut)
@@ -307,7 +308,7 @@ func TestCompiledBinaryAgainstOriginHTTP(t *testing.T) {
 }
 
 func TestCompiledBinaryJSONPingMatchFill(t *testing.T) {
-	t.Setenv("PWM_REPLICA_KEYSTORE", "mem")
+	t.Setenv("VEIL_REPLICA_KEYSTORE", "mem")
 	const login = "stripe@example.com"
 	a, err := app.Init(t.TempDir())
 	if err != nil {
@@ -325,8 +326,8 @@ func TestCompiledBinaryJSONPingMatchFill(t *testing.T) {
 	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	extra := []string{"PWM_ORIGIN=" + srv.URL, "PWM_HUMAN_TOKEN_FILE=" + tok}
-	pwmEnv(t, bin, home, extra, "item", "add", "stripe", "--uri", "https://dashboard.stripe.com", "--secret-file", secFile, "--login", login)
+	extra := []string{"VEIL_ORIGIN=" + srv.URL, "VEIL_HUMAN_TOKEN_FILE=" + tok}
+	veilEnv(t, bin, home, extra, "item", "add", "stripe", "--uri", "https://dashboard.stripe.com", "--secret-file", secFile, "--login", login)
 
 	cmd := exec.Command(bin, "fill", "--home", home)
 	cmd.Env = append(envBin(), extra...)

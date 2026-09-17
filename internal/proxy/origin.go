@@ -12,8 +12,8 @@ import (
 
 	"github.com/elazarl/goproxy"
 
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 // OriginResult is POST /v1/use unwrapped for MITM. Not a GetSecret.
@@ -28,7 +28,7 @@ type OriginResult struct {
 // OriginUse fetches via origin. The laptop never receives the vault secret.
 type OriginUse func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error)
 
-// NewOrigin is HTTPS_PROXY against PWM_ORIGIN. Dummy env lives in DummyEnv.
+// NewOrigin is HTTPS_PROXY against VEIL_ORIGIN. Dummy env lives in DummyEnv.
 func NewOrigin(agentID, dir string, items []protocol.Item, use OriginUse) (*Server, error) {
 	if use == nil {
 		return nil, fmt.Errorf("proxy: origin use is required")

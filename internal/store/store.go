@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 const maxListResults = 10000

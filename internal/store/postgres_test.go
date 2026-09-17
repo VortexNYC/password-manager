@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/protocol"
 	"github.com/jackc/pgx/v5"
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/protocol"
 )
 
 func openTestPostgres(t *testing.T) *Postgres {

@@ -11,15 +11,15 @@ Do not handwrite clients. `pnpm run sdk:generate`.
 ## TypeScript
 
 ```bash
-pnpm add @veilnyc/pwm-sdk
+pnpm add @vortex-api/veil
 ```
 
 ```ts
-import { createClient, listItems, useItem } from "@veilnyc/pwm-sdk";
+import { createClient, listItems, useItem } from "@vortex-api/veil";
 
 const client = createClient({
   baseUrl: "https://veil.nyc",
-  headers: { Authorization: `Bearer ${process.env.PWM_OIDC_TOKEN}` },
+  headers: { Authorization: `Bearer ${process.env.VEIL_OIDC_TOKEN}` },
 });
 
 const listed = await listItems({ client });
@@ -38,32 +38,32 @@ const used = await useItem({
 ## Python
 
 ```bash
-pip install veil-pwm-sdk
+pip install vortex-api-veil
 ```
 
 ```py
 import os
-import veil_pwm
+import veil
 
-configuration = veil_pwm.Configuration(host="https://veil.nyc")
-configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
-api = veil_pwm.AgentApi(veil_pwm.ApiClient(configuration))
+configuration = veil.Configuration(host="https://veil.nyc")
+configuration.access_token = os.environ["VEIL_OIDC_TOKEN"]
+api = veil.AgentApi(veil.ApiClient(configuration))
 api.list_items()
-api.use_item(veil_pwm.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers"))
+api.use_item(veil.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers"))
 ```
 
 ## Go
 
 ```bash
-go get github.com/veilnyc/pwm-go
+go get github.com/VortexNYC/veil/sdks/go
 ```
 
 ```go
-cfg := veilpwm.NewConfiguration()
+cfg := veil.NewConfiguration()
 cfg.Host = "veil.nyc"
 cfg.Scheme = "https"
-cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
-client := veilpwm.NewAPIClient(cfg)
+cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("VEIL_OIDC_TOKEN"))
+client := veil.NewAPIClient(cfg)
 _, _, _ = client.AgentAPI.ListItems(context.Background()).Execute()
 ```
 

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 // EnvName is the Infisical vault-run name: item name, uppercased, hyphen to underscore.

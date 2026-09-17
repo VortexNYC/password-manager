@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 func TestParseCSVChromeLogin(t *testing.T) {

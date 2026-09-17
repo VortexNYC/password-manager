@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/store"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/store"
 )
 
 // Auditor persists security events. Implementations may be synchronous or

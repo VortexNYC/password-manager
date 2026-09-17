@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/store/sqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/store/sqlc"
 )
 
 func useAuthSessionToUseAuthRow(row sqlc.UseAuthSessionRow) sqlc.UseAuthRow {
@@ -316,7 +316,7 @@ func listItemsToRow(r sqlc.ListItemsRow) sqlc.ItemByIDRow {
 
 func itemFromSqlc(r *sqlc.ItemByIDRow) protocol.Item {
 	item := protocol.Item{
-		ID:   r.ID,
+		ID:    r.ID,
 		OrgID: r.OrgID,
 		Name:  r.Name,
 		Kind:  protocol.ItemKind(r.Kind),

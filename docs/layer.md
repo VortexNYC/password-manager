@@ -115,7 +115,7 @@ ONE CONTROL PLANE  (the UX)
 - Broker verifies a token. It does not issue one. Hydra issues agent identity. Kratos is the human door. `Workload` verifies someone else’s issuer and maps `(issuer, subject)` to an existing agent.
 - The grant is the micro-auth primitive. Per item, per principal, `fetch` / `env`, allow / deny / need_approval. Tighten later: method (GET vs DELETE), rate, `need_approval` on mutating calls. Not org RBAC. Not Better Auth. Not Keto tuples.
 - Fill is not MCP. Agents move the cursor. They never receive the secret. Cards `Injects() == false`. No grant means buy. OAuth refresh, passkeys, and API keys are one grant surface, not three products.
-- Audit is `GET /v1/events` / `password-manager audit`: agent, item, action, decision, time. Next honest row is method + host + path + status on `Use` (bodies scrubbed). “Opened Linear issue ABC” is their audit, not ours.
+- Audit is `GET /v1/events` / `veil audit`: agent, item, action, decision, time. Next honest row is method + host + path + status on `Use` (bodies scrubbed). “Opened Linear issue ABC” is their audit, not ours.
 - Marketplace, if it exists, is destinations minting/revoking through the SPA. Not SSO. Not 1Password Connect (no dumping the vault toward their process).
 - Tip of the spear: finish fill, make grants and audit readable, then OAuth-refresh as the first destination that isn’t a static key. Plugin catalog last.
 

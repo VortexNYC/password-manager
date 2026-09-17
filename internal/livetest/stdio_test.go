@@ -13,27 +13,27 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/veilnyc/password-manager/internal/mcpserver"
+	"github.com/VortexNYC/veil/internal/mcpserver"
 )
 
 func TestOriginStdio(t *testing.T) {
-	bin, err := exec.LookPath("password-manager")
+	bin, err := exec.LookPath("veil")
 	if err != nil {
-		t.Fatal("password-manager not on PATH")
+		t.Fatal("veil not on PATH")
 	}
-	jwtFile := os.Getenv("PWM_LIVE_JWT_FILE")
+	jwtFile := os.Getenv("VEIL_LIVE_JWT_FILE")
 	if jwtFile == "" {
-		t.Fatal("PWM_LIVE_JWT_FILE is required")
+		t.Fatal("VEIL_LIVE_JWT_FILE is required")
 	}
-	origin := envOr("PWM_ORIGIN", "https://veil.nyc")
+	origin := envOr("VEIL_ORIGIN", "https://veil.nyc")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
 
 	cmd := exec.Command(bin, "mcp", "stdio")
 	cmd.Env = append(os.Environ(),
-		"PWM_ORIGIN="+origin,
-		"PWM_OIDC_TOKEN_FILE="+jwtFile,
-		"PWM_OIDC_TOKEN=",
+		"VEIL_ORIGIN="+origin,
+		"VEIL_OIDC_TOKEN_FILE="+jwtFile,
+		"VEIL_OIDC_TOKEN=",
 	)
 	client := mcp.NewClient(&mcp.Implementation{Name: "prove-live-stdio", Version: "0"}, nil)
 	cs, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)

@@ -1,7 +1,7 @@
 .PHONY: test vet fmt tidy sdk-fresh ci build identity-config identity-env identity-up glue prove-identity prove-cli-golden-flow prove-live prove-fill loadtest
 
 test:
-	env -u PWM_HYDRA_ISSUER -u PWM_HYDRA_ADMIN -u PWM_HOME -u PWM_OIDC_TOKEN -u PWM_ORIGIN -u PWM_OIDC_TOKEN_FILE -u PWM_HYDRA_SECRET_FILE -u PWM_AGENT PWM_FILL_TOUCHID=0 go test -race -shuffle=on -timeout 15m ./...
+	env -u VEIL_HYDRA_ISSUER -u VEIL_HYDRA_ADMIN -u VEIL_HOME -u VEIL_OIDC_TOKEN -u VEIL_ORIGIN -u VEIL_OIDC_TOKEN_FILE -u VEIL_HYDRA_SECRET_FILE -u VEIL_AGENT VEIL_FILL_TOUCHID=0 go test -race -shuffle=on -timeout 15m ./...
 
 vet:
 	go vet ./...
@@ -13,7 +13,7 @@ tidy:
 	go mod tidy
 
 build:
-	go build -o bin/password-manager ./cmd/password-manager
+	go build -o bin/veil ./cmd/veil
 
 sdk-fresh:
 	pnpm run sdk:generate

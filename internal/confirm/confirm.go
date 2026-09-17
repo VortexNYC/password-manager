@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// Enabled is Mac + PWM_FILL_TOUCHID not "0". Linux/Windows wait for 35–36.
+// Enabled is Mac + VEIL_FILL_TOUCHID not "0". Linux/Windows wait for 35–36.
 func Enabled() bool {
-	if os.Getenv("PWM_FILL_TOUCHID") == "0" {
+	if os.Getenv("VEIL_FILL_TOUCHID") == "0" {
 		return false
 	}
 	return touchIDAvailable
@@ -26,7 +26,7 @@ func Action(reason string) string {
 }
 
 func accountLabel() string {
-	e := strings.TrimSpace(os.Getenv("PWM_LOGIN_EMAIL"))
+	e := strings.TrimSpace(os.Getenv("VEIL_LOGIN_EMAIL"))
 	if e != "" {
 		return e
 	}
@@ -42,7 +42,7 @@ func interactive() bool {
 }
 
 // CLIAccess is the Ghostty sheet: Allow {app} to get CLI access.
-// Fill uses TouchID. Agents and PWM_FILL_TOUCHID=0 skip.
+// Fill uses TouchID. Agents and VEIL_FILL_TOUCHID=0 skip.
 func CLIAccess() error {
 	if !Enabled() || !interactive() {
 		return nil

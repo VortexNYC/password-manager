@@ -5,7 +5,7 @@ export const kratosURL = "http://127.0.0.1:4433"
 
 export const oryConfig: OryClientConfiguration = {
   project: {
-    name: "password-manager",
+    name: "veil",
     default_redirect_url: "/",
     error_ui_url: "/error",
     registration_enabled: true,

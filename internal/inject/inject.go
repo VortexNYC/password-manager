@@ -1,6 +1,6 @@
 // Package inject rewrites a template using granted item names.
 //
-// Infisical placeholder shape: ${NAME}. pwm://name is the same lookup.
+// Infisical placeholder shape: ${NAME}. veil://name is the same lookup.
 // Resolution happens inside the broker for a child file. The expanded
 // bytes are not an agent-visible type.
 package inject
@@ -10,10 +10,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/veilnyc/password-manager/internal/broker"
+	"github.com/VortexNYC/veil/internal/broker"
 )
 
-var ref = regexp.MustCompile(`\$\{([A-Za-z0-9_-]+)\}|pwm://([A-Za-z0-9_-]+)`)
+var ref = regexp.MustCompile(`\$\{([A-Za-z0-9_-]+)\}|veil://([A-Za-z0-9_-]+)`)
 
 // Map is EnvName(item) -> value from ChildEnv pairs.
 func Map(pairs []string) map[string]string {
@@ -28,7 +28,7 @@ func Map(pairs []string) map[string]string {
 	return out
 }
 
-// Expand replaces ${ITEM} and pwm://item. Unknown refs fail closed.
+// Expand replaces ${ITEM} and veil://item. Unknown refs fail closed.
 func Expand(src []byte, granted map[string]string) ([]byte, error) {
 	var first error
 	out := ref.ReplaceAllFunc(src, func(raw []byte) []byte {

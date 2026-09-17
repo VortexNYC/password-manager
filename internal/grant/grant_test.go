@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 func fixture(level protocol.GrantLevel) Input {

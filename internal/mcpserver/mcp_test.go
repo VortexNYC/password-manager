@@ -17,10 +17,10 @@ import (
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 const secret = "sk_live_MCP_SECRET"
@@ -130,7 +130,7 @@ func TestCodingAgentsFetchOverRemoteMCP(t *testing.T) {
 		if _, err := a.AddGrant(name, "stripe", "level2"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := a.BindWorkload(name, iss.URL, "agent-"+name, "password-manager"); err != nil {
+		if _, err := a.BindWorkload(name, iss.URL, "agent-"+name, "veil"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -215,7 +215,7 @@ func TestCodingAgentsFetchOverRemoteMCP(t *testing.T) {
 
 	ctx := context.Background()
 	for _, name := range agents {
-		tok := iss.token(t, "agent-"+name, "password-manager")
+		tok := iss.token(t, "agent-"+name, "veil")
 		cs := connect(t, ctx, endpoint, tok)
 		list, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_items"})
 		if err != nil {
@@ -286,12 +286,12 @@ func TestRESTUsePOSTBodyDoesNotReturnSecret(t *testing.T) {
 	if _, err := a.AddGrant("claude", "stripe", "level2"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.BindWorkload("claude", iss.URL, "agent-claude", "password-manager"); err != nil {
+	if _, err := a.BindWorkload("claude", iss.URL, "agent-claude", "veil"); err != nil {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(Mux(a, "http://pwm.test/mcp", iss.URL))
 	t.Cleanup(ts.Close)
-	tok := iss.token(t, "agent-claude", "password-manager")
+	tok := iss.token(t, "agent-claude", "veil")
 	reqBody := `{"item":"stripe","url":"` + upstream.URL + `/v1","method":"POST","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"a@b.c\"}"}`
 	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/use", strings.NewReader(reqBody))
 	if err != nil {

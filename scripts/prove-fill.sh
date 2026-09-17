@@ -2,12 +2,12 @@
 # Origin fill proof. Human JWT + POST /v1/fill/logins. Never prints secrets.
 set -euo pipefail
 
-ORIGIN="${PWM_ORIGIN:-https://veil.nyc}"
-TOKEN_FILE="${PWM_HUMAN_TOKEN_FILE:-$HOME/.config/veil/pwm-human.jwt}"
-URL="${PWM_FILL_URL:-https://example.com/}"
+ORIGIN="${VEIL_ORIGIN:-https://veil.nyc}"
+TOKEN_FILE="${VEIL_HUMAN_TOKEN_FILE:-$HOME/.config/veil/pwm-human.jwt}"
+URL="${VEIL_FILL_URL:-https://example.com/}"
 
 if [[ ! -s "$TOKEN_FILE" ]]; then
-  echo "missing PWM_HUMAN_TOKEN_FILE" >&2
+  echo "missing VEIL_HUMAN_TOKEN_FILE" >&2
   exit 1
 fi
 

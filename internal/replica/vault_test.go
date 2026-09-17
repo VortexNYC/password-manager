@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 type errStore struct{ err error }

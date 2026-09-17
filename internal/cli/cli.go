@@ -1,4 +1,4 @@
-// Package cli is the human surface and the origin HTTP client (PWM_ORIGIN).
+// Package cli is the human surface and the origin HTTP client (VEIL_ORIGIN).
 // Cobra, stdin for secrets, no `get` that prints material — same shape as MeowPass.
 // Production agents use MCP. Dogfood and humans use these commands against origin.
 package cli
@@ -24,37 +24,37 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/veilnyc/password-manager/identity/glue"
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/broker"
-	"github.com/veilnyc/password-manager/internal/confirm"
-	"github.com/veilnyc/password-manager/internal/device"
-	"github.com/veilnyc/password-manager/internal/fill"
-	"github.com/veilnyc/password-manager/internal/human"
-	"github.com/veilnyc/password-manager/internal/id"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/mcpserver"
-	"github.com/veilnyc/password-manager/internal/oneimport"
-	"github.com/veilnyc/password-manager/internal/otelsetup"
-	"github.com/veilnyc/password-manager/internal/passgen"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/proxy"
-	"github.com/veilnyc/password-manager/internal/replica"
-	"github.com/veilnyc/password-manager/internal/socket"
-	"github.com/veilnyc/password-manager/internal/sshagent"
-	"github.com/veilnyc/password-manager/internal/totpenroll"
+	"github.com/VortexNYC/veil/identity/glue"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/broker"
+	"github.com/VortexNYC/veil/internal/confirm"
+	"github.com/VortexNYC/veil/internal/device"
+	"github.com/VortexNYC/veil/internal/fill"
+	"github.com/VortexNYC/veil/internal/human"
+	"github.com/VortexNYC/veil/internal/id"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/mcpserver"
+	"github.com/VortexNYC/veil/internal/oneimport"
+	"github.com/VortexNYC/veil/internal/otelsetup"
+	"github.com/VortexNYC/veil/internal/passgen"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/proxy"
+	"github.com/VortexNYC/veil/internal/replica"
+	"github.com/VortexNYC/veil/internal/socket"
+	"github.com/VortexNYC/veil/internal/sshagent"
+	"github.com/VortexNYC/veil/internal/totpenroll"
 )
 
 func New(version string) *cobra.Command {
 	var home string
 	root := &cobra.Command{
-		Use:           "password-manager",
+		Use:           "veil",
 		Short:         "Veil. Agents never hold secrets.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.PersistentFlags().StringVar(&home, "home", "", "vault directory (env PWM_HOME, default ~/.password-manager)")
+	root.PersistentFlags().StringVar(&home, "home", "", "vault directory (env VEIL_HOME, default ~/.veil)")
 	root.SetVersionTemplate("{{.Version}}\n")
 
 	root.AddCommand(initCmd(&home))
@@ -82,7 +82,7 @@ func resolveFillHome(home string) (string, error) {
 	if home != "" {
 		return home, nil
 	}
-	if v := os.Getenv("PWM_HOME"); v != "" {
+	if v := os.Getenv("VEIL_HOME"); v != "" {
 		return v, nil
 	}
 	if dir, err := fill.DirBesideHost(); err == nil {
@@ -95,14 +95,28 @@ func resolveHome(home string) (string, error) {
 	if home != "" {
 		return home, nil
 	}
-	if v := os.Getenv("PWM_HOME"); v != "" {
+	if v := os.Getenv("VEIL_HOME"); v != "" {
 		return v, nil
 	}
 	dir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, ".password-manager"), nil
+	home = filepath.Join(dir, ".veil")
+	if _, err := os.Stat(home); os.IsNotExist(err) {
+		// Pre-rename installs keep state at ~/.password-manager. Adopt it.
+		if legacy := filepath.Join(dir, ".password-manager"); fileExists(legacy) {
+			if err := os.Rename(legacy, home); err == nil {
+				fmt.Fprintf(os.Stderr, "veil: migrated %s -> %s\n", legacy, home)
+			}
+		}
+	}
+	return home, nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func envOr(key, fallback string) string {
@@ -129,12 +143,12 @@ func logLevel() slog.Leveler {
 
 func glueFromEnv() (*glue.Glue, error) {
 	return glue.New(glue.Config{
-		KratosPublic: envOr("PWM_KRATOS_PUBLIC", "http://127.0.0.1:4433"),
-		KratosAdmin:  envOr("PWM_KRATOS_ADMIN", "http://127.0.0.1:4434"),
-		HydraAdmin:   envOr("PWM_HYDRA_ADMIN", "http://127.0.0.1:4445"),
-		KetoRead:     envOr("PWM_KETO_READ", "http://127.0.0.1:4466"),
-		KetoWrite:    envOr("PWM_KETO_WRITE", "http://127.0.0.1:4467"),
-		OrgID:        envOr("PWM_ORG_ID", glue.LocalOrgID),
+		KratosPublic: envOr("VEIL_KRATOS_PUBLIC", "http://127.0.0.1:4433"),
+		KratosAdmin:  envOr("VEIL_KRATOS_ADMIN", "http://127.0.0.1:4434"),
+		HydraAdmin:   envOr("VEIL_HYDRA_ADMIN", "http://127.0.0.1:4445"),
+		KetoRead:     envOr("VEIL_KETO_READ", "http://127.0.0.1:4466"),
+		KetoWrite:    envOr("VEIL_KETO_WRITE", "http://127.0.0.1:4467"),
+		OrgID:        envOr("VEIL_ORG_ID", glue.LocalOrgID),
 	})
 }
 
@@ -174,7 +188,7 @@ func openOriginApp(home string) (*app.App, error) {
 
 func loadApp(home string, initEmpty bool) (*app.App, error) {
 	if originBase() != "" {
-		return nil, fmt.Errorf("PWM_ORIGIN is set; origin is the vault")
+		return nil, fmt.Errorf("VEIL_ORIGIN is set; origin is the vault")
 	}
 	dir, err := resolveHome(home)
 	if err != nil {
@@ -206,14 +220,14 @@ func inviteActor(ctx context.Context, tokenFile, orgID string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
-	iss := os.Getenv("PWM_HYDRA_ISSUER")
+	iss := os.Getenv("VEIL_HYDRA_ISSUER")
 	if iss == "" {
 		return "", fmt.Errorf("invite: hydra issuer required to prove owner")
 	}
 	v, err := human.New(human.Config{
 		Issuer:      iss,
-		Audience:    os.Getenv("PWM_HYDRA_CLIENT_ID"),
-		RedirectURL: envOr("PWM_HYDRA_REDIRECT", "http://127.0.0.1:4460/oidc/callback"),
+		Audience:    os.Getenv("VEIL_HYDRA_CLIENT_ID"),
+		RedirectURL: envOr("VEIL_HYDRA_REDIRECT", "http://127.0.0.1:4460/oidc/callback"),
 	})
 	if err != nil {
 		return "", err
@@ -231,7 +245,7 @@ func initCmd(home *string) *cobra.Command {
 		Short: "Create a local vault (org of one)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if originBase() != "" {
-				return fmt.Errorf("PWM_ORIGIN is set; origin is the vault")
+				return fmt.Errorf("VEIL_ORIGIN is set; origin is the vault")
 			}
 			dir, err := resolveHome(*home)
 			if err != nil {
@@ -349,7 +363,7 @@ func deviceCmd(home *string) *cobra.Command {
 				return err
 			}
 			if originBase() != "" {
-				return fmt.Errorf("PWM_ORIGIN is set; origin is the vault")
+				return fmt.Errorf("VEIL_ORIGIN is set; origin is the vault")
 			}
 			if err := app.Accept(dir, priv, blob); err != nil {
 				return err
@@ -381,7 +395,7 @@ func humanCmd(home *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			actor, err := inviteActor(cmd.Context(), tokenFile, envOr("PWM_ORG_ID", glue.LocalOrgID))
+			actor, err := inviteActor(cmd.Context(), tokenFile, envOr("VEIL_ORG_ID", glue.LocalOrgID))
 			if err != nil {
 				return err
 			}
@@ -396,7 +410,7 @@ func humanCmd(home *string) *cobra.Command {
 		},
 	}
 	invite.Flags().StringVar(&codeFile, "code-file", "", "write the Kratos recovery code here. never argv.")
-	invite.Flags().StringVar(&tokenFile, "oidc-token-file", "", "owner Hydra ID token file. Env PWM_HUMAN_TOKEN. Never argv.")
+	invite.Flags().StringVar(&tokenFile, "oidc-token-file", "", "owner Hydra ID token file. Env VEIL_HUMAN_TOKEN. Never argv.")
 	_ = invite.MarkFlagRequired("code-file")
 	var outFile string
 	login := &cobra.Command{
@@ -416,7 +430,7 @@ func humanCmd(home *string) *cobra.Command {
 			if err == nil {
 				ids, err := g.ListMembers(cmd.Context())
 				if err == nil {
-					org := envOr("PWM_ORG_ID", glue.LocalOrgID)
+					org := envOr("VEIL_ORG_ID", glue.LocalOrgID)
 					humans := make([]protocol.Principal, 0, len(ids))
 					for _, id := range ids {
 						humans = append(humans, protocol.Principal{Kind: protocol.PrincipalHuman, ID: id, OrgID: org})
@@ -867,13 +881,13 @@ func agentCmd(home *string) *cobra.Command {
 			if _, err := a.Store.Agent(args[0]); err != nil {
 				return err
 			}
-			g, err := glue.NewHydra(envOr("PWM_HYDRA_ADMIN", "http://127.0.0.1:4445"))
+			g, err := glue.NewHydra(envOr("VEIL_HYDRA_ADMIN", "http://127.0.0.1:4445"))
 			if err != nil {
 				return err
 			}
 			cred, err := g.EnsureAgent(cmd.Context(), glue.AgentClient{
 				ID:       glue.AgentClientID(args[0]),
-				Audience: envOr("PWM_HYDRA_CLIENT_ID", glue.DefaultClientID),
+				Audience: envOr("VEIL_HYDRA_CLIENT_ID", glue.DefaultClientID),
 			})
 			if err != nil {
 				return err
@@ -885,7 +899,7 @@ func agentCmd(home *string) *cobra.Command {
 			} else if _, err := os.Stat(secretFile); err != nil {
 				return fmt.Errorf("agent hydra: client exists; secret is not reissued")
 			}
-			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
+			issuer := envOr("VEIL_HYDRA_ISSUER", "http://127.0.0.1:4444")
 			w, err := a.BindWorkload(args[0], issuer, cred.ID, cred.Audience)
 			if err != nil {
 				return err
@@ -921,8 +935,8 @@ func agentCmd(home *string) *cobra.Command {
 			if len(secret) == 0 {
 				return fmt.Errorf("agent token: empty secret")
 			}
-			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
-			audience := envOr("PWM_HYDRA_CLIENT_ID", glue.DefaultClientID)
+			issuer := envOr("VEIL_HYDRA_ISSUER", "http://127.0.0.1:4444")
+			audience := envOr("VEIL_HYDRA_CLIENT_ID", glue.DefaultClientID)
 			clientID := glue.AgentClientID(args[0])
 			raw, err := glue.ClientCredentials(cmd.Context(), issuer, clientID, string(secret), audience)
 			if err != nil {
@@ -1206,7 +1220,7 @@ func approveCmd(home *string) *cobra.Command {
 		},
 	}
 	c.Flags().DurationVar(&ttl, "ttl", 15*time.Minute, "approval lifetime")
-	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "Hydra ID token file. Env PWM_HUMAN_TOKEN. Never argv.")
+	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "Hydra ID token file. Env VEIL_HUMAN_TOKEN. Never argv.")
 	return c
 }
 
@@ -1218,14 +1232,14 @@ func humanToken(tokenFile string) (string, error) {
 		}
 		return strings.TrimSpace(string(b)), nil
 	}
-	if f := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE")); f != "" {
+	if f := strings.TrimSpace(os.Getenv("VEIL_HUMAN_TOKEN_FILE")); f != "" {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			return "", err
 		}
 		return strings.TrimSpace(string(b)), nil
 	}
-	return strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN")), nil
+	return strings.TrimSpace(os.Getenv("VEIL_HUMAN_TOKEN")), nil
 }
 
 func proxyCmd(home *string) *cobra.Command {
@@ -1235,10 +1249,10 @@ func proxyCmd(home *string) *cobra.Command {
 		Short: "HTTPS_PROXY inject. Bound to --agent. Unknown hosts fail closed.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if agent == "" {
-				agent = os.Getenv("PWM_AGENT")
+				agent = os.Getenv("VEIL_AGENT")
 			}
 			if agent == "" {
-				return fmt.Errorf("--agent or PWM_AGENT is required")
+				return fmt.Errorf("--agent or VEIL_AGENT is required")
 			}
 			if originBase() != "" {
 				return originProxyWait(cmd, *home, agent, tokenFile, listen)
@@ -1269,9 +1283,9 @@ func proxyCmd(home *string) *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&agent, "agent", "", "agent id (or PWM_AGENT)")
+	c.Flags().StringVar(&agent, "agent", "", "agent id (or VEIL_AGENT)")
 	c.Flags().StringVar(&listen, "listen", "127.0.0.1:0", "listen address")
-	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for PWM_ORIGIN. Never argv.")
+	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for VEIL_ORIGIN. Never argv.")
 	return c
 }
 
@@ -1284,10 +1298,10 @@ func runCmd(home *string) *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if agent == "" {
-				agent = os.Getenv("PWM_AGENT")
+				agent = os.Getenv("VEIL_AGENT")
 			}
 			if agent == "" {
-				return fmt.Errorf("--agent or PWM_AGENT is required")
+				return fmt.Errorf("--agent or VEIL_AGENT is required")
 			}
 			if originBase() != "" {
 				return originRun(cmd, *home, agent, tokenFile, injects, args)
@@ -1327,9 +1341,9 @@ func runCmd(home *string) *cobra.Command {
 			return proc.Run()
 		},
 	}
-	c.Flags().StringVar(&agent, "agent", "", "agent id (or PWM_AGENT)")
-	c.Flags().StringArrayVar(&injects, "inject", nil, "template:dest. ${NAME} or pwm://name. dest is 0600. never stdout")
-	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for PWM_ORIGIN. Never argv.")
+	c.Flags().StringVar(&agent, "agent", "", "agent id (or VEIL_AGENT)")
+	c.Flags().StringArrayVar(&injects, "inject", nil, "template:dest. ${NAME} or veil://name. dest is 0600. never stdout")
+	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for VEIL_ORIGIN. Never argv.")
 	return c
 }
 
@@ -1365,7 +1379,7 @@ func auditCmd(home *string) *cobra.Command {
 			return encode(cmd, events)
 		},
 	}
-	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for PWM_ORIGIN. Never argv.")
+	c.Flags().StringVar(&tokenFile, "oidc-token-file", "", "agent token file for VEIL_ORIGIN. Never argv.")
 	return c
 }
 
@@ -1452,7 +1466,7 @@ func serveCmd(home *string) *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&path, "socket", "", "unix socket path (default <home>/pwm.sock)")
+	c.Flags().StringVar(&path, "socket", "", "unix socket path (default <home>/veil.sock)")
 	return c
 }
 
@@ -1485,7 +1499,7 @@ func fillCmd(home *string) *cobra.Command {
 					return originHumanTokenLive(cmd.Context())
 				}
 				h.Refresh = func() (string, error) {
-					out := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE"))
+					out := strings.TrimSpace(os.Getenv("VEIL_HUMAN_TOKEN_FILE"))
 					return remintHumanHTTP(cmd.Context(), out)
 				}
 				attachFillConfirm(h)
@@ -1508,7 +1522,7 @@ func fillCmd(home *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			origin := originBase()
 			if origin == "" {
-				return fmt.Errorf("fill install: PWM_ORIGIN is required")
+				return fmt.Errorf("fill install: VEIL_ORIGIN is required")
 			}
 			dir, err := resolveHome(*home)
 			if err != nil {
@@ -1527,9 +1541,9 @@ func fillCmd(home *string) *cobra.Command {
 				VaultHome:    dir,
 				UserHome:     user,
 				Origin:       origin,
-				LoginEmail:   strings.TrimSpace(os.Getenv("PWM_LOGIN_EMAIL")),
-				PasswordFile: strings.TrimSpace(os.Getenv("PWM_KRATOS_PASSWORD_FILE")),
-				TOTPFile:     strings.TrimSpace(os.Getenv("PWM_KRATOS_TOTP_FILE")),
+				LoginEmail:   strings.TrimSpace(os.Getenv("VEIL_LOGIN_EMAIL")),
+				PasswordFile: strings.TrimSpace(os.Getenv("VEIL_KRATOS_PASSWORD_FILE")),
+				TOTPFile:     strings.TrimSpace(os.Getenv("VEIL_KRATOS_TOTP_FILE")),
 			}
 			if err := fill.InstallOrigin(env); err != nil {
 				return err
@@ -1594,7 +1608,7 @@ func mcpCmd(home *string) *cobra.Command {
 			a.Broker.Auditor = a.Auditor
 			listen = mcpserver.ListenAddr(listen, cmd.Flags().Changed("listen"))
 			publicURL = mcpPublicURL(publicURL, listen)
-			issuer := envOr("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
+			issuer := envOr("VEIL_HYDRA_ISSUER", "http://127.0.0.1:4444")
 			slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 				Level: logLevel(),
 				ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
@@ -1672,7 +1686,7 @@ func mcpPublicURL(flag, listen string) string {
 	if flag != "" {
 		return flag
 	}
-	if v := envOr("PWM_MCP_URL", ""); v != "" {
+	if v := envOr("VEIL_MCP_URL", ""); v != "" {
 		return v
 	}
 	if strings.HasPrefix(listen, "0.0.0.0:") || strings.HasPrefix(listen, "[::]:") {
@@ -1768,7 +1782,7 @@ func attachFillConfirm(h *fill.Host) {
 			return
 		}
 	}
-	if dir := strings.TrimSpace(os.Getenv("PWM_HOME")); dir != "" {
+	if dir := strings.TrimSpace(os.Getenv("VEIL_HOME")); dir != "" {
 		if cfg, err := fill.ReadHostConfig(dir); err == nil && cfg.TouchID != nil && !*cfg.TouchID {
 			return
 		}

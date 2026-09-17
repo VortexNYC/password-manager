@@ -13,20 +13,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/audit"
-	"github.com/veilnyc/password-manager/internal/broker"
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/device"
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/human"
-	"github.com/veilnyc/password-manager/internal/id"
-	"github.com/veilnyc/password-manager/internal/inject"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/oneimport"
-	"github.com/veilnyc/password-manager/internal/passkey"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/store"
-	"github.com/veilnyc/password-manager/internal/workload"
+	"github.com/VortexNYC/veil/internal/audit"
+	"github.com/VortexNYC/veil/internal/broker"
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/device"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/human"
+	"github.com/VortexNYC/veil/internal/id"
+	"github.com/VortexNYC/veil/internal/inject"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/oneimport"
+	"github.com/VortexNYC/veil/internal/passkey"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/store"
+	"github.com/VortexNYC/veil/internal/workload"
 )
 
 const (
@@ -216,14 +216,14 @@ func finish(dir string, cfg config, s store.Store, auditor audit.Auditor) (*App,
 }
 
 func (a *App) attachHydra() error {
-	iss := os.Getenv("PWM_HYDRA_ISSUER")
+	iss := os.Getenv("VEIL_HYDRA_ISSUER")
 	if iss == "" {
 		return nil
 	}
 	v, err := human.New(human.Config{
 		Issuer:      iss,
-		Audience:    os.Getenv("PWM_HYDRA_CLIENT_ID"),
-		RedirectURL: firstEnv("PWM_HYDRA_REDIRECT", "BROKER_REDIRECT_URL"),
+		Audience:    os.Getenv("VEIL_HYDRA_CLIENT_ID"),
+		RedirectURL: firstEnv("VEIL_HYDRA_REDIRECT", "BROKER_REDIRECT_URL"),
 	})
 	if err != nil {
 		return err

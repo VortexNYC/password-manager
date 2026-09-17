@@ -6,15 +6,15 @@ description: Generated from the OpenAPI contract. Use injects. Never GetSecret.
 # TypeScript SDK
 
 ```bash
-pnpm add @veilnyc/pwm-sdk
+pnpm add @vortex-api/veil
 ```
 
 ```ts
-import { createClient, listItems, useItem } from "@veilnyc/pwm-sdk";
+import { createClient, listItems, useItem } from "@vortex-api/veil";
 
 const client = createClient({
   baseUrl: "https://veil.nyc",
-  headers: { Authorization: `Bearer ${process.env.PWM_OIDC_TOKEN}` },
+  headers: { Authorization: `Bearer ${process.env.VEIL_OIDC_TOKEN}` },
 });
 
 const { data } = await listItems({ client });
@@ -32,7 +32,7 @@ await useItem({
 
 ## Local source
 
-- Generated package: `sdks/typescript` — name `@veilnyc/pwm-sdk`
+- Generated package: `sdks/typescript` — name `@vortex-api/veil`
 - Generator: `@hey-api/openapi-ts`
 
 Regenerate with `pnpm run sdk:generate`.

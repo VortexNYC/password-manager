@@ -12,13 +12,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/id"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/publicapi"
-	"github.com/veilnyc/password-manager/internal/replica"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/id"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/replica"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 func jsonHandle(t *testing.T, h *Host, v any) []byte {

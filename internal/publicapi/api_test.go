@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
-	"github.com/veilnyc/password-manager/internal/store"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
+	"github.com/VortexNYC/veil/internal/store"
 )
 
 const secret = "sk_live_API_SECRET"

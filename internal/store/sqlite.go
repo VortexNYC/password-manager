@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/protocol"
 
 	_ "modernc.org/sqlite"
 )
@@ -692,15 +692,15 @@ func (s *SQLite) UseAuthSession(sessionHash []byte, itemID string, now time.Time
 		sessionHash, itemID, now.Unix())
 
 	var (
-		sID                                                 sql.NullString
-		aID, aOrgID, aOwnerKind, aOwnerID, aRevoked sql.NullString
+		sID                                                     sql.NullString
+		aID, aOrgID, aOwnerKind, aOwnerID, aRevoked             sql.NullString
 		iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID, iLogin sql.NullString
-		iURIs, iTags                                          []byte
-		iHasTOTP, iArchived, iHasFile                         sql.NullInt64
-		gID, gOrgID, gAgentID, gItemID, gLevel                sql.NullString
-		gActions                                              []byte
-		gExpires, apExpires                                   sql.NullInt64
-		apID, apGrantID, apHumanID                            sql.NullString
+		iURIs, iTags                                            []byte
+		iHasTOTP, iArchived, iHasFile                           sql.NullInt64
+		gID, gOrgID, gAgentID, gItemID, gLevel                  sql.NullString
+		gActions                                                []byte
+		gExpires, apExpires                                     sql.NullInt64
+		apID, apGrantID, apHumanID                              sql.NullString
 	)
 	if err := row.Scan(
 		&sID,
@@ -826,14 +826,14 @@ func (s *SQLite) UseAuth(agentID, itemID string, now time.Time) (UseAuth, error)
 		agentID, itemID, now.Unix())
 
 	var (
-		aID, aOrgID, aOwnerKind, aOwnerID, aRevoked sql.NullString
+		aID, aOrgID, aOwnerKind, aOwnerID, aRevoked             sql.NullString
 		iID, iOrgID, iName, iKind, iOwnerKind, iOwnerID, iLogin sql.NullString
-		iURIs, iTags                                          []byte
-		iHasTOTP, iArchived, iHasFile                         sql.NullInt64
-		gID, gOrgID, gAgentID, gItemID, gLevel                sql.NullString
-		gActions                                              []byte
-		gExpires, apExpires                                   sql.NullInt64
-		apID, apGrantID, apHumanID                            sql.NullString
+		iURIs, iTags                                            []byte
+		iHasTOTP, iArchived, iHasFile                           sql.NullInt64
+		gID, gOrgID, gAgentID, gItemID, gLevel                  sql.NullString
+		gActions                                                []byte
+		gExpires, apExpires                                     sql.NullInt64
+		apID, apGrantID, apHumanID                              sql.NullString
 	)
 	if err := row.Scan(
 		&aID, &aOrgID, &aOwnerKind, &aOwnerID, &aRevoked,

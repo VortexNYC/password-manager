@@ -17,9 +17,9 @@ import (
 
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 const secret = "sk_live_FILL_SECRET"
@@ -276,8 +276,8 @@ func TestWriteToPipeDoesNotSync(t *testing.T) {
 func TestInstallWritesManifestsNotExtension(t *testing.T) {
 	user := t.TempDir()
 	vaultDir := t.TempDir()
-	bin := filepath.Join(t.TempDir(), "password-manager")
-	payload := []byte("pwm-host-binary\n")
+	bin := filepath.Join(t.TempDir(), "veil")
+	payload := []byte("veil-host-binary\n")
 	if err := os.WriteFile(bin, payload, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -421,8 +421,8 @@ func TestOriginLoginsProbesTOTPWithoutPuttingCode(t *testing.T) {
 func TestInstallOriginBakesOriginNotToken(t *testing.T) {
 	user := t.TempDir()
 	vaultDir := t.TempDir()
-	bin := filepath.Join(t.TempDir(), "password-manager")
-	payload := []byte("pwm-host-binary\n")
+	bin := filepath.Join(t.TempDir(), "veil")
+	payload := []byte("veil-host-binary\n")
 	if err := os.WriteFile(bin, payload, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -605,8 +605,8 @@ func TestConfirmDeniedDoesNotRegisterPasskey(t *testing.T) {
 func TestInstallOriginBakesRemintPathsNotPassword(t *testing.T) {
 	user := t.TempDir()
 	vaultDir := t.TempDir()
-	bin := filepath.Join(t.TempDir(), "password-manager")
-	if err := os.WriteFile(bin, []byte("pwm-host-binary\n"), 0o755); err != nil {
+	bin := filepath.Join(t.TempDir(), "veil")
+	if err := os.WriteFile(bin, []byte("veil-host-binary\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	passFile := filepath.Join(t.TempDir(), "kratos-pass")
@@ -848,12 +848,12 @@ func TestPasskeysFromOrigin(t *testing.T) {
 func envNoOrigin() []string {
 	var out []string
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "PWM_ORIGIN=") || strings.HasPrefix(e, "PWM_FILL_TOUCHID=") {
+		if strings.HasPrefix(e, "VEIL_ORIGIN=") || strings.HasPrefix(e, "VEIL_FILL_TOUCHID=") {
 			continue
 		}
 		out = append(out, e)
 	}
-	return append(out, "PWM_FILL_TOUCHID=0")
+	return append(out, "VEIL_FILL_TOUCHID=0")
 }
 
 func (c *client) handshakeProc(t *testing.T, in io.Writer, out io.Reader) {
@@ -928,9 +928,9 @@ func (c *client) sendProc(t *testing.T, in io.Writer, out io.Reader, inner []byt
 }
 
 func TestPasskeysLiveCLI(t *testing.T) {
-	bin := os.Getenv("PWM_BIN")
+	bin := os.Getenv("VEIL_BIN")
 	if bin == "" {
-		t.Skip("PWM_BIN")
+		t.Skip("VEIL_BIN")
 	}
 	home := t.TempDir()
 	a, err := app.Init(home)

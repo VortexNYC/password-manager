@@ -22,15 +22,15 @@ func Config(publicURL string) (Remote, error) {
 	}
 	return Remote{
 		URL:    publicURL,
-		Issuer: strings.TrimSpace(os.Getenv("PWM_HYDRA_ISSUER")),
+		Issuer: strings.TrimSpace(os.Getenv("VEIL_HYDRA_ISSUER")),
 		Headers: map[string]string{
-			"Authorization": "Bearer ${PWM_OIDC_TOKEN}",
+			"Authorization": "Bearer ${VEIL_OIDC_TOKEN}",
 		},
 	}, nil
 }
 
 // Laptop is the Cursor (and other GUI) MCP block. Dock-launched apps cannot
-// interpolate Bearer or ${file:}. stdio reads PWM_OIDC_TOKEN_FILE per call.
+// interpolate Bearer or ${file:}. stdio reads VEIL_OIDC_TOKEN_FILE per call.
 // mcp laptop writes the env values that are set (paths), never the JWT.
 type Laptop struct {
 	Command string            `json:"command"`
@@ -43,7 +43,7 @@ func LaptopConfig(origin string) Laptop {
 	if origin == "" {
 		origin = "https://veil.nyc"
 	}
-	cmd := "password-manager"
+	cmd := "veil"
 	if self, err := os.Executable(); err == nil && self != "" {
 		cmd = self
 	}
@@ -51,11 +51,11 @@ func LaptopConfig(origin string) Laptop {
 		Command: cmd,
 		Args:    []string{"mcp", "stdio"},
 		Env: map[string]string{
-			"PWM_ORIGIN":            origin,
-			"PWM_OIDC_TOKEN_FILE":   strings.TrimSpace(os.Getenv("PWM_OIDC_TOKEN_FILE")),
-			"PWM_HYDRA_SECRET_FILE": strings.TrimSpace(os.Getenv("PWM_HYDRA_SECRET_FILE")),
-			"PWM_HYDRA_ISSUER":      strings.TrimSpace(os.Getenv("PWM_HYDRA_ISSUER")),
-			"PWM_AGENT":             strings.TrimSpace(os.Getenv("PWM_AGENT")),
+			"VEIL_ORIGIN":            origin,
+			"VEIL_OIDC_TOKEN_FILE":   strings.TrimSpace(os.Getenv("VEIL_OIDC_TOKEN_FILE")),
+			"VEIL_HYDRA_SECRET_FILE": strings.TrimSpace(os.Getenv("VEIL_HYDRA_SECRET_FILE")),
+			"VEIL_HYDRA_ISSUER":      strings.TrimSpace(os.Getenv("VEIL_HYDRA_ISSUER")),
+			"VEIL_AGENT":             strings.TrimSpace(os.Getenv("VEIL_AGENT")),
 		},
 	}
 }

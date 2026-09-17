@@ -23,16 +23,16 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/veilnyc/password-manager/internal/audit"
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
-	"github.com/veilnyc/password-manager/internal/store"
+	"github.com/VortexNYC/veil/internal/audit"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
+	"github.com/VortexNYC/veil/internal/store"
 )
 
 var (
-	ErrOverloaded  = errors.New("broker: origin overloaded")
+	ErrOverloaded   = errors.New("broker: origin overloaded")
 	ErrUnauthorized = errors.New("broker: unauthorized")
 )
 

@@ -23,11 +23,11 @@ There is no `GetSecret`. `gen`, `write`, `audit`, and `run` are not coding-agent
 ## Connect
 
 ```
-password-manager agent add cursor
-password-manager agent hydra cursor --secret-file ./cursor.hydra
-password-manager agent token cursor --secret-file ./cursor.hydra --out-file ./cursor.jwt
-password-manager grant add --agent cursor --item stripe --level level2
-password-manager mcp config
+veil agent add cursor
+veil agent hydra cursor --secret-file ./cursor.hydra
+veil agent token cursor --secret-file ./cursor.hydra --out-file ./cursor.jwt
+veil grant add --agent cursor --item stripe --level level2
+veil mcp config
 ```
 
 Mint with `agent token`. JWT is `--out-file` only. Send it as `Authorization: Bearer`. MCP URL is `https://veil.nyc/mcp`. HTTP Use is `POST /v1/use`.

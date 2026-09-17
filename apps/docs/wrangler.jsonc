@@ -1,10 +1,10 @@
 {
-  "name": "veilnyc-pwm-docs",
+  "name": "veil-docs",
   "compatibility_date": "2026-08-27",
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
     {
-      "pattern": "veil.nyc/pwm/docs*",
+      "pattern": "veil.nyc/docs*",
       "zone_name": "veil.nyc"
     }
   ]

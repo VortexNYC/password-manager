@@ -7,7 +7,7 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/VortexNYC/veil/internal/crypto"
 )
 
 /*
@@ -16,7 +16,7 @@ import (
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 
-static CFMutableDictionaryRef pwm_replica_query(void) {
+static CFMutableDictionaryRef veil_replica_query(void) {
 	CFMutableDictionaryRef q = CFDictionaryCreateMutable(NULL, 0,
 		&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	CFDictionarySetValue(q, kSecClass, kSecClassGenericPassword);
@@ -25,8 +25,8 @@ static CFMutableDictionaryRef pwm_replica_query(void) {
 	return q;
 }
 
-static int pwm_replica_get(void *out, int cap) {
-	CFMutableDictionaryRef q = pwm_replica_query();
+static int veil_replica_get(void *out, int cap) {
+	CFMutableDictionaryRef q = veil_replica_query();
 	CFDictionarySetValue(q, kSecReturnData, kCFBooleanTrue);
 	CFDictionarySetValue(q, kSecMatchLimit, kSecMatchLimitOne);
 	CFTypeRef result = NULL;
@@ -49,8 +49,8 @@ static int pwm_replica_get(void *out, int cap) {
 	return (int)n;
 }
 
-static int pwm_replica_put(const void *in, int n) {
-	CFMutableDictionaryRef q = pwm_replica_query();
+static int veil_replica_put(const void *in, int n) {
+	CFMutableDictionaryRef q = veil_replica_query();
 	SecItemDelete(q);
 	CFDataRef data = CFDataCreate(NULL, in, n);
 	if (data == NULL) {
@@ -80,7 +80,7 @@ import "C"
 type keychain struct{}
 
 func Platform() KeyStore {
-	if os.Getenv("PWM_REPLICA_KEYSTORE") == "mem" {
+	if os.Getenv("VEIL_REPLICA_KEYSTORE") == "mem" {
 		return Mem()
 	}
 	return keychain{}
@@ -88,7 +88,7 @@ func Platform() KeyStore {
 
 func (keychain) Get() ([]byte, error) {
 	buf := make([]byte, crypto.KeySize)
-	n := C.pwm_replica_get(unsafe.Pointer(&buf[0]), C.int(len(buf)))
+	n := C.veil_replica_get(unsafe.Pointer(&buf[0]), C.int(len(buf)))
 	if n == 0 {
 		return nil, ErrNotFound
 	}
@@ -102,7 +102,7 @@ func (keychain) Put(key []byte) error {
 	if len(key) != crypto.KeySize {
 		return fmt.Errorf("replica: key")
 	}
-	if C.pwm_replica_put(unsafe.Pointer(&key[0]), C.int(len(key))) != 0 {
+	if C.veil_replica_put(unsafe.Pointer(&key[0]), C.int(len(key))) != 0 {
 		return fmt.Errorf("replica: keychain put")
 	}
 	return nil

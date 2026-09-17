@@ -10,16 +10,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sync"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/broker"
-	"github.com/veilnyc/password-manager/internal/device"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
-	"github.com/veilnyc/password-manager/internal/store"
+	"github.com/VortexNYC/veil/internal/broker"
+	"github.com/VortexNYC/veil/internal/device"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
+	"github.com/VortexNYC/veil/internal/store"
 )
 
 const secret = "sk_live_APP_TEST_SECRET"
@@ -311,7 +311,7 @@ func TestApproveOIDCRequiresIssuer(t *testing.T) {
 }
 
 func TestApproveRequiresOIDCWhenIssuerSet(t *testing.T) {
-	t.Setenv("PWM_HYDRA_ISSUER", "http://127.0.0.1:4444")
+	t.Setenv("VEIL_HYDRA_ISSUER", "http://127.0.0.1:4444")
 	dir := t.TempDir()
 	a, err := Init(dir)
 	if err != nil {

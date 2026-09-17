@@ -14,9 +14,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/otelsetup"
-	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/otelsetup"
+	"github.com/VortexNYC/veil/internal/publicapi"
 )
 
 const (

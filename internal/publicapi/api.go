@@ -16,14 +16,14 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"unicode/utf8"
 	"time"
+	"unicode/utf8"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/broker"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/oneimport"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/broker"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/oneimport"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 type UseRequest struct {

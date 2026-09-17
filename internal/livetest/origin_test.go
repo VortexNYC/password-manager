@@ -18,7 +18,7 @@ import (
 var leakPat = regexp.MustCompile(`(?i)ghp_|gho_|ghu_|github_pat_|lin_api_|cfat_|cfut_|sk_live|sk_test|fc-[a-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.`)
 
 func TestOrigin(t *testing.T) {
-	origin := strings.TrimRight(envOr("PWM_ORIGIN", "https://veil.nyc"), "/")
+	origin := strings.TrimRight(envOr("VEIL_ORIGIN", "https://veil.nyc"), "/")
 	jwt := readJWT(t)
 	client := &http.Client{Timeout: 25 * time.Second}
 
@@ -368,9 +368,9 @@ func get(t *testing.T, client *http.Client, url, jwt string) (int, []byte) {
 
 func readJWT(t *testing.T) string {
 	t.Helper()
-	path := os.Getenv("PWM_LIVE_JWT_FILE")
+	path := os.Getenv("VEIL_LIVE_JWT_FILE")
 	if path == "" {
-		t.Fatal("PWM_LIVE_JWT_FILE is required")
+		t.Fatal("VEIL_LIVE_JWT_FILE is required")
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

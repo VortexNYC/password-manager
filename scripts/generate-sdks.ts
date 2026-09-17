@@ -13,13 +13,13 @@ import { dirname, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const openApiPath = resolve(repoRoot, "docs/openapi/password-manager.openapi.json");
+const openApiPath = resolve(repoRoot, "docs/openapi/veil.openapi.json");
 const embedPath = resolve(repoRoot, "internal/publicapi/spec.json");
 const typeScriptOutput = resolve(repoRoot, "sdks/typescript");
 const pythonOutput = resolve(repoRoot, "sdks/python");
 const goOutput = resolve(repoRoot, "sdks/go");
 const tempRoot = resolve(repoRoot, ".tmp/sdk-generate");
-const GO_MODULE_PATH = "github.com/veilnyc/pwm-go";
+const GO_MODULE_PATH = "github.com/VortexNYC/veil/sdks/go";
 
 const MIT = `MIT License
 
@@ -98,15 +98,15 @@ function generatorArgs(kind: "python" | "go", input: string, output: string, ver
     kind === "python"
       ? [
           "--additional-properties",
-          `packageName=veil_pwm,projectName=veil-pwm-sdk,packageVersion=${version},generateSourceCodeOnly=true,hideGenerationTimestamp=true`,
+          `packageName=veil,projectName=vortex-api-veil,packageVersion=${version},generateSourceCodeOnly=true,hideGenerationTimestamp=true`,
         ]
       : [
           "--git-user-id",
-          "veilnyc",
+          "VortexNYC",
           "--git-repo-id",
-          "pwm-go",
+          "veil/sdks/go",
           "--additional-properties",
-          `packageName=veilpwm,packageVersion=${version},hideGenerationTimestamp=true,structPrefix=true,withGoMod=true`,
+          `packageName=veil,packageVersion=${version},hideGenerationTimestamp=true,structPrefix=true,withGoMod=true`,
         ];
   return [
     "generate",
@@ -146,7 +146,7 @@ function generateLang(kind: "python" | "go", version: string): void {
       "openapitools/openapi-generator-cli:v7.23.0",
       ...generatorArgs(
         kind,
-        "/local/docs/openapi/password-manager.openapi.json",
+        "/local/docs/openapi/veil.openapi.json",
         `/local/.tmp/sdk-generate/${kind}`,
         version
       ),
@@ -163,9 +163,9 @@ function pruneGeneratedSdkOutputs(): void {
   const noise = [
     resolve(pythonOutput, ".openapi-generator"),
     resolve(pythonOutput, ".openapi-generator-ignore"),
-    resolve(pythonOutput, "veil_pwm", "docs"),
-    resolve(pythonOutput, "veil_pwm", "test"),
-    resolve(pythonOutput, "veil_pwm_README.md"),
+    resolve(pythonOutput, "veil/sdks/go", "docs"),
+    resolve(pythonOutput, "veil/sdks/go", "test"),
+    resolve(pythonOutput, "veil_README.md"),
     resolve(goOutput, ".openapi-generator"),
     resolve(goOutput, ".openapi-generator-ignore"),
     resolve(goOutput, ".gitignore"),
@@ -210,7 +210,7 @@ function writePackageMetadata(version: string): void {
     resolve(typeScriptOutput, "package.json"),
     `${JSON.stringify(
       {
-        name: "@veilnyc/pwm-sdk",
+        name: "@vortex-api/veil",
         version,
         description: "Generated TypeScript SDK for Veil. Use injects. Never GetSecret.",
         license: "MIT",
@@ -218,9 +218,13 @@ function writePackageMetadata(version: string): void {
         sideEffects: false,
         main: "./index.ts",
         types: "./index.ts",
+        publishConfig: {
+          access: "public",
+          registry: "https://registry.npmjs.org",
+        },
         repository: {
           type: "git",
-          url: "git+https://github.com/VeilNYC/password-manager.git",
+          url: "git+https://github.com/VortexNYC/veil.git",
           directory: "sdks/typescript",
         },
       },
@@ -230,16 +234,23 @@ function writePackageMetadata(version: string): void {
   );
   writeFileSync(
     resolve(typeScriptOutput, "README.md"),
-    `# Veil TypeScript SDK
+    `# @vortex-api/veil
 
-Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite clients.
+Generated TypeScript SDK for the Veil public API.
+
+This package is generated from \`docs/openapi/veil.openapi.json\` by \`pnpm run sdk:generate\`.
+It is MIT-licensed and published to the public npm registry.
+
+\`\`\`bash
+pnpm add @vortex-api/veil
+\`\`\`
 
 \`\`\`ts
-import { createClient, listItems, useItem } from "@veilnyc/pwm-sdk";
+import { createClient, listItems, useItem } from "@vortex-api/veil";
 
 const client = createClient({
   baseUrl: "https://veil.nyc",
-  headers: { Authorization: \`Bearer \${process.env.PWM_OIDC_TOKEN}\` },
+  headers: { Authorization: \`Bearer \${process.env.VEIL_OIDC_TOKEN}\` },
 });
 
 const { data } = await listItems({ client });
@@ -257,7 +268,7 @@ The vault secret is never in the response.
   writeFileSync(
     resolve(pythonOutput, "pyproject.toml"),
     `[project]
-name = "veil-pwm-sdk"
+name = "vortex-api-veil"
 version = "${version}"
 description = "Generated Python SDK for Veil. Use injects. Never GetSecret."
 readme = "README.md"
@@ -275,29 +286,29 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["veil_pwm*"]
+include = ["veil*"]
 `
   );
   writeFileSync(
     resolve(pythonOutput, "README.md"),
-    `# veil-pwm-sdk
+    `# vortex-api-veil
 
-Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite clients.
+Generated from \`docs/openapi/veil.openapi.json\`. Do not handwrite clients.
 
 \`\`\`bash
-pip install veil-pwm-sdk
+pip install vortex-api-veil
 \`\`\`
 
 \`\`\`py
 import os
-import veil_pwm
+import veil
 
-configuration = veil_pwm.Configuration(host="https://veil.nyc")
-configuration.access_token = os.environ["PWM_OIDC_TOKEN"]
-client = veil_pwm.ApiClient(configuration)
-api = veil_pwm.AgentApi(client)
+configuration = veil.Configuration(host="https://veil.nyc")
+configuration.access_token = os.environ["VEIL_OIDC_TOKEN"]
+client = veil.ApiClient(configuration)
+api = veil.AgentApi(client)
 items = api.list_items()
-api.use_item(veil_pwm.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers"))
+api.use_item(veil.UseRequest(item="stripe", url="https://api.stripe.com/v1/customers"))
 \`\`\`
 
 The vault secret is never in the response.
@@ -309,7 +320,7 @@ The vault secret is never in the response.
     resolve(goOutput, "README.md"),
     `# Veil Go SDK
 
-Generated from \`docs/openapi/password-manager.openapi.json\`. Do not handwrite clients.
+Generated from \`docs/openapi/veil.openapi.json\`. Do not handwrite clients.
 
 The public module is \`${GO_MODULE_PATH}\`.
 
@@ -324,15 +335,15 @@ import (
 	"context"
 	"os"
 
-	veilpwm "${GO_MODULE_PATH}"
+	veil "${GO_MODULE_PATH}"
 )
 
 func main() {
-	cfg := veilpwm.NewConfiguration()
+	cfg := veil.NewConfiguration()
 	cfg.Host = "veil.nyc"
 	cfg.Scheme = "https"
-	cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("PWM_OIDC_TOKEN"))
-	client := veilpwm.NewAPIClient(cfg)
+	cfg.AddDefaultHeader("Authorization", "Bearer "+os.Getenv("VEIL_OIDC_TOKEN"))
+	client := veil.NewAPIClient(cfg)
 	_, _, _ = client.AgentAPI.ListItems(context.Background()).Execute()
 }
 \`\`\`

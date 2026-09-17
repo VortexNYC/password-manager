@@ -23,13 +23,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/human"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
+	"github.com/VortexNYC/veil/internal/socket"
 	"github.com/google/uuid"
 	kratos "github.com/ory/kratos-client-go/v26"
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/human"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
-	"github.com/veilnyc/password-manager/internal/socket"
 )
 
 const (
@@ -152,9 +152,9 @@ func TestLiveAuthorize(t *testing.T) {
 		t.Fatal("id token carried a secret we mint")
 	}
 
-	t.Setenv("PWM_HYDRA_ISSUER", liveHydraPublic)
-	t.Setenv("PWM_HYDRA_CLIENT_ID", DefaultClientID)
-	t.Setenv("PWM_HYDRA_REDIRECT", liveBrokerURL)
+	t.Setenv("VEIL_HYDRA_ISSUER", liveHydraPublic)
+	t.Setenv("VEIL_HYDRA_CLIENT_ID", DefaultClientID)
+	t.Setenv("VEIL_HYDRA_REDIRECT", liveBrokerURL)
 	a, err := app.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
