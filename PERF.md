@@ -614,3 +614,22 @@ Before adding a fail-closed cache or distributed rate limiting:
    short-lived, fail-closed cache** for session/grant metadata with explicit
    invalidation and distributed rate limiting.
 
+## Deferred decisions (2026-09-17)
+
+Deliberately not done. Each has a trigger; act when the trigger fires, not before.
+
+1. **PgBouncer / replica scale-out.** Trigger: planned replica count approaches
+   the connection ceiling (~4–5 origins at `max_connections≈100`, 22 conns
+   each), or connection churn shows up as a measured limiter. Until then
+   connection pooling middleware adds a hop and a failure domain for zero gain.
+2. **Per-issuer singleflight in `workload.provider`.** `Checker.provider` holds
+   its mutex across `oidc.NewProvider` — cold-issuer discovery serializes all
+   workload auths behind one HTTP call. Trigger: issuers being added while
+   traffic is live, or concurrent first-auths against a new issuer. Issuers are
+   configured ahead of time today; the cold case is effectively startup-only.
+3. **Audit drop-oldest vs block-and-shed.** Policy decision, not a bug. On
+   saturation today `Append` blocks the request ≤500ms then drops the event
+   (warns). Drop-oldest trades completeness for tail latency; block-and-shed
+   turns audit backpressure into 503s. Pick when a compliance/durability
+   requirement exists to reason against. Zero drops at measured rates (§9).
+
