@@ -95,6 +95,9 @@ func Fetch(ctx context.Context, a *app.App, agentID string, in FetchIn) (FetchOu
 	for k, v := range in.Headers {
 		h.Add(k, v)
 	}
+	if in.Body != "" && in.BodyB64 != "" {
+		return FetchOut{}, fmt.Errorf("fetch: body and body_b64 are mutually exclusive")
+	}
 	body := []byte(in.Body)
 	if in.BodyB64 != "" {
 		decoded, err := base64.StdEncoding.DecodeString(in.BodyB64)

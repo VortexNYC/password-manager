@@ -553,6 +553,10 @@ func (s *Server) useItem(w http.ResponseWriter, r *http.Request) {
 	for k, v := range in.Headers {
 		h.Add(k, v)
 	}
+	if in.Body != "" && in.BodyB64 != "" {
+		http.Error(w, "body and body_b64 are mutually exclusive", http.StatusBadRequest)
+		return
+	}
 	body := []byte(in.Body)
 	if in.BodyB64 != "" {
 		decoded, err := base64.StdEncoding.DecodeString(in.BodyB64)

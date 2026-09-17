@@ -345,6 +345,42 @@ func TestOriginProxyGzipRoundTrip(t *testing.T) {
 	}
 }
 
+func TestInjectOriginStripsConnectionNominatedHeaders(t *testing.T) {
+	var saw http.Header
+	s, err := NewOrigin("cursor", t.TempDir(), []protocol.Item{{
+		ID: "cf", Name: "cf", Kind: protocol.ItemAPIKey, URIs: []string{"https://api.cloudflare.com"},
+	}}, func(ctx context.Context, item, method, rawURL string, header http.Header, body []byte) (OriginResult, error) {
+		saw = header
+		return OriginResult{Decision: protocol.DecisionAllow, Status: 200, Body: []byte(`ok`)}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://api.cloudflare.com/v4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+DummySecret)
+	req.Header.Set("Connection", "keep-alive, X-Trace")
+	req.Header.Set("X-Trace", "abc")
+	req.Header.Set("Proxy-Connection", "keep-alive")
+	req.Header.Set("X-Real", "kept")
+	injectReq, res := s.injectOrigin(req, nil)
+	if injectReq != nil {
+		t.Fatal("expected intercept")
+	}
+	_ = res.Body.Close()
+	if saw.Get("X-Trace") != "" {
+		t.Fatalf("Connection-nominated header forwarded: %v", saw)
+	}
+	if saw.Get("Connection") != "" || saw.Get("Proxy-Connection") != "" {
+		t.Fatalf("hop header forwarded: %v", saw)
+	}
+	if saw.Get("X-Real") != "kept" {
+		t.Fatalf("normal header dropped: %v", saw)
+	}
+}
+
 func TestOriginHTTPPassesUpstreamHeadersAndBytes(t *testing.T) {
 	gzipped := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef}
 	req, err := http.NewRequest(http.MethodGet, "https://api.cloudflare.com/v4", nil)

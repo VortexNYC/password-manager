@@ -1154,6 +1154,14 @@ func TestUseBinaryRequestBodyB64(t *testing.T) {
 	if !bytes.Equal(saw, want) {
 		t.Fatalf("binary request body corrupted: got %x want %x", saw, want)
 	}
+
+	code, _ = doJSON(t, srv, http.MethodPost, "/v1/use", "agent-flue", map[string]any{
+		"item": "cf", "url": upstream.URL, "method": http.MethodPost,
+		"body": "x", "body_b64": base64.StdEncoding.EncodeToString(want),
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("body+body_b64 must 400, got %d", code)
+	}
 }
 
 func TestRevokeAgentEndpoint(t *testing.T) {

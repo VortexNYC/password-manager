@@ -87,7 +87,7 @@ func (s *Server) injectOrigin(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 	}
 	hdr := http.Header{}
 	for k, vs := range req.Header {
-		if strings.EqualFold(k, "Proxy-Authorization") || strings.EqualFold(k, "Proxy-Connection") {
+		if isHopHeader(k, req.Header) {
 			continue
 		}
 		for _, v := range vs {
@@ -129,17 +129,33 @@ func (s *Server) injectOrigin(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 	return nil, originHTTP(req, out)
 }
 
-// hopHeaders are connection-scoped; they never cross the proxy.
+// hopHeaders are connection-scoped; they never cross the proxy. The
+// Connection header itself can nominate more — those tokens are filtered too.
 var hopHeaders = map[string]bool{
 	"Connection":          true,
 	"Keep-Alive":          true,
 	"Proxy-Authenticate":  true,
 	"Proxy-Authorization": true,
+	"Proxy-Connection":    true,
 	"Te":                  true,
 	"Trailer":             true,
 	"Transfer-Encoding":   true,
 	"Upgrade":             true,
 	"Content-Length":      true,
+}
+
+func isHopHeader(k string, h http.Header) bool {
+	if hopHeaders[http.CanonicalHeaderKey(k)] {
+		return true
+	}
+	for _, conn := range h.Values("Connection") {
+		for _, tok := range strings.Split(conn, ",") {
+			if strings.EqualFold(strings.TrimSpace(tok), k) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func originHTTP(req *http.Request, out OriginResult) *http.Response {
@@ -153,7 +169,7 @@ func originHTTP(req *http.Request, out OriginResult) *http.Response {
 	body := out.Body
 	h := http.Header{}
 	for k, vs := range out.Header {
-		if hopHeaders[http.CanonicalHeaderKey(k)] {
+		if isHopHeader(k, out.Header) {
 			continue
 		}
 		for _, v := range vs {
@@ -161,10 +177,10 @@ func originHTTP(req *http.Request, out OriginResult) *http.Response {
 		}
 	}
 	if h.Get("Content-Type") == "" {
-		if len(body) > 0 && body[0] != '{' && body[0] != '[' {
-			h.Set("Content-Type", "text/plain; charset=utf-8")
-		} else {
+		if len(body) > 0 && (body[0] == '{' || body[0] == '[') {
 			h.Set("Content-Type", "application/json")
+		} else {
+			h.Set("Content-Type", http.DetectContentType(body))
 		}
 	}
 	h.Set("Content-Length", strconv.Itoa(len(body)))
