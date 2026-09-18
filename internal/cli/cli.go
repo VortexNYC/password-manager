@@ -42,6 +42,7 @@ import (
 	"github.com/VortexNYC/veil/internal/replica"
 	"github.com/VortexNYC/veil/internal/socket"
 	"github.com/VortexNYC/veil/internal/sshagent"
+	"github.com/VortexNYC/veil/internal/store"
 	"github.com/VortexNYC/veil/internal/totpenroll"
 )
 
@@ -75,7 +76,46 @@ func New(version string) *cobra.Command {
 	root.AddCommand(auditCmd(&home))
 	root.AddCommand(genCmd())
 	root.AddCommand(totpCmd())
+	root.AddCommand(migrateCmd(&home))
 	return root
+}
+
+func migrateCmd(home *string) *cobra.Command {
+	var sqlitePath, dsn string
+	c := &cobra.Command{
+		Use:   "migrate",
+		Short: "Copy a sqlite vault into Postgres (idempotent, rerunnable)",
+		Long: "Copies every vault row from the sqlite file into the Postgres " +
+			"database named by --dsn or VEIL_POSTGRES_DSN. Secrets and wrapped " +
+			"keys are opaque ciphertext and move byte-for-byte; no master key " +
+			"is required. Inserts are ON CONFLICT DO NOTHING, so reruns only " +
+			"pick up rows written since the last pass.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if sqlitePath == "" {
+				dir, err := resolveHome(*home)
+				if err != nil {
+					return err
+				}
+				sqlitePath = filepath.Join(dir, "vault.db")
+			}
+			if dsn == "" {
+				dsn = os.Getenv("VEIL_POSTGRES_DSN")
+			}
+			if dsn == "" {
+				return fmt.Errorf("migrate: --dsn or VEIL_POSTGRES_DSN required")
+			}
+			report, err := store.MigrateSQLiteToPostgres(cmd.Context(), sqlitePath, dsn)
+			if report != nil {
+				for _, t := range report.Tables {
+					fmt.Fprintf(cmd.OutOrStdout(), "%-14s read=%d inserted=%d skipped=%d\n", t.Table, t.Read, t.Inserted, t.Skipped)
+				}
+			}
+			return err
+		},
+	}
+	c.Flags().StringVar(&sqlitePath, "sqlite", "", "sqlite vault file (default $VEIL_HOME/vault.db)")
+	c.Flags().StringVar(&dsn, "dsn", "", "Postgres DSN (default env VEIL_POSTGRES_DSN)")
+	return c
 }
 
 func resolveFillHome(home string) (string, error) {

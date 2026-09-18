@@ -67,8 +67,10 @@ func OpenPostgres(connString string, key []byte) (*Postgres, error) {
 	return p, nil
 }
 
-func (p *Postgres) migrate() error {
-	ctx := context.Background()
+// EnsurePostgresSchema creates the vault tables/indexes if missing. It is the
+// same DDL OpenPostgres runs at boot, exposed so the sqlite→postgres migrator
+// can prepare an empty database without a master key.
+func EnsurePostgresSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, q := range []string{
 		`CREATE TABLE IF NOT EXISTS humans (
 			id TEXT PRIMARY KEY,
@@ -165,7 +167,7 @@ func (p *Postgres) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_item_versions_item ON item_versions(item_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_workloads_issuer ON workloads(issuer)`,
 	} {
-		if _, err := p.pool.Exec(ctx, q); err != nil {
+		if _, err := pool.Exec(ctx, q); err != nil {
 			return err
 		}
 	}
@@ -178,22 +180,26 @@ func (p *Postgres) migrate() error {
 		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_uses INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS uses INTEGER NOT NULL DEFAULT 0`,
 	} {
-		if _, err := p.pool.Exec(ctx, q); err != nil {
+		if _, err := pool.Exec(ctx, q); err != nil {
 			return err
 		}
 	}
 	// Legacy rows predate the lifecycle columns. Give them usable
 	// created_at/ttl/max_ttl so RenewSession can extend them.
-	if _, err := p.pool.Exec(ctx, `UPDATE sessions SET created_at = expires_at WHERE created_at = '1970-01-01T00:00:00Z'`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE sessions SET created_at = expires_at WHERE created_at = '1970-01-01T00:00:00Z'`); err != nil {
 		return err
 	}
-	if _, err := p.pool.Exec(ctx, `UPDATE sessions SET ttl = 900 WHERE ttl = 0`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE sessions SET ttl = 900 WHERE ttl = 0`); err != nil {
 		return err
 	}
-	if _, err := p.pool.Exec(ctx, `UPDATE sessions SET max_ttl = 3600 WHERE max_ttl = 0`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE sessions SET max_ttl = 3600 WHERE max_ttl = 0`); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (p *Postgres) migrate() error {
+	return EnsurePostgresSchema(context.Background(), p.pool)
 }
 
 func (p *Postgres) Close() error { p.pool.Close(); p.auditPool.Close(); return nil }
