@@ -24,20 +24,34 @@ export default defineRailway(() => {
     replicas: { "sfo": 1 },
     env: { DSN: preserve() },
   });
-  // Vault is sqlite on this volume; Postgres cutover runs via preDeploy:
-  // `/veil migrate` copies sqlite -> pg (idempotent, ON CONFLICT DO NOTHING)
-  // before the new deployment boots on PWM_POSTGRES_DSN. The volume stays
-  // mounted as the rollback source until the cutover proves out.
+  // Postgres is the store of record (cutover done 2026-09-18). pwm runs
+  // stateless on PWM_POSTGRES_DSN; the `veil` database lives in the shared
+  // Postgres instance. veil-migrate keeps the sqlite volume mounted at /data
+  // as the rollback path — redeploy it to re-run the idempotent sync.
+  // Rollback: move the volumeMount back to pwm, delete PWM_POSTGRES_DSN,
+  // redeploy. Drop pwm-volume only after the rollback window closes.
+  // PWM_MASTER_KEY MUST stay live on pwm (preserve() cannot read sealed
+  // variables — an apply will silently drop one). Local recovery copy:
+  // ~/.config/vortex/pwm-master-key and ~/.veil/wraps on the founder's Mac.
   const pwmVolume = volume("pwm-volume", { region: "sfo", sizeMB: 500, allowOnlineResize: true });
   const pwm = service("pwm", {
     start: "/veil mcp",
-    preDeploy: "/veil migrate",
     healthcheck: "/health",
     healthcheckTimeout: 300,
     replicas: { "sfo": 1 },
     domains: [{ domain: "veil.nyc", port: 4461 }],
-    volumeMounts: { "/data": pwmVolume },
     env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: preserve(), OTEL_EXPORTER_OTLP_TRACES_HEADERS: preserve(), OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: preserve(), OTEL_RESOURCE_ATTRIBUTES: preserve(), OTEL_SERVICE_NAME: preserve(), PORT: preserve(), PWM_HOME: preserve(), PWM_HYDRA_ADMIN: preserve(), PWM_HYDRA_CLIENT_ID: preserve(), PWM_HYDRA_ISSUER: preserve(), PWM_KETO_READ: preserve(), PWM_KETO_WRITE: preserve(), PWM_KRATOS_ADMIN: preserve(), PWM_KRATOS_PUBLIC: preserve(), PWM_MCP_URL: preserve(), PWM_MASTER_KEY: preserve(), PWM_POSTGRES_DSN: "postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/veil" },
+  });
+  const veilMigrate = service("veil-migrate", {
+    build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+    start: "/veil migrate",
+    deploy: { restartPolicyType: "NEVER" },
+    replicas: { "sfo": 1 },
+    volumeMounts: { "/data": pwmVolume },
+    env: {
+      VEIL_HOME: "/data",
+      VEIL_POSTGRES_DSN: "postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/veil",
+    },
   });
   const glue = service("glue", {
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
@@ -56,6 +70,6 @@ export default defineRailway(() => {
   });
 
   return project("password-manager", {
-    resources: [kratos, keto, pwm, Postgres, glue, hydra, postgresVolume, pwmVolume],
+    resources: [kratos, keto, pwm, Postgres, glue, hydra, postgresVolume, pwmVolume, veilMigrate],
   });
 });

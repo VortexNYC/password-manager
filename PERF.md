@@ -614,6 +614,80 @@ Before adding a fail-closed cache or distributed rate limiting:
    short-lived, fail-closed cache** for session/grant metadata with explicit
    invalidation and distributed rate limiting.
 
+### 10. Post-cutover baseline on production Postgres (2026-09-18)
+
+Same Mac, same harness, current `main` — first runs **after** the SQLite→
+Postgres cutover and the sqlc-generated accessor layer. This is the regression
+gate for both changes.
+
+Full Go suite first: `go test -race -shuffle=on ./...` with `PG_TEST_DSN`
+against Docker Postgres — **all green** including `internal/store`,
+`internal/audit`, and the sqlite→pg migration test.
+
+| Run | Requests | Throughput | avg | med | p95 | max | errors |
+|---|---|---|---|---|---|---|---|
+| 3 replicas, 150 VUs, 20ms flush, direct | 754,711 | 6,289.3 req/s | 10.67 ms | 5.26 ms | 26.58 ms | 895 ms | 0% |
+| 1 replica, 50 VUs, 20ms flush, proxied | 412,070 | 3,433.9 req/s | 6.48 ms | 4.08 ms | 14.02 ms | 777 ms | 0% |
+| 3 replicas, 500 VUs, 200 agents, direct | 435,294 | 3,625.9 req/s | 61.82 ms | 22.88 ms | 155.24 ms | 13.98 s | 0% |
+
+pgbot (3rep-150vu-direct) — the sqlc hot path per `Use`:
+
+| Query | Calls | Mean | Max | /request |
+|---|---|---|---|---|
+| `UseAuthSession` (sessions⋈agents⋈items⋈grants⋈approvals) | 754,711 | 0.0492 ms | 4.23 ms | 1 |
+| `ConsumeSession` (atomic uses++ UPDATE) | 754,711 | 0.0330 ms | 12.07 ms | 1 |
+| `ItemSecretOwner` | 754,711 | 0.0149 ms | 3.44 ms | 1 |
+| audit `COPY` | 13,024 | 0.62 ms | 242.9 ms | 0.017 (~58 rows/batch) |
+
+~0.097 ms of synchronous DB time per request — **0.61 DB-seconds per second
+of load across all 3 replicas**. Postgres is not the limiter; the query means
+match the pre-sqlc hand-written accessors within noise (the sqlc swap is
+performance-neutral).
+
+**Correctness under concurrency** (500-VU run): `sum(sessions.uses)` =
+**435,294 for exactly 435,294 requests** — the atomic `ConsumeSession` recheck
+lost zero updates. Audit rows = 435,294, 1:1 with requests — zero drops. 200
+agents × 500 sessions spread contention; hottest session consumed 3,335 uses.
+
+**The knee**: 500 VUs saturated the 3-replica local setup — throughput fell
+*below* the 150-VU run (3,626 vs 6,289 req/s) with p95 155ms and 14s max as
+requests queued behind saturated connections. `ConsumeSession` mean held at
+0.085ms (WAL/row-lock fine); `UseAuthSession` mean tripled to 0.118ms under
+CPU contention — the failure mode is **queueing, not locks**. Capacity per
+origin replica at this geometry: ~2,000–3,000 req/s before tail latency
+degrades; horizontal replicas are the lever (DB headroom is ~10×).
+
+**Production canary** (real vault, `veil.nyc`, post-cutover): 30 sequential
+`/v1/use github` → api.github.com — **p50 261ms, p95 365ms, 0 fails** (includes
+the WAN upstream hop). `/v1/items` origin-only: **p50 114ms, p95 131ms** —
+the server-side share after Mac→Railway RTT is ~30–50ms: OIDC verify +
+workload lookup + grant-filtered items query on the migrated `veil` database.
+
+## Scalability model — thousands of users and agents
+
+Measured basis (this doc): a `Use` costs ~0.097ms DB time + ~107B WAL for the
+consume write + ~336B/row async audit; auth reads are index-point lookups
+(`sessions.secret_hash` unique, `grants(agent_id,item_id)`, `workloads(issuer)`).
+
+- **Users** (humans) barely touch the hot path — login/TOTP/grant-admin flows
+  are Kratos/Hydra + occasional vault writes. Thousands of humans is a Kratos
+  sizing question, not a broker one.
+- **Agents** scale along two axes: count × request rate. Count is cheap —
+  agents/items/grants rows are small and indexed; 200-agent runs show zero
+  lookup degradation. Rate is the constraint: N agents × R req/s each = total
+  `Use` load. At ~0.1ms DB time each, a single modest Postgres core sustains
+  roughly **10k `Use`/s**; the origin replicas exhaust first (~2–3k req/s
+  each at 150 VUs of headroom), so scale-out is `replicas += n` until the
+  connection budget binds (~4–5 replicas at `max_connections=100` —
+  PgBouncer past that, see Deferred #1).
+- **Writes that grow unboundedly**: `audit` (1 row per use + lifecycle events)
+  and `sessions` (per-agent leases). Audit is the first real scale task —
+  partition/retention policy before billions of rows, not now.
+- **Real-world posture**: prod canary p50 ~115ms origin-only — dominated by
+  client WAN RTT, not the datastore. The SQLite wall this removed was the
+  single-writer serialization under concurrent agents; Postgres turns
+  contention into queueing, which scales with replicas.
+
 ## Deferred decisions (2026-09-17)
 
 Deliberately not done. Each has a trigger; act when the trigger fires, not before.
