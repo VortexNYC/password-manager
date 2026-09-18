@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/oauth2"
 
 	"github.com/VortexNYC/veil/identity/glue"
 	"github.com/VortexNYC/veil/internal/app"
@@ -971,60 +973,84 @@ func agentCmd(home *string) *cobra.Command {
 	c.AddCommand(bind)
 
 	var secretFile string
+	var forceRotate bool
 	hydra := &cobra.Command{
 		Use:   "hydra NAME",
 		Short: "Hydra client for an agent that does not speak OIDC. Not a Kratos human.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if secretFile == "" {
-				return fmt.Errorf("--secret-file is required")
-			}
-			// EnsureAgent PUTs the client and rotates its secret. Check the file
-			// first so a re-run cannot orphan every existing copy of the secret.
-			if _, err := os.Stat(secretFile); err == nil {
-				return fmt.Errorf("agent hydra: %s exists; remove it to rotate the client secret", secretFile)
+			name := args[0]
+			secretFile = hydraSecretPath(secretFile, name)
+			issuer := envOr("VEIL_HYDRA_ISSUER", "http://127.0.0.1:4444")
+			audience := envOr("VEIL_HYDRA_CLIENT_ID", glue.DefaultClientID)
+			clientID := glue.AgentClientID(name)
+
+			// EnsureAgent PUTs the client and rotates its secret — a blind
+			// re-run orphans every other copy of the secret. Verify the
+			// on-disk secret first: if it still mints, there is nothing to
+			// rotate. Only a real auth rejection justifies rotation; a
+			// network failure cannot prove the secret is stale.
+			verified := false
+			if !forceRotate {
+				if secret, rerr := readFileMaterial(secretFile); rerr == nil && len(secret) > 0 {
+					_, verr := glue.ClientCredentials(cmd.Context(), issuer, clientID, string(secret), audience)
+					switch {
+					case verr == nil:
+						verified = true
+						slog.Info("agent hydra: existing secret verified, not rotating", "agent", name)
+					case isAuthRejection(verr):
+						slog.Warn("agent hydra: on-disk secret rejected, rotating", "agent", name)
+					default:
+						return fmt.Errorf("agent hydra: cannot verify existing secret (%v); refusing to rotate — --force overrides", verr)
+					}
+				}
 			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
-			if _, err := a.Store.Agent(args[0]); err != nil {
+			if _, err := a.Store.Agent(name); err != nil {
 				return err
 			}
-			g, err := glue.NewHydra(envOr("VEIL_HYDRA_ADMIN", "http://127.0.0.1:4445"))
-			if err != nil {
-				return err
-			}
-			cred, err := g.EnsureAgent(cmd.Context(), glue.AgentClient{
-				ID:       glue.AgentClientID(args[0]),
-				Audience: envOr("VEIL_HYDRA_CLIENT_ID", glue.DefaultClientID),
-			})
-			if err != nil {
-				return err
-			}
-			if cred.Secret != "" {
-				if err := os.WriteFile(secretFile, []byte(cred.Secret+"\n"), 0o600); err != nil {
+			cred := glue.AgentCred{ID: clientID, Audience: audience}
+			if !verified {
+				g, err := glue.NewHydra(envOr("VEIL_HYDRA_ADMIN", "http://127.0.0.1:4445"))
+				if err != nil {
 					return err
 				}
-			} else if _, err := os.Stat(secretFile); err != nil {
-				return fmt.Errorf("agent hydra: client exists; secret is not reissued")
+				cred, err = g.EnsureAgent(cmd.Context(), glue.AgentClient{
+					ID:       clientID,
+					Audience: audience,
+				})
+				if err != nil {
+					return err
+				}
+				if cred.Secret != "" {
+					if err := os.MkdirAll(filepath.Dir(secretFile), 0o700); err != nil {
+						return err
+					}
+					if err := os.WriteFile(secretFile, []byte(cred.Secret+"\n"), 0o600); err != nil {
+						return err
+					}
+				} else if _, err := os.Stat(secretFile); err != nil {
+					return fmt.Errorf("agent hydra: client exists; secret is not reissued")
+				}
 			}
-			issuer := envOr("VEIL_HYDRA_ISSUER", "http://127.0.0.1:4444")
-			w, err := a.BindWorkload(args[0], issuer, cred.ID, cred.Audience)
+			w, err := a.BindWorkload(name, issuer, cred.ID, cred.Audience)
 			if err != nil {
 				return err
 			}
 			return encode(cmd, hydraAgentDTO{
-				AgentID:  args[0],
+				AgentID:  name,
 				ClientID: cred.ID,
 				Issuer:   w.Issuer,
 				Audience: w.Audience,
 			})
 		},
 	}
-	hydra.Flags().StringVar(&secretFile, "secret-file", "", "write the Hydra client secret here. never argv.")
-	_ = hydra.MarkFlagRequired("secret-file")
+	hydra.Flags().StringVar(&secretFile, "secret-file", "", "write the Hydra client secret here. never argv. default: $PWM_HYDRA_SECRET_FILE or ~/.config/vortex/pwm-railway/NAME.hydra")
+	hydra.Flags().BoolVar(&forceRotate, "force", false, "rotate the client secret even if the on-disk one still verifies")
 	c.AddCommand(hydra)
 
 	var tokenSecretFile, outFile string
@@ -1033,9 +1059,10 @@ func agentCmd(home *string) *cobra.Command {
 		Short: "Mint a Hydra JWT. Writes --out-file. Never prints the token or the secret.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if tokenSecretFile == "" || outFile == "" {
-				return fmt.Errorf("--secret-file and --out-file are required")
+			if outFile == "" {
+				return fmt.Errorf("--out-file is required")
 			}
+			tokenSecretFile = hydraSecretPath(tokenSecretFile, args[0])
 			if !id.Valid(args[0]) {
 				return fmt.Errorf("agent token: invalid name")
 			}
@@ -1867,6 +1894,34 @@ func readFileMaterial(path string) ([]byte, error) {
 		return nil, err
 	}
 	return trimNL(b), nil
+}
+
+// hydraSecretPath resolves where an agent's client secret lives: the flag
+// wins; the env var only applies when it describes THIS agent (PWM_AGENT
+// matches) — otherwise it is another agent's file and the canonical
+// per-name path is used. Re-ensures therefore always land on
+// ~/.config/vortex/pwm-railway/<name>.hydra instead of whatever path an
+// ambient env happened to point at.
+func hydraSecretPath(flag, name string) string {
+	if flag != "" {
+		return flag
+	}
+	if env := os.Getenv("PWM_HYDRA_SECRET_FILE"); env != "" && os.Getenv("PWM_AGENT") == name {
+		return env
+	}
+	return filepath.Join(os.Getenv("HOME"), ".config", "vortex", "pwm-railway", name+".hydra")
+}
+
+// isAuthRejection reports whether a client-credentials failure is Hydra
+// rejecting the secret itself (invalid_client/invalid_grant) — the only
+// failures that prove a stored secret is stale. Network and 5xx errors
+// return false so a transient outage cannot trigger a needless rotation.
+func isAuthRejection(err error) bool {
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) {
+		return re.ErrorCode == "invalid_client" || re.ErrorCode == "invalid_grant"
+	}
+	return false
 }
 
 func readStdinMaterial(stdin io.Reader) ([]byte, error) {
