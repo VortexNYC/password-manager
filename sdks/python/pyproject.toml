@@ -1,5 +1,5 @@
 [project]
-name = "veil-pwm-sdk"
+name = "vortex-api-veil"
 version = "0.1.0"
 description = "Generated Python SDK for Veil. Use injects. Never GetSecret."
 readme = "README.md"
@@ -17,4 +17,4 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["veil_pwm*"]
+include = ["veil*"]

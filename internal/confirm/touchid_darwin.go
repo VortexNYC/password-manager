@@ -18,7 +18,7 @@ import (
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 
-static int pwm_touchid(const char *reason) {
+static int veil_touchid(const char *reason) {
 	__block int ok = 0;
 	dispatch_semaphore_t sema = dispatch_semaphore_create(0);
 	LAContext *ctx = [[LAContext alloc] init];
@@ -39,7 +39,7 @@ static int pwm_touchid(const char *reason) {
 	return ok;
 }
 
-static pid_t pwm_ppid(pid_t pid) {
+static pid_t veil_ppid(pid_t pid) {
 	struct kinfo_proc kp;
 	size_t len = sizeof(kp);
 	memset(&kp, 0, sizeof(kp));
@@ -50,8 +50,8 @@ static pid_t pwm_ppid(pid_t pid) {
 	return kp.kp_eproc.e_ppid;
 }
 
-static BOOL pwm_skip_exe(NSString *exe) {
-	return [exe isEqualToString:@"password-manager"] ||
+static BOOL veil_skip_exe(NSString *exe) {
+	return [exe isEqualToString:@"veil"] ||
 		[exe isEqualToString:@"native-host"] ||
 		[exe isEqualToString:@"zsh"] ||
 		[exe isEqualToString:@"bash"] ||
@@ -62,20 +62,20 @@ static BOOL pwm_skip_exe(NSString *exe) {
 		[exe isEqualToString:@"sshd"];
 }
 
-static NSRunningApplication *pwm_client_app(void) {
+static NSRunningApplication *veil_client_app(void) {
 	pid_t pid = getppid();
 	for (int i = 0; i < 12 && pid > 1; i++) {
 		NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
 		NSString *exe = app.executableURL.lastPathComponent ?: @"";
-		if (app.bundleIdentifier.length > 0 && !pwm_skip_exe(exe)) {
+		if (app.bundleIdentifier.length > 0 && !veil_skip_exe(exe)) {
 			return app;
 		}
-		pid = pwm_ppid(pid);
+		pid = veil_ppid(pid);
 	}
 	return nil;
 }
 
-static NSImage *pwm_veil_mark(void) {
+static NSImage *veil_veil_mark(void) {
 	const CGFloat s = 128;
 	NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(s, s)];
 	[img lockFocus];
@@ -113,7 +113,7 @@ static NSImage *pwm_veil_mark(void) {
 }
 - (void)authorize:(id)sender {
 	(void)sender;
-	self.result = pwm_touchid(self.why.UTF8String) ? 1 : 0;
+	self.result = veil_touchid(self.why.UTF8String) ? 1 : 0;
 	[NSApp stopModal];
 }
 - (BOOL)windowShouldClose:(NSWindow *)sender {
@@ -124,7 +124,7 @@ static NSImage *pwm_veil_mark(void) {
 }
 @end
 
-static NSImageView *pwm_icon_view(NSImage *img) {
+static NSImageView *veil_icon_view(NSImage *img) {
 	NSImageView *v = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 56, 56)];
 	v.image = img;
 	v.imageScaling = NSImageScaleProportionallyUpOrDown;
@@ -136,14 +136,14 @@ static NSImageView *pwm_icon_view(NSImage *img) {
 	return v;
 }
 
-static int pwm_access(const char *action, const char *account, const char *reason) {
+static int veil_access(const char *action, const char *account, const char *reason) {
 	__block int out = 0;
 	void (^run)(void) = ^{
 		[NSApplication sharedApplication];
 		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 		PWMAccessSheet *ctrl = [[PWMAccessSheet alloc] init];
 		ctrl.why = [NSString stringWithUTF8String:reason];
-		NSRunningApplication *client = pwm_client_app();
+		NSRunningApplication *client = veil_client_app();
 		NSString *appName = client.localizedName.length ? client.localizedName : @"this app";
 		NSImage *clientIcon = client.icon ?: [NSImage imageWithSystemSymbolName:@"terminal" accessibilityDescription:nil];
 		NSString *allow = [NSString stringWithFormat:@"Allow %@ to %s", appName, action];
@@ -161,13 +161,13 @@ static int pwm_access(const char *action, const char *account, const char *reaso
 		ctrl.win = win;
 
 		NSView *content = win.contentView;
-		NSImageView *left = pwm_icon_view(clientIcon);
+		NSImageView *left = veil_icon_view(clientIcon);
 		NSImageView *check = [[NSImageView alloc] initWithFrame:NSZeroRect];
 		check.image = [NSImage imageWithSystemSymbolName:@"checkmark.circle.fill" accessibilityDescription:nil];
 		check.contentTintColor = [NSColor systemGreenColor];
 		[check.widthAnchor constraintEqualToConstant:22].active = YES;
 		[check.heightAnchor constraintEqualToConstant:22].active = YES;
-		NSImageView *right = pwm_icon_view(pwm_veil_mark());
+		NSImageView *right = veil_icon_view(veil_veil_mark());
 		NSStackView *icons = [NSStackView stackViewWithViews:@[left, check, right]];
 		icons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
 		icons.alignment = NSLayoutAttributeCenterY;
@@ -178,7 +178,7 @@ static int pwm_access(const char *action, const char *account, const char *reaso
 		allowLabel.alignment = NSTextAlignmentCenter;
 
 		NSImageView *acctIcon = [[NSImageView alloc] initWithFrame:NSZeroRect];
-		acctIcon.image = pwm_veil_mark();
+		acctIcon.image = veil_veil_mark();
 		acctIcon.wantsLayer = YES;
 		acctIcon.layer.cornerRadius = 6;
 		acctIcon.layer.masksToBounds = YES;
@@ -243,8 +243,8 @@ static int pwm_access(const char *action, const char *account, const char *reaso
 	return out;
 }
 
-static char *pwm_caller_bundle(void) {
-	NSRunningApplication *app = pwm_client_app();
+static char *veil_caller_bundle(void) {
+	NSRunningApplication *app = veil_client_app();
 	if (app.bundleIdentifier.length == 0) {
 		return NULL;
 	}
@@ -268,14 +268,14 @@ func TouchID(reason string) error {
 	defer C.free(unsafe.Pointer(ca))
 	defer C.free(unsafe.Pointer(cc))
 	defer C.free(unsafe.Pointer(cr))
-	if C.pwm_access(ca, cc, cr) != 1 {
+	if C.veil_access(ca, cc, cr) != 1 {
 		return fmt.Errorf("fill: touch id declined")
 	}
 	return nil
 }
 
 func callerBundle() string {
-	p := C.pwm_caller_bundle()
+	p := C.veil_caller_bundle()
 	if p == nil {
 		return ""
 	}

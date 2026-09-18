@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 func TestExpandGrantedNameDoesNotLeakOnUnknown(t *testing.T) {
@@ -30,7 +30,7 @@ func TestExpandGrantedNameDoesNotLeakOnUnknown(t *testing.T) {
 
 func TestExpandPWMURIAndHyphenName(t *testing.T) {
 	secret := "sk_hyphen"
-	got, err := Expand([]byte("pwm://my-key"), Map([]string{"MY_KEY=" + secret}))
+	got, err := Expand([]byte("veil://my-key"), Map([]string{"MY_KEY=" + secret}))
 	if err != nil {
 		t.Fatal(err)
 	}

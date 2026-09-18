@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
-const Name = "pwm.sock"
+const Name = "veil.sock"
 
 type Server struct {
 	Path string

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/store/sqlc"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/store/sqlc"
 )
 
 // Postgres is a pgx-backed Store for the origin. Secrets are encrypted with
@@ -30,7 +30,7 @@ func OpenPostgres(connString string, key []byte) (*Postgres, error) {
 	if err != nil {
 		return nil, err
 	}
-	config.ConnConfig.RuntimeParams["application_name"] = "password-manager"
+	config.ConnConfig.RuntimeParams["application_name"] = "veil"
 	config.ConnConfig.RuntimeParams["statement_timeout"] = "5000"
 	config.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "30000"
 	config.MaxConns = 20
@@ -53,7 +53,7 @@ func OpenPostgres(connString string, key []byte) (*Postgres, error) {
 	auditCfg := config.Copy()
 	auditCfg.MaxConns = 2
 	auditCfg.MinConns = 1
-	auditCfg.ConnConfig.RuntimeParams["application_name"] = "password-manager-audit"
+	auditCfg.ConnConfig.RuntimeParams["application_name"] = "veil-audit"
 	auditPool, err := pgxpool.NewWithConfig(context.Background(), auditCfg)
 	if err != nil {
 		pool.Close()

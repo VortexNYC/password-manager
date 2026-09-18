@@ -35,7 +35,7 @@ func GenerateCA() (certPEM, keyPEM []byte, err error) {
 		SerialNumber: serial,
 		Subject: pkix.Name{
 			Organization: []string{"VeilNYC"},
-			CommonName:   "password-manager local CA",
+			CommonName:   "veil local CA",
 		},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),

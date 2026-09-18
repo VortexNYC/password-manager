@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/publicapi"
 )
 
 // These tests exist because we shipped green by turning the product off.
@@ -56,11 +56,11 @@ func TestChromeProveSourceDoesNotDisableTouchID(t *testing.T) {
 		if bytes.Contains(src, []byte("TouchID:")) {
 			t.Fatal("CFT prove wrote fill.json touch_id; Touch ID is the product, not a switch for green")
 		}
-		if bytes.Contains(src, []byte("PWM_FILL_TOUCHID=0")) {
+		if bytes.Contains(src, []byte("VEIL_FILL_TOUCHID=0")) {
 			t.Fatal("CFT prove disabled Touch ID on the Chrome process")
 		}
 		if bytes.Contains(src, []byte("envBin()")) {
-			t.Fatal("CFT prove used envBin; that forces PWM_FILL_TOUCHID=0. Use envProve")
+			t.Fatal("CFT prove used envBin; that forces VEIL_FILL_TOUCHID=0. Use envProve")
 		}
 		if bytes.Contains(src, []byte("fillTab(")) || bytes.Contains(src, []byte("Runtime.evaluate")) {
 			t.Fatal("CFT prove filled via evaluate or fillTab; click the chooser")

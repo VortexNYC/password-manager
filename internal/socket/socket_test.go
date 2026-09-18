@@ -17,9 +17,9 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 const secret = "sk_live_SOCKET_SECRET"
@@ -127,7 +127,7 @@ func setup(t *testing.T) (*app.App, *testIssuer, *http.Client, string) {
 	if _, err := a.AddGrant("claude", "stripe", protocol.Level2); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.BindWorkload("claude", iss.URL, "agent-claude", "password-manager"); err != nil {
+	if _, err := a.BindWorkload("claude", iss.URL, "agent-claude", "veil"); err != nil {
 		t.Fatal(err)
 	}
 	sockDir, err := os.MkdirTemp("/tmp", "pwm")
@@ -155,7 +155,7 @@ func unixClient(path string) *http.Client {
 
 func TestSocketUseWithBearerIsTheBoundAgent(t *testing.T) {
 	_, iss, c, up := setup(t)
-	tok := iss.token(t, "agent-claude", "password-manager")
+	tok := iss.token(t, "agent-claude", "veil")
 	req, err := http.NewRequest(http.MethodPost, "http://pwm/use", bytes.NewBufferString(`{"item":"stripe","url":"`+up+`","method":"GET"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestSocketRejectsMissingBearer(t *testing.T) {
 func TestSocketRejectsUnknownIssuer(t *testing.T) {
 	_, _, c, up := setup(t)
 	other := newTestIssuer(t)
-	tok := other.token(t, "agent-claude", "password-manager")
+	tok := other.token(t, "agent-claude", "veil")
 	req, err := http.NewRequest(http.MethodPost, "http://pwm/use", bytes.NewBufferString(`{"item":"stripe","url":"`+up+`"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestSocketNameIsNotIdentity(t *testing.T) {
 	if _, err := a.AddAgent("other"); err != nil {
 		t.Fatal(err)
 	}
-	tok := iss.token(t, "agent-claude", "password-manager")
+	tok := iss.token(t, "agent-claude", "veil")
 	req, err := http.NewRequest(http.MethodGet, "http://pwm/items", nil)
 	if err != nil {
 		t.Fatal(err)

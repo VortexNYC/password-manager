@@ -11,8 +11,8 @@ import (
 
 	ory "github.com/ory/keto-client-go/v26"
 
-	"github.com/veilnyc/password-manager/identity/glue/internal/absurl"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/identity/glue/internal/absurl"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 const (

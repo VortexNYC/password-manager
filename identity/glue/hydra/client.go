@@ -7,7 +7,7 @@ import (
 
 	ory "github.com/ory/hydra-client-go/v26"
 
-	"github.com/veilnyc/password-manager/identity/glue/internal/absurl"
+	"github.com/VortexNYC/veil/identity/glue/internal/absurl"
 )
 
 type FirstParty struct {

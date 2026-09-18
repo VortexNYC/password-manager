@@ -11,7 +11,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { PageChrome } from "../../page-chrome";
 import { addGrant, grants } from "../../origin";
-import type { Grant } from "@veilnyc/pwm-sdk";
+import type { Grant } from "@vortex-api/veil";
 
 export const Route = createFileRoute("/_app/grants")({
   component: Grants,

@@ -14,26 +14,26 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/veilnyc/password-manager/identity/glue"
-	"github.com/veilnyc/password-manager/internal/confirm"
-	"github.com/veilnyc/password-manager/internal/human"
+	"github.com/VortexNYC/veil/identity/glue"
+	"github.com/VortexNYC/veil/internal/confirm"
+	"github.com/VortexNYC/veil/internal/human"
 )
 
 func originHumanToken() (string, error) {
-	if f := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE")); f != "" {
+	if f := strings.TrimSpace(os.Getenv("VEIL_HUMAN_TOKEN_FILE")); f != "" {
 		b, err := readFileMaterial(f)
 		if err != nil {
 			return "", err
 		}
 		if len(b) == 0 {
-			return "", fmt.Errorf("origin: empty PWM_HUMAN_TOKEN_FILE")
+			return "", fmt.Errorf("origin: empty VEIL_HUMAN_TOKEN_FILE")
 		}
 		return string(b), nil
 	}
-	if t := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN")); t != "" {
+	if t := strings.TrimSpace(os.Getenv("VEIL_HUMAN_TOKEN")); t != "" {
 		return t, nil
 	}
-	return "", fmt.Errorf("origin: PWM_HUMAN_TOKEN_FILE or PWM_HUMAN_TOKEN is required")
+	return "", fmt.Errorf("origin: VEIL_HUMAN_TOKEN_FILE or VEIL_HUMAN_TOKEN is required")
 }
 
 func originHumanTokenLive(ctx context.Context) (string, error) {
@@ -41,7 +41,7 @@ func originHumanTokenLive(ctx context.Context) (string, error) {
 	if err == nil && !jwtNeedsRefresh(tok) {
 		return tok, nil
 	}
-	out := strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE"))
+	out := strings.TrimSpace(os.Getenv("VEIL_HUMAN_TOKEN_FILE"))
 	minted, merr := remintHumanHTTP(ctx, out)
 	if merr == nil {
 		return minted, nil
@@ -50,7 +50,7 @@ func originHumanTokenLive(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if jwtNeedsRefresh(tok) {
-		return "", fmt.Errorf("origin: human JWT expired; password-manager human login --out-file")
+		return "", fmt.Errorf("origin: human JWT expired; veil human login --out-file")
 	}
 	return tok, nil
 }
@@ -89,11 +89,11 @@ func humanLogin(cmd *cobra.Command, outFile string, visit func(string) error) er
 		_ = raw
 		return encode(cmd, map[string]string{"out_file": outFile})
 	}
-	iss := envOr("PWM_HYDRA_ISSUER", "https://id.veil.nyc")
+	iss := envOr("VEIL_HYDRA_ISSUER", "https://id.veil.nyc")
 	v, err := human.New(human.Config{
 		Issuer:      iss,
-		Audience:    envOr("PWM_HYDRA_CLIENT_ID", glue.DefaultClientID),
-		RedirectURL: envOr("PWM_HYDRA_REDIRECT", human.DefaultRedirect),
+		Audience:    envOr("VEIL_HYDRA_CLIENT_ID", glue.DefaultClientID),
+		RedirectURL: envOr("VEIL_HYDRA_REDIRECT", human.DefaultRedirect),
 	})
 	if err != nil {
 		return err
@@ -173,36 +173,36 @@ func humanLogin(cmd *cobra.Command, outFile string, visit func(string) error) er
 }
 
 func httpLoginReady() bool {
-	return strings.TrimSpace(os.Getenv("PWM_LOGIN_EMAIL")) != "" &&
-		strings.TrimSpace(os.Getenv("PWM_KRATOS_PASSWORD_FILE")) != "" &&
-		strings.TrimSpace(os.Getenv("PWM_KRATOS_TOTP_FILE")) != ""
+	return strings.TrimSpace(os.Getenv("VEIL_LOGIN_EMAIL")) != "" &&
+		strings.TrimSpace(os.Getenv("VEIL_KRATOS_PASSWORD_FILE")) != "" &&
+		strings.TrimSpace(os.Getenv("VEIL_KRATOS_TOTP_FILE")) != ""
 }
 
 func remintHumanHTTP(ctx context.Context, outFile string) (string, error) {
 	if !httpLoginReady() {
-		return "", fmt.Errorf("origin: PWM_LOGIN_EMAIL, PWM_KRATOS_PASSWORD_FILE, and PWM_KRATOS_TOTP_FILE remint a human JWT")
+		return "", fmt.Errorf("origin: VEIL_LOGIN_EMAIL, VEIL_KRATOS_PASSWORD_FILE, and VEIL_KRATOS_TOTP_FILE remint a human JWT")
 	}
-	password, err := readFileMaterial(os.Getenv("PWM_KRATOS_PASSWORD_FILE"))
+	password, err := readFileMaterial(os.Getenv("VEIL_KRATOS_PASSWORD_FILE"))
 	if err != nil {
 		return "", err
 	}
-	seed, err := readFileMaterial(os.Getenv("PWM_KRATOS_TOTP_FILE"))
+	seed, err := readFileMaterial(os.Getenv("VEIL_KRATOS_TOTP_FILE"))
 	if err != nil {
 		return "", err
 	}
-	iss := envOr("PWM_HYDRA_ISSUER", "https://id.veil.nyc")
-	kratos := envOr("PWM_KRATOS_PUBLIC", "https://accounts.veil.nyc")
+	iss := envOr("VEIL_HYDRA_ISSUER", "https://id.veil.nyc")
+	kratos := envOr("VEIL_KRATOS_PUBLIC", "https://accounts.veil.nyc")
 	v, err := human.New(human.Config{
 		Issuer:      iss,
-		Audience:    envOr("PWM_HYDRA_CLIENT_ID", glue.DefaultClientID),
-		RedirectURL: envOr("PWM_HYDRA_REDIRECT", human.DefaultRedirect),
+		Audience:    envOr("VEIL_HYDRA_CLIENT_ID", glue.DefaultClientID),
+		RedirectURL: envOr("VEIL_HYDRA_REDIRECT", human.DefaultRedirect),
 	})
 	if err != nil {
 		return "", err
 	}
 	raw, err := v.LoginHTTP(ctx, human.HTTPLogin{
 		KratosPublic: kratos,
-		Email:        strings.TrimSpace(os.Getenv("PWM_LOGIN_EMAIL")),
+		Email:        strings.TrimSpace(os.Getenv("VEIL_LOGIN_EMAIL")),
 		Password:     string(password),
 		TOTPSeed:     string(seed),
 	})
@@ -210,7 +210,7 @@ func remintHumanHTTP(ctx context.Context, outFile string) (string, error) {
 		return "", err
 	}
 	if outFile == "" {
-		outFile = strings.TrimSpace(os.Getenv("PWM_HUMAN_TOKEN_FILE"))
+		outFile = strings.TrimSpace(os.Getenv("VEIL_HUMAN_TOKEN_FILE"))
 	}
 	if outFile != "" {
 		if err := os.WriteFile(outFile, []byte(raw+"\n"), 0o600); err != nil {
@@ -221,7 +221,7 @@ func remintHumanHTTP(ctx context.Context, outFile string) (string, error) {
 }
 
 func openBrowser(rawURL string) error {
-	if os.Getenv("PWM_LOGIN_NO_OPEN") == "1" {
+	if os.Getenv("VEIL_LOGIN_NO_OPEN") == "1" {
 		return nil
 	}
 	if runtime.GOOS == "darwin" {

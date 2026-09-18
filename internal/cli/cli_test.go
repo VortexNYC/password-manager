@@ -23,10 +23,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/veilnyc/password-manager/internal/device"
-	"github.com/veilnyc/password-manager/internal/mcpserver"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/device"
+	"github.com/VortexNYC/veil/internal/mcpserver"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 const secret = "sk_live_CLI_SECRET"
@@ -216,7 +216,7 @@ func TestCLIAgentTokenWritesFileNotStdout(t *testing.T) {
 		})
 	}))
 	t.Cleanup(issuer.Close)
-	t.Setenv("PWM_HYDRA_ISSUER", issuer.URL)
+	t.Setenv("VEIL_HYDRA_ISSUER", issuer.URL)
 
 	home := t.TempDir()
 	secFile := filepath.Join(home, "hydra-secret")
@@ -274,7 +274,7 @@ func TestCLIAgentTokenRejectsOpaque(t *testing.T) {
 		})
 	}))
 	t.Cleanup(issuer.Close)
-	t.Setenv("PWM_HYDRA_ISSUER", issuer.URL)
+	t.Setenv("VEIL_HYDRA_ISSUER", issuer.URL)
 	home := t.TempDir()
 	secFile := filepath.Join(home, "hydra-secret")
 	outFile := filepath.Join(home, "jwt")
@@ -297,10 +297,10 @@ func TestCLIFillNeedsVault(t *testing.T) {
 }
 
 func TestCLIFillInstallRequiresOrigin(t *testing.T) {
-	t.Setenv("PWM_ORIGIN", "")
+	t.Setenv("VEIL_ORIGIN", "")
 	home := t.TempDir()
 	if _, err := run(t, home, "", "fill", "install"); err == nil {
-		t.Fatal("installed native host without PWM_ORIGIN")
+		t.Fatal("installed native host without VEIL_ORIGIN")
 	}
 }
 
@@ -415,7 +415,7 @@ func TestCLIItemLoginIsMetadataNotSecret(t *testing.T) {
 }
 
 func TestCLIItemImportCSVNoSecretInOutput(t *testing.T) {
-	t.Setenv("PWM_ORIGIN", "")
+	t.Setenv("VEIL_ORIGIN", "")
 	const pass = "s3cret"
 	home := t.TempDir()
 	if _, err := run(t, home, "", "init"); err != nil {
@@ -445,7 +445,7 @@ func TestCLIItemImportCSVNoSecretInOutput(t *testing.T) {
 }
 
 func TestCLIItemAddCardNoPANInOutput(t *testing.T) {
-	t.Setenv("PWM_ORIGIN", "")
+	t.Setenv("VEIL_ORIGIN", "")
 	const pan = "4111111111111111"
 	home := t.TempDir()
 	if _, err := run(t, home, "", "init"); err != nil {
@@ -494,12 +494,12 @@ func TestCLIOriginItemImportNoSecretInOutput(t *testing.T) {
 		_, _ = io.WriteString(w, `{"names":["GitHub"],"count":1}`)
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	t.Setenv("VEIL_HUMAN_TOKEN_FILE", tok)
 	csv := filepath.Join(t.TempDir(), "dump.csv")
 	if err := os.WriteFile(csv, []byte("name,url,username,password\nGitHub,https://github.com,ada,"+pass+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -956,8 +956,8 @@ func TestCLISSHItemListHasNoPrivateKey(t *testing.T) {
 }
 
 func TestCLIHumanListHasNoEmail(t *testing.T) {
-	t.Setenv("PWM_KRATOS_ADMIN", "http://127.0.0.1:1")
-	t.Setenv("PWM_KRATOS_PUBLIC", "http://127.0.0.1:1")
+	t.Setenv("VEIL_KRATOS_ADMIN", "http://127.0.0.1:1")
+	t.Setenv("VEIL_KRATOS_PUBLIC", "http://127.0.0.1:1")
 	home := t.TempDir()
 	if _, err := run(t, home, "", "init"); err != nil {
 		t.Fatal(err)
@@ -1059,7 +1059,7 @@ func TestCLIDevicePairOpensSecondHomeAndDoesNotPrintMaster(t *testing.T) {
 
 func TestCLIMCPConfigNoSecret(t *testing.T) {
 	t.Setenv("PORT", "")
-	t.Setenv("PWM_MCP_URL", "")
+	t.Setenv("VEIL_MCP_URL", "")
 	home := t.TempDir()
 	out, err := run(t, home, "", "mcp", "config")
 	if err != nil {
@@ -1078,14 +1078,14 @@ func TestCLIMCPConfigNoSecret(t *testing.T) {
 	if got.URL != "http://127.0.0.1:4461/mcp" {
 		t.Fatalf("url %q", got.URL)
 	}
-	if got.Headers["Authorization"] != "Bearer ${PWM_OIDC_TOKEN}" {
+	if got.Headers["Authorization"] != "Bearer ${VEIL_OIDC_TOKEN}" {
 		t.Fatalf("headers %v", got.Headers)
 	}
 }
 
 func TestCLIMCPConfigRailwayPORT(t *testing.T) {
 	t.Setenv("PORT", "4461")
-	t.Setenv("PWM_MCP_URL", "https://pwm-production.up.railway.app/mcp")
+	t.Setenv("VEIL_MCP_URL", "https://pwm-production.up.railway.app/mcp")
 	home := t.TempDir()
 	out, err := run(t, home, "", "mcp", "config")
 	if err != nil {
@@ -1098,7 +1098,7 @@ func TestCLIMCPConfigRailwayPORT(t *testing.T) {
 
 func TestCLIMCPConfigPublicURL(t *testing.T) {
 	t.Setenv("PORT", "")
-	t.Setenv("PWM_MCP_URL", "https://veil.nyc/mcp")
+	t.Setenv("VEIL_MCP_URL", "https://veil.nyc/mcp")
 	home := t.TempDir()
 	out, err := run(t, home, "", "mcp", "config")
 	if err != nil {
@@ -1145,14 +1145,14 @@ func TestCLIOriginItemGrantNoLocalVault(t *testing.T) {
 		}
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
-	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
-	t.Setenv("PWM_OIDC_TOKEN", "")
+	t.Setenv("VEIL_HUMAN_TOKEN_FILE", tok)
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", "")
+	t.Setenv("VEIL_OIDC_TOKEN", "")
 	home := t.TempDir()
 	secFile := filepath.Join(home, "sec")
 	if err := os.WriteFile(secFile, []byte(secret+"\n"), 0o600); err != nil {
@@ -1238,14 +1238,14 @@ func TestCLIOriginItemUpdateURIAdds(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"github","org_id":"org","name":"github","kind":"api_key","owner":{"kind":"org","id":"org"},"uris":["https://api.github.com","https://github.com"]}`)
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
-	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
-	t.Setenv("PWM_OIDC_TOKEN", "")
+	t.Setenv("VEIL_HUMAN_TOKEN_FILE", tok)
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", "")
+	t.Setenv("VEIL_OIDC_TOKEN", "")
 	home := t.TempDir()
 	out, err := run(t, home, "", "item", "update", "github", "--uri", "https://github.com")
 	if err != nil {
@@ -1318,12 +1318,12 @@ func TestCLIOriginHumanGrant(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"`+member+`:github","org_id":"org","agent_id":"`+member+`","item_id":"github","level":"level2"}`)
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	t.Setenv("VEIL_HUMAN_TOKEN_FILE", tok)
 	home := t.TempDir()
 	out, err := run(t, home, "", "grant", "add", "--human", member, "--item", "github", "--level", "level2")
 	if err != nil {
@@ -1338,7 +1338,7 @@ func TestCLIOriginHumanGrant(t *testing.T) {
 }
 
 func TestCLIOriginRefusesSecondVault(t *testing.T) {
-	t.Setenv("PWM_ORIGIN", "https://veil.nyc")
+	t.Setenv("VEIL_ORIGIN", "https://veil.nyc")
 	home := t.TempDir()
 	out, err := run(t, home, "", "init")
 	if err == nil {
@@ -1382,7 +1382,7 @@ func TestCLIOriginUseAndAudit(t *testing.T) {
 		}
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1438,9 +1438,9 @@ func TestMCPStdioOriginListAndFetch(t *testing.T) {
 		}
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
-	t.Setenv("PWM_OIDC_TOKEN", "jwt-not-a-secret")
-	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
+	t.Setenv("VEIL_ORIGIN", origin.URL)
+	t.Setenv("VEIL_OIDC_TOKEN", "jwt-not-a-secret")
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -1614,12 +1614,12 @@ func TestOriginRemintsExpiredJWT(t *testing.T) {
 	if err := os.WriteFile(sec, []byte(hydraSecret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_ORIGIN", origin.URL)
-	t.Setenv("PWM_HYDRA_ISSUER", hydra.URL)
-	t.Setenv("PWM_HYDRA_SECRET_FILE", sec)
-	t.Setenv("PWM_AGENT", "cursor")
-	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
-	t.Setenv("PWM_OIDC_TOKEN", "")
+	t.Setenv("VEIL_ORIGIN", origin.URL)
+	t.Setenv("VEIL_HYDRA_ISSUER", hydra.URL)
+	t.Setenv("VEIL_HYDRA_SECRET_FILE", sec)
+	t.Setenv("VEIL_AGENT", "cursor")
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", tok)
+	t.Setenv("VEIL_OIDC_TOKEN", "")
 
 	out, err := run(t, t.TempDir(), "", "use", "--item", "github", "--url", "https://api.github.com/user")
 	if err != nil {
@@ -1663,11 +1663,11 @@ func TestOriginDoesNotRemintFreshJWT(t *testing.T) {
 	if err := os.WriteFile(tok, []byte(fresh+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_ORIGIN", origin.URL)
-	t.Setenv("PWM_HYDRA_ISSUER", hydra.URL)
-	t.Setenv("PWM_HYDRA_SECRET_FILE", filepath.Join(dir, "missing.hydra"))
-	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
-	t.Setenv("PWM_OIDC_TOKEN", "")
+	t.Setenv("VEIL_ORIGIN", origin.URL)
+	t.Setenv("VEIL_HYDRA_ISSUER", hydra.URL)
+	t.Setenv("VEIL_HYDRA_SECRET_FILE", filepath.Join(dir, "missing.hydra"))
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", tok)
+	t.Setenv("VEIL_OIDC_TOKEN", "")
 	out, err := run(t, t.TempDir(), "", "use", "--item", "github", "--url", "https://api.github.com/user")
 	if err != nil {
 		t.Fatal(err, out)
@@ -1720,8 +1720,8 @@ func TestCLIHumanLoginWritesTokenNotStdout(t *testing.T) {
 	}
 	redir := "http://" + ln.Addr().String() + "/oidc/callback"
 	_ = ln.Close()
-	t.Setenv("PWM_HYDRA_ISSUER", hydra.URL)
-	t.Setenv("PWM_HYDRA_REDIRECT", redir)
+	t.Setenv("VEIL_HYDRA_ISSUER", hydra.URL)
+	t.Setenv("VEIL_HYDRA_REDIRECT", redir)
 	outFile := filepath.Join(t.TempDir(), "human.jwt")
 	cmd := New("test")
 	var out, errb bytes.Buffer
@@ -1767,15 +1767,15 @@ func TestCLIOriginRunDummyEnvNotSecret(t *testing.T) {
 		http.Error(w, "nope", http.StatusNotFound)
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-agent\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
-	t.Setenv("PWM_OIDC_TOKEN", "")
-	t.Setenv("PWM_HUMAN_TOKEN_FILE", "")
-	t.Setenv("PWM_HUMAN_TOKEN", "")
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", tok)
+	t.Setenv("VEIL_OIDC_TOKEN", "")
+	t.Setenv("VEIL_HUMAN_TOKEN_FILE", "")
+	t.Setenv("VEIL_HUMAN_TOKEN", "")
 	home := t.TempDir()
 	out, err := run(t, home, "", "run", "--agent", "cursor", "--", "sh", "-c", `printf %s "$STRIPE"`)
 	if err != nil {
@@ -1797,12 +1797,12 @@ func TestCLIOriginRunInjectRefused(t *testing.T) {
 		http.Error(w, "nope", http.StatusNotFound)
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-agent\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", tok)
 	home := t.TempDir()
 	tmpl := filepath.Join(home, "tmpl")
 	if err := os.WriteFile(tmpl, []byte("${STRIPE}\n"), 0o600); err != nil {
@@ -1819,14 +1819,14 @@ func TestCLIOriginRunInjectRefused(t *testing.T) {
 
 func TestCLIOriginHumanExpiredNeedsLogin(t *testing.T) {
 	expired := "eyJhbGciOiJub25lIn0.eyJleHAiOjF9."
-	t.Setenv("PWM_ORIGIN", "https://veil.nyc")
-	t.Setenv("PWM_HUMAN_TOKEN", expired)
-	t.Setenv("PWM_HUMAN_TOKEN_FILE", "")
-	t.Setenv("PWM_OIDC_TOKEN", "")
-	t.Setenv("PWM_OIDC_TOKEN_FILE", "")
-	t.Setenv("PWM_LOGIN_EMAIL", "")
-	t.Setenv("PWM_KRATOS_PASSWORD_FILE", "")
-	t.Setenv("PWM_KRATOS_TOTP_FILE", "")
+	t.Setenv("VEIL_ORIGIN", "https://veil.nyc")
+	t.Setenv("VEIL_HUMAN_TOKEN", expired)
+	t.Setenv("VEIL_HUMAN_TOKEN_FILE", "")
+	t.Setenv("VEIL_OIDC_TOKEN", "")
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", "")
+	t.Setenv("VEIL_LOGIN_EMAIL", "")
+	t.Setenv("VEIL_KRATOS_PASSWORD_FILE", "")
+	t.Setenv("VEIL_KRATOS_TOTP_FILE", "")
 	_, err := originHumanTokenLive(context.Background())
 	if err == nil {
 		t.Fatal("expired human token")
@@ -1928,12 +1928,12 @@ func TestCLIOriginAgentRevoke(t *testing.T) {
 		http.Error(w, "nope", http.StatusNotFound)
 	}))
 	t.Cleanup(origin.Close)
-	t.Setenv("PWM_ORIGIN", origin.URL)
+	t.Setenv("VEIL_ORIGIN", origin.URL)
 	tok := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(tok, []byte("jwt-not-a-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_HUMAN_TOKEN_FILE", tok)
+	t.Setenv("VEIL_HUMAN_TOKEN_FILE", tok)
 	home := t.TempDir()
 	out, err := run(t, home, "", "agent", "revoke", "--id", "flue")
 	if err != nil {
@@ -1944,5 +1944,46 @@ func TestCLIOriginAgentRevoke(t *testing.T) {
 	}
 	if !strings.Contains(out, "revoked_at") {
 		t.Fatalf("cli: %s", out)
+	}
+}
+
+func TestResolveHomeMigratesLegacyDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("VEIL_HOME", "")
+	legacy := filepath.Join(dir, ".password-manager")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveHome("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, ".veil"); got != want {
+		t.Fatalf("home = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("legacy dir still present after migration")
+	}
+}
+
+func TestResolveHomeKeepsVeilWhenBothExist(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("VEIL_HOME", "")
+	for _, d := range []string{".veil", ".password-manager"} {
+		if err := os.MkdirAll(filepath.Join(dir, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := resolveHome("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, ".veil"); got != want {
+		t.Fatalf("home = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".password-manager")); err != nil {
+		t.Fatal("legacy dir must not be touched when .veil exists")
 	}
 }

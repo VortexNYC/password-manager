@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/id"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/store"
+	"github.com/VortexNYC/veil/internal/id"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/store"
 )
 
 const (
@@ -22,9 +22,9 @@ const (
 )
 
 var (
-	ErrForbidden       = errors.New("app: forbidden")
-	ErrSessionExpired  = errors.New("app: session expired")
-	ErrSessionRevoked  = errors.New("app: session revoked")
+	ErrForbidden        = errors.New("app: forbidden")
+	ErrSessionExpired   = errors.New("app: session expired")
+	ErrSessionRevoked   = errors.New("app: session revoked")
 	ErrSessionExhausted = errors.New("app: session uses exhausted")
 )
 

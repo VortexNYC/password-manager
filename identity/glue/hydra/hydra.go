@@ -13,12 +13,12 @@ import (
 
 	ory "github.com/ory/hydra-client-go/v26"
 
-	"github.com/veilnyc/password-manager/identity/glue/internal/absurl"
+	"github.com/VortexNYC/veil/identity/glue/internal/absurl"
 )
 
 var ErrChallenge = errors.New("glue: consent challenge")
 
-const DefaultClientID = "password-manager"
+const DefaultClientID = "password-manager" // deployed Hydra client ID + audience; renaming is a prod migration, not a string sweep
 
 type Client struct {
 	admin *ory.APIClient

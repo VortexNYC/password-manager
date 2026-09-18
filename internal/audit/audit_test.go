@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/store"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/store"
 )
 
 func TestSyncAuditorWritesImmediately(t *testing.T) {

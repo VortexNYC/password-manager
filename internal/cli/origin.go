@@ -17,17 +17,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/veilnyc/password-manager/identity/glue"
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/id"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/VortexNYC/veil/identity/glue"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/id"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/publicapi"
 )
 
 const jwtRefreshSkew = 2 * time.Minute
 
 func originBase() string {
-	return strings.TrimRight(strings.TrimSpace(os.Getenv("PWM_ORIGIN")), "/")
+	return strings.TrimRight(strings.TrimSpace(os.Getenv("VEIL_ORIGIN")), "/")
 }
 
 func originToken(tokenFile string) (string, error) {
@@ -41,20 +41,20 @@ func originToken(tokenFile string) (string, error) {
 		}
 		return string(b), nil
 	}
-	if f := strings.TrimSpace(os.Getenv("PWM_OIDC_TOKEN_FILE")); f != "" {
+	if f := strings.TrimSpace(os.Getenv("VEIL_OIDC_TOKEN_FILE")); f != "" {
 		b, err := readFileMaterial(f)
 		if err != nil {
 			return "", err
 		}
 		if len(b) == 0 {
-			return "", fmt.Errorf("origin: empty PWM_OIDC_TOKEN_FILE")
+			return "", fmt.Errorf("origin: empty VEIL_OIDC_TOKEN_FILE")
 		}
 		return string(b), nil
 	}
-	if t := strings.TrimSpace(os.Getenv("PWM_OIDC_TOKEN")); t != "" {
+	if t := strings.TrimSpace(os.Getenv("VEIL_OIDC_TOKEN")); t != "" {
 		return t, nil
 	}
-	return "", fmt.Errorf("origin: --oidc-token-file, PWM_OIDC_TOKEN_FILE, or PWM_OIDC_TOKEN is required")
+	return "", fmt.Errorf("origin: --oidc-token-file, VEIL_OIDC_TOKEN_FILE, or VEIL_OIDC_TOKEN is required")
 }
 
 func originTokenLive(ctx context.Context, tokenFile string) (string, error) {
@@ -62,7 +62,7 @@ func originTokenLive(ctx context.Context, tokenFile string) (string, error) {
 	if err == nil && !jwtNeedsRefresh(tok) {
 		return tok, nil
 	}
-	secretFile := strings.TrimSpace(os.Getenv("PWM_HYDRA_SECRET_FILE"))
+	secretFile := strings.TrimSpace(os.Getenv("VEIL_HYDRA_SECRET_FILE"))
 	if secretFile == "" {
 		if err != nil {
 			return "", err
@@ -115,29 +115,29 @@ func originRemint(ctx context.Context, tokenFile, secretFile string) (string, er
 		return "", err
 	}
 	if len(secret) == 0 {
-		return "", fmt.Errorf("origin: empty PWM_HYDRA_SECRET_FILE")
+		return "", fmt.Errorf("origin: empty VEIL_HYDRA_SECRET_FILE")
 	}
-	issuer := strings.TrimSpace(os.Getenv("PWM_HYDRA_ISSUER"))
+	issuer := strings.TrimSpace(os.Getenv("VEIL_HYDRA_ISSUER"))
 	if issuer == "" {
-		return "", fmt.Errorf("origin: PWM_HYDRA_ISSUER is required to remint")
+		return "", fmt.Errorf("origin: VEIL_HYDRA_ISSUER is required to remint")
 	}
-	agentName := strings.TrimSpace(os.Getenv("PWM_AGENT"))
+	agentName := strings.TrimSpace(os.Getenv("VEIL_AGENT"))
 	if agentName == "" {
 		if tok, err := originToken(tokenFile); err == nil {
 			agentName = agentNameFromJWT(tok)
 		}
 	}
 	if !id.Valid(agentName) {
-		return "", fmt.Errorf("origin: PWM_AGENT is required to remint")
+		return "", fmt.Errorf("origin: VEIL_AGENT is required to remint")
 	}
-	audience := envOr("PWM_HYDRA_CLIENT_ID", glue.DefaultClientID)
+	audience := envOr("VEIL_HYDRA_CLIENT_ID", glue.DefaultClientID)
 	raw, err := glue.ClientCredentials(ctx, issuer, glue.AgentClientID(agentName), string(secret), audience)
 	if err != nil {
 		return "", err
 	}
 	out := tokenFile
 	if out == "" {
-		out = strings.TrimSpace(os.Getenv("PWM_OIDC_TOKEN_FILE"))
+		out = strings.TrimSpace(os.Getenv("VEIL_OIDC_TOKEN_FILE"))
 	}
 	if out != "" {
 		if err := os.WriteFile(out, []byte(raw+"\n"), 0o600); err != nil {
@@ -176,7 +176,7 @@ func agentNameFromJWT(tok string) string {
 func originDo(ctx context.Context, method, path, token string, body []byte) ([]byte, error) {
 	base := originBase()
 	if base == "" {
-		return nil, fmt.Errorf("origin: PWM_ORIGIN is empty")
+		return nil, fmt.Errorf("origin: VEIL_ORIGIN is empty")
 	}
 	var rdr io.Reader
 	if len(body) > 0 {
@@ -335,7 +335,7 @@ func originItemImport(cmd *cobra.Command, path string) error {
 func originDoFile(ctx context.Context, path, token string, body []byte) ([]byte, error) {
 	base := originBase()
 	if base == "" {
-		return nil, fmt.Errorf("origin: PWM_ORIGIN is empty")
+		return nil, fmt.Errorf("origin: VEIL_ORIGIN is empty")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(body))
 	if err != nil {

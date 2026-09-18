@@ -7,13 +7,13 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -o /out/password-manager ./cmd/password-manager
+RUN CGO_ENABLED=0 go build -trimpath -o /out/veil ./cmd/veil
 RUN CGO_ENABLED=0 go build -trimpath -o /out/identity-glue ./cmd/identity-glue
 
 FROM gcr.io/distroless/static-debian12
-COPY --from=build /out/password-manager /password-manager
+COPY --from=build /out/veil /veil
 COPY --from=build /out/identity-glue /identity-glue
-ENV PWM_HOME=/data
+ENV VEIL_HOME=/data
 EXPOSE 4461 4456
-ENTRYPOINT ["/password-manager"]
+ENTRYPOINT ["/veil"]
 CMD ["mcp"]

@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/passgen"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/passgen"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 type jsonMatchEntry struct {

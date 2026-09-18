@@ -19,8 +19,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 type FetchIn struct {
@@ -67,7 +67,7 @@ func New(a *app.App) *mcp.Server {
 	})
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "fetch",
-		Description: "Call a URL as this agent. The broker injects the credential. You never receive the secret. Level-1 items return decision=need_approval until a human runs `password-manager approve`.",
+		Description: "Call a URL as this agent. The broker injects the credential. You never receive the secret. Level-1 items return decision=need_approval until a human runs `veil approve`.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in FetchIn) (*mcp.CallToolResult, FetchOut, error) {
 		agentID, err := principal(req)
 		if err != nil {

@@ -1,4 +1,4 @@
-module github.com/veilnyc/password-manager
+module github.com/VortexNYC/veil
 
 go 1.25.0
 

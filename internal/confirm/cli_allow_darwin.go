@@ -13,7 +13,7 @@ import (
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 
-static CFMutableDictionaryRef pwm_cli_query(const char *bundle) {
+static CFMutableDictionaryRef veil_cli_query(const char *bundle) {
 	CFMutableDictionaryRef q = CFDictionaryCreateMutable(NULL, 0,
 		&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	CFDictionarySetValue(q, kSecClass, kSecClassGenericPassword);
@@ -24,8 +24,8 @@ static CFMutableDictionaryRef pwm_cli_query(const char *bundle) {
 	return q;
 }
 
-static int pwm_cli_get(const char *bundle) {
-	CFMutableDictionaryRef q = pwm_cli_query(bundle);
+static int veil_cli_get(const char *bundle) {
+	CFMutableDictionaryRef q = veil_cli_query(bundle);
 	CFDictionarySetValue(q, kSecReturnData, kCFBooleanTrue);
 	CFDictionarySetValue(q, kSecMatchLimit, kSecMatchLimitOne);
 	CFTypeRef result = NULL;
@@ -40,8 +40,8 @@ static int pwm_cli_get(const char *bundle) {
 	return 1;
 }
 
-static int pwm_cli_put(const char *bundle) {
-	CFMutableDictionaryRef q = pwm_cli_query(bundle);
+static int veil_cli_put(const char *bundle) {
+	CFMutableDictionaryRef q = veil_cli_query(bundle);
 	SecItemDelete(q);
 	const unsigned char one = '1';
 	CFDataRef data = CFDataCreate(NULL, &one, 1);
@@ -65,7 +65,7 @@ func cliAllowed(bundle string) bool {
 	}
 	cs := C.CString(bundle)
 	defer C.free(unsafe.Pointer(cs))
-	return C.pwm_cli_get(cs) == 1
+	return C.veil_cli_get(cs) == 1
 }
 
 func cliRemember(bundle string) {
@@ -74,5 +74,5 @@ func cliRemember(bundle string) {
 	}
 	cs := C.CString(bundle)
 	defer C.free(unsafe.Pointer(cs))
-	_ = C.pwm_cli_put(cs)
+	_ = C.veil_cli_put(cs)
 }

@@ -25,11 +25,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/broker"
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/broker"
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/envcompat"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/publicapi"
 )
 
 type origin struct {
@@ -41,6 +42,7 @@ type origin struct {
 }
 
 func main() {
+	envcompat.BridgeLegacy()
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: logLevel(),
 	})))
@@ -376,13 +378,13 @@ func originBinary() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("find repo root: %w", err)
 	}
-	f, err := os.CreateTemp("", "password-manager-loadtest-*")
+	f, err := os.CreateTemp("", "veil-loadtest-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp binary: %w", err)
 	}
 	_ = f.Close()
 	path := f.Name()
-	cmd := exec.Command("go", "build", "-o", path, "./cmd/password-manager")
+	cmd := exec.Command("go", "build", "-o", path, "./cmd/veil")
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {

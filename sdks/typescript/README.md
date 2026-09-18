@@ -1,13 +1,20 @@
-# Veil TypeScript SDK
+# @vortex-api/veil
 
-Generated from `docs/openapi/password-manager.openapi.json`. Do not handwrite clients.
+Generated TypeScript SDK for the Veil public API.
+
+This package is generated from `docs/openapi/veil.openapi.json` by `pnpm run sdk:generate`.
+It is MIT-licensed and published to the public npm registry.
+
+```bash
+pnpm add @vortex-api/veil
+```
 
 ```ts
-import { createClient, listItems, useItem } from "@veilnyc/pwm-sdk";
+import { createClient, listItems, useItem } from "@vortex-api/veil";
 
 const client = createClient({
   baseUrl: "https://veil.nyc",
-  headers: { Authorization: `Bearer ${process.env.PWM_OIDC_TOKEN}` },
+  headers: { Authorization: `Bearer ${process.env.VEIL_OIDC_TOKEN}` },
 });
 
 const { data } = await listItems({ client });

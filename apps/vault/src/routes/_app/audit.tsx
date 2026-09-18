@@ -6,7 +6,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { PageChrome } from "../../page-chrome";
 import { events } from "../../origin";
-import type { AuditEvent } from "@veilnyc/pwm-sdk";
+import type { AuditEvent } from "@vortex-api/veil";
 
 export const Route = createFileRoute("/_app/audit")({
   component: Audit,

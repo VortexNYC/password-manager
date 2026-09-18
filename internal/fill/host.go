@@ -35,8 +35,8 @@ type InstallEnv struct {
 
 // NativeHostArgs rewrites Chrome/Firefox's launch of the host binary into
 // `fill`. The browser passes the extension origin as argv[1].
-// PWM_HOME is forced to the binary's directory so a login-shell
-// PWM_HOME/PWM_ORIGIN cannot point the host at a different vault.
+// VEIL_HOME is forced to the binary's directory so a login-shell
+// VEIL_HOME/VEIL_ORIGIN cannot point the host at a different vault.
 func NativeHostArgs(args []string) []string {
 	if len(args) == 0 {
 		return args
@@ -46,12 +46,12 @@ func NativeHostArgs(args []string) []string {
 		if abs, err := filepath.Abs(dir); err == nil {
 			dir = abs
 		}
-		_ = os.Setenv("PWM_HOME", dir)
+		_ = os.Setenv("VEIL_HOME", dir)
 		// Chrome inherits the launching shell. fill.json is the only switch.
-		_ = os.Unsetenv("PWM_FILL_TOUCHID")
-		_ = os.Unsetenv("PWM_AGENT")
-		_ = os.Unsetenv("PWM_OIDC_TOKEN")
-		_ = os.Unsetenv("PWM_OIDC_TOKEN_FILE")
+		_ = os.Unsetenv("VEIL_FILL_TOUCHID")
+		_ = os.Unsetenv("VEIL_AGENT")
+		_ = os.Unsetenv("VEIL_OIDC_TOKEN")
+		_ = os.Unsetenv("VEIL_OIDC_TOKEN_FILE")
 		return []string{args[0], "fill"}
 	}
 	return args
@@ -98,17 +98,17 @@ func ApplyHostConfig(dir string) error {
 		}
 		return err
 	}
-	setIfEmpty("PWM_ORIGIN", cfg.Origin)
-	setIfEmpty("PWM_HOME", cfg.Home)
-	setIfEmpty("PWM_HUMAN_TOKEN_FILE", cfg.TokenFile)
-	setIfEmpty("PWM_LOGIN_EMAIL", cfg.LoginEmail)
-	setIfEmpty("PWM_KRATOS_PASSWORD_FILE", cfg.PasswordFile)
-	setIfEmpty("PWM_KRATOS_TOTP_FILE", cfg.TOTPFile)
+	setIfEmpty("VEIL_ORIGIN", cfg.Origin)
+	setIfEmpty("VEIL_HOME", cfg.Home)
+	setIfEmpty("VEIL_HUMAN_TOKEN_FILE", cfg.TokenFile)
+	setIfEmpty("VEIL_LOGIN_EMAIL", cfg.LoginEmail)
+	setIfEmpty("VEIL_KRATOS_PASSWORD_FILE", cfg.PasswordFile)
+	setIfEmpty("VEIL_KRATOS_TOTP_FILE", cfg.TOTPFile)
 	if cfg.Debug {
-		setIfEmpty("PWM_FILL_DEBUG", "1")
+		setIfEmpty("VEIL_FILL_DEBUG", "1")
 	}
 	if cfg.TouchID != nil && !*cfg.TouchID {
-		_ = os.Setenv("PWM_FILL_TOUCHID", "0")
+		_ = os.Setenv("VEIL_FILL_TOUCHID", "0")
 	}
 	return nil
 }

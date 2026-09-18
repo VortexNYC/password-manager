@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/proxy"
-	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/proxy"
+	"github.com/VortexNYC/veil/internal/publicapi"
 )
 
 func originRun(cmd *cobra.Command, home, agent, tokenFile string, injects, args []string) error {

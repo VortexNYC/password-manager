@@ -66,7 +66,7 @@ function saveButton(got) {
 
 chrome.runtime.sendMessage({ type: "popup-list" }, function (got) {
   if (chrome.runtime.lastError) {
-    show('<div class="err">Host is not running. password-manager fill install</div>');
+    show('<div class="err">Host is not running. veil fill install</div>');
     return;
   }
   const entries = (got && got.entries) || [];

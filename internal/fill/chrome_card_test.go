@@ -12,15 +12,15 @@ import (
 
 	"github.com/chromedp/chromedp"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/publicapi"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 func TestChromeExtensionCardClickDoesNotFill(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	const pan = "4111111111111111"
 	chrome := chromeForTesting(t)
@@ -53,8 +53,8 @@ func TestChromeExtensionCardClickDoesNotFill(t *testing.T) {
 }
 
 func TestChromeExtensionCardFill(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	const pan = "4111111111111111"
 	const cvv = "123"
@@ -96,8 +96,8 @@ func TestChromeExtensionCardFill(t *testing.T) {
 }
 
 func TestChromeExtensionIdentityFill(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	chrome := chromeForTesting(t)
 	if chrome == "" {

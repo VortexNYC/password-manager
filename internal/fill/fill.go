@@ -29,10 +29,10 @@ import (
 
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/replica"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/replica"
 )
 
 const (
@@ -42,7 +42,7 @@ const (
 	JSONVersion      = "1"
 	maxMsg           = 1 << 20
 	assocFile        = "fill-assoc.json"
-	assocID          = "password-manager"
+	assocID          = "veil"
 	passkeysCanceled = 22
 	confirmReuse     = 30 * time.Second
 	// totpPresent tells KeePassXC-Browser to call get-totp. Not a code. Not the seed.
@@ -141,14 +141,14 @@ func Write(w io.Writer, raw []byte) error {
 }
 
 func fillDebug(msg string) {
-	if os.Getenv("PWM_FILL_DEBUG") == "" {
+	if os.Getenv("VEIL_FILL_DEBUG") == "" {
 		return
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(home, ".password-manager", "fill-debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(home, ".veil", "fill-debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
@@ -913,7 +913,7 @@ func ManifestChrome(hostPath string) []byte {
 		AllowedOrigins []string `json:"allowed_origins"`
 	}{
 		Name:           NativeHostName,
-		Description:    "password-manager fill host",
+		Description:    "veil fill host",
 		Path:           hostPath,
 		Type:           "stdio",
 		AllowedOrigins: []string{ChromeOrigin()},
@@ -930,7 +930,7 @@ func ManifestFirefox(hostPath string) []byte {
 		AllowedExtensions []string `json:"allowed_extensions"`
 	}{
 		Name:              NativeHostName,
-		Description:       "password-manager fill host",
+		Description:       "veil fill host",
 		Path:              hostPath,
 		Type:              "stdio",
 		AllowedExtensions: []string{FirefoxID()},

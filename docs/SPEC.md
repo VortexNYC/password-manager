@@ -2,7 +2,7 @@
 
 Agent-first credential broker. One protocol. Two grant levels. Secrets never enter the model.
 
-The product is Veil. Repo and CLI stay `password-manager` in VeilNYC until a rename.
+The product is Veil. Repo and CLI stay `veil` in VeilNYC until a rename.
 
 ## Objective
 
@@ -103,7 +103,7 @@ The next slices, in this order, and nothing else until each is proven:
 18 origin                 written. Hydra+broker on Railway. veil.nyc.
                          laptop is not the origin. pwm.veil.nyc is
                          leftover Mini.
-19 item lifecycle + refs written. ${NAME}/pwm:// in run --inject.
+19 item lifecycle + refs written. ${NAME}/veil:// in run --inject.
                          archive/delete/history. Grant.ExpiresAt.
                          file BLOB owner-write. audit CLI. passgen CLI.
                          not MCP. not vaults. not 1Password.
@@ -118,7 +118,7 @@ The next slices, in this order, and nothing else until each is proven:
                          allow/200, token absent from the tool payload.
                          Codex/Devin laptop same. Not `${file:}`.
 23 one store              written. origin is the source of truth.
-                         PWM_ORIGIN CLI item/grant/list/fill/run/proxy HTTP.
+                         VEIL_ORIGIN CLI item/grant/list/fill/run/proxy HTTP.
                          `openApp` refuses a *second product vault*.
                          The fill host may hold an **encrypted replica**
                          of origin (docs/fill.md). Same item IDs. Local
@@ -149,10 +149,10 @@ The next slices, in this order, and nothing else until each is proven:
 24 human mint             written. `human login --out-file`. Hydra PKCE.
                          prompt=login so remint cannot skip TOTP. ID token
                          to disk. never stdout. amr must include totp.
-                         HTTP remint (no browser) when PWM_LOGIN_EMAIL,
-                         PWM_KRATOS_PASSWORD_FILE, PWM_KRATOS_TOTP_FILE
+                         HTTP remint (no browser) when VEIL_LOGIN_EMAIL,
+                         VEIL_KRATOS_PASSWORD_FILE, VEIL_KRATOS_TOTP_FILE
                          are set. Fill and owner HTTP use
-                         PWM_HUMAN_TOKEN_FILE, not the agent JWT.
+                         VEIL_HUMAN_TOKEN_FILE, not the agent JWT.
                          The fill host remints that JWT (stale, or
                          origin 401). fill.json next to the Go host
                          binary holds origin and remint *file paths*,
@@ -163,8 +163,8 @@ The next slices, in this order, and nothing else until each is proven:
                          Kratos, Keto, glue, Hydra. Login UI is Cloudflare
                          Workers (`veil-login`) at login.veil.nyc.
                          accounts.veil.nyc is Kratos public. consent.veil.nyc
-                         is glue. Hydra URLS_LOGIN public. pwm PWM_KETO_*.
-                         First-party client password-manager. Live human mint.
+                         is glue. Hydra URLS_LOGIN public. pwm VEIL_KETO_*.
+                         First-party client veil. Live human mint.
                          Grants stay in the vault. Not Keto. Not one soup.
 26 chrome URI fill        written. store keepassxc-browser + Go host
                          against origin. Human JWT. a real Chrome field
@@ -172,7 +172,7 @@ The next slices, in this order, and nothing else until each is proven:
                          fill username in the sealed envelope, not
                          item.Name. Empty is honest. not MCP. not list.
                          Mac fill prompts Touch ID before a secret
-                         leaves the host (`PWM_FILL_TOUCHID=0` off).
+                         leaves the host (`VEIL_FILL_TOUCHID=0` off).
                          Linux waits 35–36. Product chrome is slice
                          37, not this listing.
 27 totp enroll            written. `totp enroll --out-file --qr-file`.
@@ -286,7 +286,7 @@ One org: `protocol.LocalOrgID` in the vault, Kratos `organization_id`, and the K
 
 Keto is membership. sqlite `humans` is planted `self` only. Glue writes owner/member. The broker calls glue `IsMember` (Keto) before ApproveOIDC. The grant is not a Keto tuple. The broker never calls Kratos.
 
-The CLI planted human `self` is the laptop stand-in when Hydra is not configured. A real Approve is a Hydra subject. If `PWM_HYDRA_ISSUER` is set, `Approve` without an ID token fails.
+The CLI planted human `self` is the laptop stand-in when Hydra is not configured. A real Approve is a Hydra subject. If `VEIL_HYDRA_ISSUER` is set, `Approve` without an ID token fails.
 
 Device pairing wraps master to a device public key. `Init` writes `device.key` and `wraps/`. There is no plaintext `master.key`. Copy `vault.db` yourself. That is not sync.
 
@@ -308,7 +308,7 @@ human
                                            Hydra consent still hits glue AcceptConsent.
   issuer             Hydra image           pinned. urls.login is Kratos browser login
   first-party client Hydra admin           written. skip_consent. redirect is the broker
-  token the broker   go-oidc             written. internal/human. PWM_HYDRA_ISSUER
+  token the broker   go-oidc             written. internal/human. VEIL_HYDRA_ISSUER
   trusts
   who may Approve    Hydra subject         written. ApproveOIDC. planted `self` is tests/CLI without Hydra
 
@@ -346,7 +346,7 @@ use
   grant              this grant package    built. level 1 and level 2
   approve            this broker           built against the local human
   inject             goproxy + child env   built. vault run never prints
-                     ${NAME} / pwm://      written. `run --inject src:dest`. fail closed
+                     ${NAME} / veil://      written. `run --inject src:dest`. fail closed
   share              Grant.ExpiresAt     written. `grant add --expires`. forever if unset
   mcp / cli          this process          built. Streamable HTTP is origin.
                                            Bearer is the agent. cloud is that URL.
@@ -354,7 +354,7 @@ use
                                            `mcp stdio` is the laptop adapter
                                            over origin HTTP. not a second protocol.
                                            stale Hydra JWT is reminted via
-                                           client_credentials from PWM_HYDRA_SECRET_FILE.
+                                           client_credentials from VEIL_HYDRA_SECRET_FILE.
                                            not OAuth refresh_token. not ory/mcp.
   scrub / audit      this process          built. `audit` is owner CLI. not MCP
   passgen            crypto/rand           written. CLI `gen`. not MCP. not a vault item
@@ -504,7 +504,7 @@ client
 
 broker trusts
 Hydra
-  who          internal/human. coreos/go-oidc pointed at PWM_HYDRA_ISSUER only
+  who          internal/human. coreos/go-oidc pointed at VEIL_HYDRA_ISSUER only
   what         Exchange is PKCE public client. caller gets the id_token, not access/refresh.
                subject is the human. unknown iss rejected before discovery.
                written. make prove-identity exchanges the code
@@ -532,7 +532,7 @@ client
 laptop
 proof
   who          this process, a local unix socket. CLI `serve`
-  what         HTTP on pwm.sock. Bearer is the same Hydra JWT as cloud.
+  what         HTTP on veil.sock. Bearer is the same Hydra JWT as cloud.
                not a new identity. name headers are ignored.
                written. TestLiveLaptopSocket
   when         after the agent Hydra client exists
@@ -618,13 +618,13 @@ make glue
 make prove-identity
 make prove-live
 go test ./...
-go run ./cmd/password-manager version
+go run ./cmd/veil version
 ```
 
 ## Project structure
 
 ```
-cmd/password-manager    cobra CLI + Streamable HTTP MCP. the broker.
+cmd/veil    cobra CLI + Streamable HTTP MCP. the broker.
 cmd/identity-glue       stdlib. one-shot Hydra first-party client, then consent accept.
 identity/               sibling plane. login UI, schema, compose pins
 identity/glue            seam. SDKs are in kratos/, hydra/, keto/. invite = both.
@@ -642,7 +642,7 @@ internal/store          memory + sqlite. owner DEK, master unwraps
 internal/crypto         x/crypto wrapper
 internal/material       sealed token + TOTP seed; mint at inject; file BLOB
 internal/publicapi      OpenAPI HTTP. /v1/items + /v1/use. GET /openapi.json
-internal/inject         ${NAME} / pwm:// into a child file. fail closed
+internal/inject         ${NAME} / veil:// into a child file. fail closed
 internal/passgen        human CLI. crypto/rand. not MCP
 internal/human          go-oidc verify Hydra; subject is the human
 internal/fill           native host. kpxc nacl box (26/31). JSON (37). not the extension
@@ -673,13 +673,13 @@ Next: Mac helper (slice 32). Typed-save / TOTP-from-page on Chrome are CFT-prove
 ## Testing
 
 - GitHub Actions runs `make ci`. That is the merge bar. A green `go test` with red lint, stale SDKs, or a broken vault typecheck is a lie.
-- `make ci` is: `sdk:generate` plus a dirty-tree check on `sdks/` and `internal/publicapi/spec.json`, `go vet`, `go test -race -shuffle=on ./...` with agent/origin env unset and `PWM_FILL_TOUCHID=0` (so Chrome-launched host tests cannot inherit a laptop JWT), `vp lint`, login+vault typecheck, vault vitest, docs build. Fill `node --test` runs from Go (`TestFieldsJS`). It does not hit `https://veil.nyc`. It does not load Chrome.
+- `make ci` is: `sdk:generate` plus a dirty-tree check on `sdks/` and `internal/publicapi/spec.json`, `go vet`, `go test -race -shuffle=on ./...` with agent/origin env unset and `VEIL_FILL_TOUCHID=0` (so Chrome-launched host tests cannot inherit a laptop JWT), `vp lint`, login+vault typecheck, vault vitest, docs build. Fill `node --test` runs from Go (`TestFieldsJS`). It does not hit `https://veil.nyc`. It does not load Chrome.
 - The Go suite **is** `testing` + `go test`. That is Vitest for this repo. `t.Run` is `describe`/`it`. `testing.F` seed values run in CI; `go test -fuzz=FuzzName ./pkg` is a laptop soak, not GitHub. `testing/synctest` is the fake clock (confirm 30s). `-race` and `-shuffle=on` are on `make test`. Do not add Ginkgo, testify, or a second runner.
 - Vitest is `apps/vault` only. Fill JS stays Node's `node:test`.
 - `go test ./...` is the Go suite. It does not prove `https://veil.nyc`.
 - `make prove-identity` is local Docker Ory. It does not prove `veil.nyc`.
 - `make prove-live` is origin truth: `https://veil.nyc` and MCP. It mints a token, fails if GitHub/Linear/Firecrawl/Cloudflare Use is not allow/200, and fails if the secret appears in JSON. `make ci` does not run it. Do not put it on GitHub.
-- Chrome for Testing (`PWM_PROVE_CHROME=1`) is a headed prove on a machine with Chrome. Ubuntu CI does not have that. Do not mock Touch ID or branded Chrome to paint a badge.
+- Chrome for Testing (`VEIL_PROVE_CHROME=1`) is a headed prove on a machine with Chrome. Ubuntu CI does not have that. Do not mock Touch ID or branded Chrome to paint a badge.
 - `GET /health` is process up. `GET /ready` is Hydra discovery. A green health with a dead issuer is a lie; prove-live checks ready.
 - Every Use/Approve path asserts the secret is absent from JSON of the result and of the audit log.
 - Prefer httptest and the memory store over mocks.
@@ -715,34 +715,34 @@ Next: Mac helper (slice 32). Typed-save / TOTP-from-page on Chrome are CFT-prove
 - [x] Broker trusts our Hydra via `internal/human` (`coreos/go-oidc`). Unknown issuers rejected before discovery. `x/oauth2` PKCE exchange returns the id_token only.
 - [x] `ApproveOIDC` Approves as that Hydra subject. Membership is Keto via glue. Live: subject and approval HumanID equal the Kratos identity id. Planted `self` stays tests and CLI when Hydra is not configured. If the issuer is set, `Approve` without a token fails.
 - [x] Agent that does not speak OIDC is a Hydra `client_credentials` client (`access_token_strategy=jwt`), not a Kratos human. Glue creates it. `agent hydra` binds issuer+subject. Secret is `--secret-file` only. Live: JWT verifies to that agent via go-oidc.
-- [x] Laptop socket is unix HTTP (`pwm.sock`). Bearer is that same JWT. Name is not identity. Live: Hydra JWT over the socket Uses as that agent. Secret absent from the response.
-- [x] Fill host speaks native messaging (`nacl/box`) for the store keepassxc-browser proof. `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret. Login username is item metadata (`protocol.Item.Login`). `fill install` writes the Go binary as the native host plus `fill.json` (origin and remint file paths, never the password). No shell wrapper. Product chrome is slice 37: native messaging JSON, not nacl box. Origin fill remints a stale/401 human JWT. Mac fill prompts Touch ID before a secret leaves (`PWM_FILL_TOUCHID=0` off). Confirm chrome is the Veil access sheet (requester app, Veil mark, Cancel / Authorize with Touch ID), not Apple's stock card. A success is reused for 30s so fill + TOTP + passkey is one gesture. Cancel returns no password (`TestConfirmDeniedDoesNotReturnPassword`).
+- [x] Laptop socket is unix HTTP (`veil.sock`). Bearer is that same JWT. Name is not identity. Live: Hydra JWT over the socket Uses as that agent. Secret absent from the response.
+- [x] Fill host speaks native messaging (`nacl/box`) for the store keepassxc-browser proof. `get-logins` returns the password to the extension only. `FillEntry.Login` is the sealed username, not `item.Name`. Empty login is honest. Agent list/MCP JSON has no secret. Login username is item metadata (`protocol.Item.Login`). `fill install` writes the Go binary as the native host plus `fill.json` (origin and remint file paths, never the password). No shell wrapper. Product chrome is slice 37: native messaging JSON, not nacl box. Origin fill remints a stale/401 human JWT. Mac fill prompts Touch ID before a secret leaves (`VEIL_FILL_TOUCHID=0` off). Confirm chrome is the Veil access sheet (requester app, Veil mark, Cancel / Authorize with Touch ID), not Apple's stock card. A success is reused for 30s so fill + TOTP + passkey is one gesture. Cancel returns no password (`TestConfirmDeniedDoesNotReturnPassword`).
 - [x] Passkeys fill is `passkeys-get` / `passkeys-register` on that host. We are the authenticator, not the RP. ES256, none attestation. Private key sealed; absent from list, MCP, Use, child env, OpenAPI. `POST /v1/fill/passkeys/*` is human native-host only. Wire version `2.7.7`. `TestPasskeysRegisterThenGet`. `TestRegisterThenAssertAgainstRP` verifies register+assert with go-webauthn as the RP so `SignASN1` truncation cannot ship.
 - [x] SSH agent is `golang.org/x/crypto/ssh/agent` on a local unix socket (`ssh.sock`). The broker signs. List/JSON has no PEM. `Add`/`Remove` refused. CLI `item add --ssh-file` never argv.
-- [x] Env into a child is Infisical `vault run`. `password-manager run` sets granted secrets in the child env and keeps `HTTPS_PROXY`. Broker stdout, MCP, and audit have no secret. Level 1 is skipped, never a prompt. SSH is not injected.
+- [x] Env into a child is Infisical `vault run`. `veil run` sets granted secrets in the child env and keeps `HTTPS_PROXY`. Broker stdout, MCP, and audit have no secret. Level 1 is skipped, never a prompt. SSH is not injected.
 - [x] Owner-key wrap: one DEK per owner, sealed with master via x/crypto. Grants and agent JSON have no key. Legacy secrets sealed with master rewrap on open.
 - [x] Device pairing: nacl box wrap of master to a second device public key. `device.key` + `wraps/`. No plaintext `master.key`. Blob and CLI JSON have no master. Copy vault.db; not sync; not a model; not iOS.
 - [x] Org: agent owner is the human id. Who may administer grants (create and list) is that owner. Members see granted items via list/fill, not `GET /v1/grants`. Planted `self` stays the laptop stand-in.
 - [x] One org id: `protocol.LocalOrgID` is the vault OrgID, Kratos `organization_id`, and the Keto object. A second company is not this product yet.
-- [x] Invites are Kratos: glue `CreateIdentity` + `CreateRecoveryCodeForIdentity`. CLI `human invite --code-file`. Owner-gated after bootstrap (`--oidc-token-file` / `PWM_HUMAN_TOKEN`). Email and recovery code never enter sqlite. ApproveOIDC requires Keto membership. organization_id is stamped. Keto owner/member is written by glue.
-- [x] Remote MCP is Streamable HTTP. Bearer is Hydra JWT / bound OIDC. `mcp config` prints url+header template, never the token. RFC 9728 metadata points at Hydra. Cloud agents fetch that URL. JSON has no secret. No bearer is 401. Cursor (no env interpolation) uses `mcp stdio` / `mcp laptop` against origin HTTP. Token file, never mcp.json. Laptop remints a stale JWT with `client_credentials` (`PWM_HYDRA_SECRET_FILE`). Agent clients stay `client_credentials` only. Not `@ory/mcp-oauth-provider`. Not auth-code as the human.
+- [x] Invites are Kratos: glue `CreateIdentity` + `CreateRecoveryCodeForIdentity`. CLI `human invite --code-file`. Owner-gated after bootstrap (`--oidc-token-file` / `VEIL_HUMAN_TOKEN`). Email and recovery code never enter sqlite. ApproveOIDC requires Keto membership. organization_id is stamped. Keto owner/member is written by glue.
+- [x] Remote MCP is Streamable HTTP. Bearer is Hydra JWT / bound OIDC. `mcp config` prints url+header template, never the token. RFC 9728 metadata points at Hydra. Cloud agents fetch that URL. JSON has no secret. No bearer is 401. Cursor (no env interpolation) uses `mcp stdio` / `mcp laptop` against origin HTTP. Token file, never mcp.json. Laptop remints a stale JWT with `client_credentials` (`VEIL_HYDRA_SECRET_FILE`). Agent clients stay `client_credentials` only. Not `@ory/mcp-oauth-provider`. Not auth-code as the human.
 - [x] Cloud MCP is `https://veil.nyc/mcp`. Railway origin. Cloudflare is DNS plus Workers (`login.veil.nyc`, `app.veil.nyc`). Not Tunnel. `GET /health` is 200. No bearer on `/mcp` is 401. Flue, Codex, and Cloudflare Agents are principals; Bearer is still the agent.
 - [x] Hydra public mint is `https://id.veil.nyc` (token, JWKS, discovery). Not admin `:4445`. Not Kratos. Issuer in the JWT matches. RFC 9728 points there. Cloud agents `client_credentials` then Bearer to `/mcp`. Secret never in MCP JSON.
 - [x] Origin is Railway. Hydra, Kratos, Keto, glue, and the broker run there. The laptop is not a second public Hydra.
-- [x] Secret refs `${NAME}` and `pwm://name` resolve only in `run --inject` (and env). Unknown refs fail closed. Broker stdout has no secret.
+- [x] Secret refs `${NAME}` and `veil://name` resolve only in `run --inject` (and env). Unknown refs fail closed. Broker stdout has no secret.
 - [x] Item update, archive, delete, tags, extra URIs. `PATCH uri` / CLI `--uri` adds a host and does not drop existing. `uris` replaces the list. Archived items are hidden from Use, list, fill, MCP. History is `item_versions` (sealed). Restore copies the sealed blob.
 - [x] File items are a sealed BLOB. Owner `item write --out-file`. Not MCP. Not child env.
 - [x] Grant expiry is `Grant.ExpiresAt` (`grant add --expires`). Zero is forever. Not a second share type.
-- [x] Owner `audit` lists events. No secret in JSON. Not an MCP tool. Origin `GET /v1/events` is this agent's events. `PWM_ORIGIN` makes CLI `use`/`audit` the same HTTP contract as the SDK.
+- [x] Owner `audit` lists events. No secret in JSON. Not an MCP tool. Origin `GET /v1/events` is this agent's events. `VEIL_ORIGIN` makes CLI `use`/`audit` the same HTTP contract as the SDK.
 - [x] `gen` is human CLI `crypto/rand`. `--out-file` or stdout. Not MCP. Not a vault item until `item add`.
 - [x] No vaults. No 1Password Connect/op/import. No scoped Connect-style token. MCP stays `list_items` + `fetch`.
-- [x] OpenAPI is the contract (`docs/openapi/password-manager.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
+- [x] OpenAPI is the contract (`docs/openapi/veil.openapi.json`). `POST /v1/use` takes method, headers, body. CLI `--body-file`. MCP `fetch` the same. Generated TS/Python/Go SDKs. Blume `/reference`. No GetSecret on any generated surface.
 - [x] `agent token --secret-file --out-file` mints a Hydra JWT to disk. Never stdout. Same `client_credentials` as cloud agents. Live proof is Bearer `POST /v1/use`.
 - [x] Laptop MCP is `mcp stdio` against origin HTTP. Cursor live: `list_items` then `fetch` GitHub `/user` → allow, 200, token absent from the tool payload. GUI hosts do not interpolate `${file:}`. Token file + remint paths, never the JWT in MCP JSON.
-- [x] One store. Origin is the source of truth. `PWM_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host replica is sealed `replica.box`; wrapping key is Keychain (`WhenUnlockedThisDeviceOnly` + UserPresence), not `device.key`. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Human `POST /v1/items` may send the secret; owner stamps org, member stamps themselves; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
+- [x] One store. Origin is the source of truth. `VEIL_ORIGIN` makes CLI `item` / `grant` / `list` / `fill` / `run` / `proxy` origin HTTP. `openApp` refuses a second *product* vault. Fill host replica is sealed `replica.box`; wrapping key is Keychain (`WhenUnlockedThisDeviceOnly` + UserPresence), not `device.key`. Origin `run` dummy-env + HTTPS_PROXY `POST /v1/use`. `--inject` is local vault. Bearer is agent or Keto member human. Human `POST /v1/items` may send the secret; owner stamps org, member stamps themselves; responses, MCP, and generated SDKs never include it. `POST /v1/fill/logins` is the native-host path only.
 - [x] Owner `POST /v1/sessions` mints a short-lived Use lease onto an existing agent. Token once on create. `session create --out-file`. Sandbox gets that file, not the agent JWT. Default 15m, max 1h. Bearer `ses_` maps to the agent. Not MCP. Not list.
-- [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. `prompt=login` so Hydra cannot skip on a remembered session. `amr` must include totp. HTTP remint uses PWM_LOGIN_EMAIL + password/TOTP files. Never stdout. Owner CLI and fill use `PWM_HUMAN_TOKEN_FILE`, not the agent JWT.
-- [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `password-manager`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
+- [x] `human login --out-file` mints a Hydra ID token to disk. PKCE. `prompt=login` so Hydra cannot skip on a remembered session. `amr` must include totp. HTTP remint uses VEIL_LOGIN_EMAIL + password/TOTP files. Never stdout. Owner CLI and fill use `VEIL_HUMAN_TOKEN_FILE`, not the agent JWT.
+- [x] Identity on origin. Sibling Railway services: official Kratos, Keto, glue, Hydra. Login UI is Cloudflare Workers (`veil-login`) at `https://login.veil.nyc`. Kratos public is `https://accounts.veil.nyc`. Glue consent is `https://consent.veil.nyc`. Hydra first-party client `veil`. Live human mint against `https://id.veil.nyc`. Grants stay in the vault.
 - [x] Kratos MFA is official `totp` + `webauthn` (second factor, not passwordless) plus `lookup_secret`. Identity schema has totp account_name and webauthn identifier. Login UI is Ory Elements. Not a DIY MFA.
 - [x] Origin Kratos courier is Resend HTTP (`api.resend.com`) from `noreply@veil.nyc`. Compose stays mailpit. `--watch-courier` on origin. Railway blocks outbound SMTP. Recovery email is a product sender.
 - [x] Human grants are the same grant object. `grant add --human` XOR `--agent`. CreateGrantRequest.human is a Kratos identity id, not email. Fill/list is owned or granted. Owner lists org items; a member lists items they own plus grants. Not a family vault. Not collections. Not Keto tuples.
@@ -766,7 +766,7 @@ Next: Mac helper (slice 32). Typed-save / TOTP-from-page on Chrome are CFT-prove
 | Mac helper | menu-bar accessory + ASCredentialProvider (slice 32). Native apps only. Same choose job as `docs/fill.md`. | A vault window. Using it to fill Chrome. Using it as the Safari Web Extension (37). |
 | Windows / Linux helper | tray + Chrome extension. Revisit OS APIs on slices 35–36 | Inventing an Autofill API. Shipping Auto-Type before 26. |
 | Identity screens | Ory Elements in identity/login | Restyling Elements. Putting them in the broker. |
-| Vault UI widgets | Kumo (`@cloudflare/kumo`). Uniwind if a phone WebView/RN shell exists later | `@veilnyc/ui`. NativeWind. One component file in Swift. Native SDK as the UI. |
+| Vault UI widgets | Kumo (`@cloudflare/kumo`). Uniwind if a phone WebView/RN shell exists later | `@vortexnyc/ui`. NativeWind. One component file in Swift. Native SDK as the UI. |
 | Device pairing | `golang.org/x/crypto/nacl/box` | Age, a second vault, pairing a model, iOS |
 | MITM | `elazarl/goproxy` | A CONNECT parser |
 | AEAD | `x/crypto` | A cipher |
@@ -781,4 +781,4 @@ Import is a one-shot file onto origin after fill is proven (`docs/fill.md`). It 
 
 Cards and identities are fill items (`docs/fill.md`): write values into fields. PAN/CVV never on MCP, never child env. We are not a payment processor. We do not click Pay. Agents filling a card field is fill; agents placing an order is spending money and is out. Pay-button auto-submit is never on.
 
-Product is Veil. Repo/CLI stay `password-manager`.
+Product is Veil. Repo/CLI stay `veil`.

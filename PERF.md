@@ -32,8 +32,8 @@ final pgbot snapshot, so `pg_stat_statements` includes every audit `COPY`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PG_TEST_DSN` | required | Postgres DSN for the harness |
-| `LOADTEST_ORIGIN_MODE` | `goroutine` | `goroutine` (in-process), `process` (child `password-manager mcp` replicas), or `external` (URLs in `LOADTEST_ORIGINS`) |
-| `LOADTEST_ORIGIN_BINARY` | auto | path to the `password-manager` binary for `process` mode; auto-built if unset |
+| `LOADTEST_ORIGIN_MODE` | `goroutine` | `goroutine` (in-process), `process` (child `veil mcp` replicas), or `external` (URLs in `LOADTEST_ORIGINS`) |
+| `LOADTEST_ORIGIN_BINARY` | auto | path to the `veil` binary for `process` mode; auto-built if unset |
 | `LOADTEST_ORIGINS` | `""` | comma-separated external origin URLs for `external` mode |
 | `LOADTEST_PROXY` | `1` for `goroutine`, `0` otherwise | use the local round-robin `httputil.ReverseProxy` |
 | `LOADTEST_UPSTREAM_URL` | `""` | externally reachable upstream; a local `/ok` server is started if unset |
@@ -302,7 +302,7 @@ Code changes:
   binary as child `mcp` processes on ephemeral ports, simulating separate
   Railway-like origin replicas against the same Postgres.
 - `LOADTEST_ORIGIN_BINARY` lets the harness use a pre-built binary; otherwise it
-  builds a temporary `password-manager` binary.
+  builds a temporary `veil` binary.
 - `internal/cli/cli.go` (`mcp` command) now honors `VEIL_LOG_LEVEL`, so child
   origins can suppress per-request INFO logs during benchmarks.
 - The harness seeds from a short-lived Postgres app, truncates load-test tables
@@ -433,7 +433,7 @@ The 4xx were literal `400 use failed` responses — origin-side generic store
 errors before the audit point. The run overlapped a Railway reschedule of the
 replica set; ~1/3 of requests failed, matching one wedged replica's traffic
 share. Same signature as the earlier zombie-pool incident: `pg_stat_activity`
-showed ~63 "idle" `password-manager` connections that were blackholed on the
+showed ~63 "idle" `veil` connections that were blackholed on the
 client side — pgx pool conns whose TCP died silently (no FIN) during the
 reschedule. **A graceful `pg_terminate_backend` of all 80 conns mid-burst on a
 healthy deploy produced zero errors** — the failure needs silent packet-level
@@ -453,7 +453,7 @@ All sampled failures were **designed admission shedding**: per-replica in-flight
 cap 1000, uneven edge→replica distribution at 2000 VUs, momentary overflow on
 the hot replica. No `400` store errors observed; no `fetch_failed` denies.
 
-Post-run DB state: 60 `password-manager` pool conns (3×`MaxConns=20`), 0
+Post-run DB state: 60 `veil` pool conns (3×`MaxConns=20`), 0
 deadlocks, no lock waits. Under load the dominant wait was `LWLock WALWrite`
 (~18 waiters) — commits bound on WAL flush, not row locks. The shared
 `loadtest-agent` row in `ConsumeSession`'s `UPDATE … FROM agents` did **not**
@@ -491,7 +491,7 @@ produce observable tuple-lock pileups.
 Post-§8 changes, all in this branch:
 
 - **Dedicated audit pool**: `AppendAudits` runs `CopyFrom` on a separate
-  2-connection pool (`application_name=password-manager-audit`). Request-path
+  2-connection pool (`application_name=veil-audit`). Request-path
   pool contention can no longer starve the audit worker.
 - **Backlog drain**: the async auditor now drains the queue when the flush
   timer fires and batches up to 256 rows per COPY (was: flush only what
@@ -505,13 +505,13 @@ Post-§8 changes, all in this branch:
 
 #### 9.1 Harness bug found
 
-`originBinary()` preferred `exec.LookPath("password-manager")` over building
+`originBinary()` preferred `exec.LookPath("veil")` over building
 the working tree. A day-old PATH binary (predating the `ses_` session-token
 scheme) answered every seeded session with 401 — **8.4M requests, 100%
 unauthorized** — while looking superficially healthy. The earlier local
 baselines predate `ses_` seeding so their absolute numbers were measured on
 that binary's code path; treat them as order-of-magnitude only. The harness now
-always builds `./cmd/password-manager` unless `LOADTEST_ORIGIN_BINARY` is set.
+always builds `./cmd/veil` unless `LOADTEST_ORIGIN_BINARY` is set.
 
 #### 9.2 Corrected local baseline (fixed binary, 200 agents)
 
@@ -560,8 +560,8 @@ Zero 400s and zero 401s across 500 distinct agents — spreading
 `ConsumeSession`'s `UPDATE … FROM agents` across 500 rows changes nothing vs
 the single-agent run, confirming there was no agent-row hotspot to begin with.
 
-Mid-run `pg_stat_activity`: 60 `password-manager` conns + 3
-`password-manager-audit` conns — pool separation visible in production.
+Mid-run `pg_stat_activity`: 60 `veil` conns + 3
+`veil-audit` conns — pool separation visible in production.
 
 **Audit-drop validation**: replayed the run's 2000 dumped session tokens in a
 120k-request sustained burst (conc 400) — `audit.allow` delta was **exactly

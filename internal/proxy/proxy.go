@@ -26,12 +26,12 @@ import (
 	"github.com/elazarl/goproxy"
 	"github.com/elazarl/goproxy/ext/auth"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/broker"
-	"github.com/veilnyc/password-manager/internal/grant"
-	"github.com/veilnyc/password-manager/internal/material"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/broker"
+	"github.com/VortexNYC/veil/internal/grant"
+	"github.com/VortexNYC/veil/internal/material"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 type Server struct {
@@ -118,7 +118,7 @@ func (s *Server) build() *goproxy.ProxyHttpServer {
 	}
 	px.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
 		if !s.checkAuth(ctx.Req) {
-			ctx.Resp = auth.BasicUnauthorized(ctx.Req, "password-manager")
+			ctx.Resp = auth.BasicUnauthorized(ctx.Req, "veil")
 			return goproxy.RejectConnect, host
 		}
 		ctx.UserData = ctxData{authed: true}
@@ -139,7 +139,7 @@ func (s *Server) build() *goproxy.ProxyHttpServer {
 		data, _ := ctx.UserData.(ctxData)
 		// HTTPS MITM: Proxy-Authorization was on CONNECT only.
 		if !data.authed && req.TLS == nil && !s.checkAuth(req) {
-			return nil, auth.BasicUnauthorized(req, "password-manager")
+			return nil, auth.BasicUnauthorized(req, "veil")
 		}
 		return s.inject(req, ctx)
 	})
@@ -161,7 +161,7 @@ func (s *Server) checkAuth(req *http.Request) bool {
 		return false
 	}
 	ok := false
-	handler := auth.Basic("password-manager", func(user, pass string) bool {
+	handler := auth.Basic("veil", func(user, pass string) bool {
 		ok = s.authorized(user, pass)
 		return ok
 	})

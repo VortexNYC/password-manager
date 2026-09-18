@@ -18,12 +18,12 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"github.com/veilnyc/password-manager/internal/oidchttp"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/oidchttp"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 const (
-	DefaultAudience = "password-manager"
+	DefaultAudience = "veil"
 	DefaultRedirect = "http://127.0.0.1:4460/oidc/callback"
 )
 

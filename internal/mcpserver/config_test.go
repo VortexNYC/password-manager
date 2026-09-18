@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 func TestConfigIsRemoteNoSecret(t *testing.T) {
@@ -17,7 +17,7 @@ func TestConfigIsRemoteNoSecret(t *testing.T) {
 	if got.URL != "http://127.0.0.1:4461/mcp" {
 		t.Fatalf("url %q", got.URL)
 	}
-	if got.Headers["Authorization"] != "Bearer ${PWM_OIDC_TOKEN}" {
+	if got.Headers["Authorization"] != "Bearer ${VEIL_OIDC_TOKEN}" {
 		t.Fatalf("headers %v", got.Headers)
 	}
 	raw, err := json.Marshal(got)
@@ -30,7 +30,7 @@ func TestConfigIsRemoteNoSecret(t *testing.T) {
 }
 
 func TestConfigIncludesIssuer(t *testing.T) {
-	t.Setenv("PWM_HYDRA_ISSUER", "https://id.veil.nyc")
+	t.Setenv("VEIL_HYDRA_ISSUER", "https://id.veil.nyc")
 	got, err := Config("https://veil.nyc/mcp")
 	if err != nil {
 		t.Fatal(err)
@@ -57,10 +57,10 @@ func TestLaptopConfigNoSecret(t *testing.T) {
 	if err := os.WriteFile(sec, []byte("hydra-agent-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PWM_OIDC_TOKEN_FILE", tok)
-	t.Setenv("PWM_HYDRA_SECRET_FILE", sec)
-	t.Setenv("PWM_HYDRA_ISSUER", "https://id.veil.nyc")
-	t.Setenv("PWM_AGENT", "cursor")
+	t.Setenv("VEIL_OIDC_TOKEN_FILE", tok)
+	t.Setenv("VEIL_HYDRA_SECRET_FILE", sec)
+	t.Setenv("VEIL_HYDRA_ISSUER", "https://id.veil.nyc")
+	t.Setenv("VEIL_AGENT", "cursor")
 
 	got := LaptopConfig("https://veil.nyc")
 	if got.Command == "" {
@@ -69,16 +69,16 @@ func TestLaptopConfigNoSecret(t *testing.T) {
 	if len(got.Args) != 2 || got.Args[0] != "mcp" || got.Args[1] != "stdio" {
 		t.Fatalf("args %v", got.Args)
 	}
-	if got.Env["PWM_ORIGIN"] != "https://veil.nyc" {
+	if got.Env["VEIL_ORIGIN"] != "https://veil.nyc" {
 		t.Fatalf("origin %v", got.Env)
 	}
-	if got.Env["PWM_OIDC_TOKEN_FILE"] != tok {
+	if got.Env["VEIL_OIDC_TOKEN_FILE"] != tok {
 		t.Fatalf("token file %v", got.Env)
 	}
-	if got.Env["PWM_HYDRA_SECRET_FILE"] != sec {
+	if got.Env["VEIL_HYDRA_SECRET_FILE"] != sec {
 		t.Fatalf("secret file %v", got.Env)
 	}
-	if got.Env["PWM_AGENT"] != "cursor" {
+	if got.Env["VEIL_AGENT"] != "cursor" {
 		t.Fatalf("agent %v", got.Env)
 	}
 	raw, err := json.Marshal(got)
@@ -88,7 +88,7 @@ func TestLaptopConfigNoSecret(t *testing.T) {
 	if scrub.Contains(raw, []byte(jwt)) || scrub.Contains(raw, []byte("hydra-agent-secret")) {
 		t.Fatalf("laptop config leaked a secret: %s", raw)
 	}
-	if scrub.Contains(raw, []byte("${file:")) || scrub.Contains(raw, []byte("${PWM_")) {
+	if scrub.Contains(raw, []byte("${file:")) || scrub.Contains(raw, []byte("${VEIL_")) {
 		t.Fatalf("laptop config still interpolates: %s", raw)
 	}
 }

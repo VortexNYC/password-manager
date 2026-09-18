@@ -8,9 +8,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/veilnyc/password-manager/internal/mcpserver"
-	"github.com/veilnyc/password-manager/internal/protocol"
-	"github.com/veilnyc/password-manager/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/mcpserver"
+	"github.com/VortexNYC/veil/internal/protocol"
+	"github.com/VortexNYC/veil/internal/publicapi"
 )
 
 // originMCPServer is the laptop Cursor adapter. Same tools as origin MCP.
@@ -40,7 +40,7 @@ func originMCPServer() *mcp.Server {
 	})
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "fetch",
-		Description: "Call a URL as this agent. The broker injects the credential. You never receive the secret. Level-1 items return decision=need_approval until a human runs `password-manager approve`.",
+		Description: "Call a URL as this agent. The broker injects the credential. You never receive the secret. Level-1 items return decision=need_approval until a human runs `veil approve`.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in mcpserver.FetchIn) (*mcp.CallToolResult, mcpserver.FetchOut, error) {
 		tok, err := originTokenLive(ctx, "")
 		if err != nil {
@@ -79,7 +79,7 @@ func originMCPServer() *mcp.Server {
 
 func runOriginMCPStdio(ctx context.Context) error {
 	if originBase() == "" {
-		return fmt.Errorf("mcp stdio: PWM_ORIGIN is required")
+		return fmt.Errorf("mcp stdio: VEIL_ORIGIN is required")
 	}
 	if _, err := originTokenLive(ctx, ""); err != nil {
 		return err

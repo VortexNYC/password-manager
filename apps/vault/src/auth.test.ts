@@ -5,7 +5,7 @@ describe("buildAuthorizeURL", () => {
   it("forces Hydra to re-prompt so Kratos can step up to TOTP", () => {
     const url = buildAuthorizeURL({
       issuer: "https://id.veil.nyc",
-      clientID: "password-manager",
+      clientID: "veil",
       redirectURI: "https://app.veil.nyc/oidc/callback",
       state: "st",
       challenge: "ch",

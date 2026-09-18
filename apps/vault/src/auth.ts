@@ -1,5 +1,5 @@
 export const issuer = "https://id.veil.nyc"
-export const clientID = "password-manager"
+export const clientID = "veil"
 export const originAPI = "https://veil.nyc"
 
 const tokenKey = "veil.id_token"

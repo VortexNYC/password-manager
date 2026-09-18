@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/veilnyc/password-manager/identity/glue/hydra"
-	"github.com/veilnyc/password-manager/identity/glue/keto"
-	"github.com/veilnyc/password-manager/identity/glue/kratos"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/identity/glue/hydra"
+	"github.com/VortexNYC/veil/identity/glue/keto"
+	"github.com/VortexNYC/veil/identity/glue/kratos"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 const (

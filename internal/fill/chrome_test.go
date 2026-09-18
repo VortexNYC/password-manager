@@ -18,14 +18,14 @@ import (
 
 	"github.com/chromedp/chromedp"
 
-	"github.com/veilnyc/password-manager/internal/app"
-	"github.com/veilnyc/password-manager/internal/publicapi"
-	"github.com/veilnyc/password-manager/internal/scrub"
+	"github.com/VortexNYC/veil/internal/app"
+	"github.com/VortexNYC/veil/internal/publicapi"
+	"github.com/VortexNYC/veil/internal/scrub"
 )
 
 func TestChromeExtensionFill(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	const login = "ada@example.com"
 	chrome := chromeForTesting(t)
@@ -140,8 +140,8 @@ func TestChromeExtensionFill(t *testing.T) {
 }
 
 func TestChromeExtensionFillCancel(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	const login = "ada@example.com"
 	chrome := chromeForTesting(t)
@@ -179,7 +179,7 @@ func TestChromeExtensionFillCancel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	debugLog := filepath.Join(home, ".password-manager", "fill-debug.log")
+	debugLog := filepath.Join(home, ".veil", "fill-debug.log")
 	before, _ := os.ReadFile(debugLog)
 
 	stop := make(chan struct{})
@@ -266,8 +266,8 @@ end tell
 }
 
 func TestChromeExtensionPasskey(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	chrome := chromeForTesting(t)
 	if chrome == "" {
@@ -393,8 +393,8 @@ func TestChromeExtensionPasskey(t *testing.T) {
 }
 
 func TestChromeExtensionGenerate(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	chrome := chromeForTesting(t)
 	if chrome == "" {
@@ -458,8 +458,8 @@ func TestChromeExtensionGenerate(t *testing.T) {
 }
 
 func TestChromeExtensionPasskeyWebAuthnIO(t *testing.T) {
-	if os.Getenv("PWM_PROVE_CHROME") != "1" {
-		t.Skip("PWM_PROVE_CHROME=1")
+	if os.Getenv("VEIL_PROVE_CHROME") != "1" {
+		t.Skip("VEIL_PROVE_CHROME=1")
 	}
 	chrome := chromeForTesting(t)
 	if chrome == "" {
@@ -599,11 +599,11 @@ func launchCFT(t *testing.T, chrome string, origin *httptest.Server) context.Con
 
 func chromeForTesting(t *testing.T) string {
 	t.Helper()
-	if p := os.Getenv("PWM_CHROME"); p != "" {
+	if p := os.Getenv("VEIL_CHROME"); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
-		t.Fatalf("PWM_CHROME=%s missing", p)
+		t.Fatalf("VEIL_CHROME=%s missing", p)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

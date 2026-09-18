@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/crypto"
+	"github.com/VortexNYC/veil/internal/crypto"
 )
 
 func TestDecodeMasterEnvRejectsEmpty(t *testing.T) {

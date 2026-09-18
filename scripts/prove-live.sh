@@ -5,14 +5,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-ORIGIN="${PWM_ORIGIN:-https://veil.nyc}"
-ISSUER="${PWM_HYDRA_ISSUER:-https://id.veil.nyc}"
-SSH_HOST="${PWM_LIVE_SSH:-mini}"
-MINI_HOME="${PWM_LIVE_HOME:-/Users/shlomokabareti/.password-manager}"
-MINI_BIN="${PWM_LIVE_BIN:-/Users/shlomokabareti/.local/bin/password-manager}"
-MINI_SECRET="${PWM_LIVE_SECRET:-/Users/shlomokabareti/.config/veil/pwm-cursor.hydra}"
-MINI_IDENTITY="${PWM_LIVE_IDENTITY:-/Users/shlomokabareti/Projects/password-manager/identity}"
-AGENT="${PWM_LIVE_AGENT:-cursor}"
+ORIGIN="${VEIL_ORIGIN:-https://veil.nyc}"
+ISSUER="${VEIL_HYDRA_ISSUER:-https://id.veil.nyc}"
+SSH_HOST="${VEIL_LIVE_SSH:-mini}"
+MINI_HOME="${VEIL_LIVE_HOME:-/Users/shlomokabareti/.veil}"
+MINI_BIN="${VEIL_LIVE_BIN:-/Users/shlomokabareti/.local/bin/veil}"
+MINI_SECRET="${VEIL_LIVE_SECRET:-/Users/shlomokabareti/.config/veil/pwm-cursor.hydra}"
+MINI_IDENTITY="${VEIL_LIVE_IDENTITY:-/Users/shlomokabareti/Projects/veil/identity}"
+AGENT="${VEIL_LIVE_AGENT:-cursor}"
 JWT_FILE="$(mktemp)"
 CLI_OUT="$(mktemp)"
 chmod 600 "$JWT_FILE"
@@ -44,23 +44,23 @@ ensure_identity() {
 mint() {
   echo "== mint $AGENT via $SSH_HOST (jwt not printed)"
   remote "set -euo pipefail
-    export PWM_HOME='$MINI_HOME' PWM_HYDRA_ISSUER='$ISSUER'
-    rm -f /tmp/pwm-prove-live.jwt
-    '$MINI_BIN' agent token '$AGENT' --secret-file '$MINI_SECRET' --out-file /tmp/pwm-prove-live.jwt >/dev/null
-    chmod 600 /tmp/pwm-prove-live.jwt
+    export VEIL_HOME='$MINI_HOME' VEIL_HYDRA_ISSUER='$ISSUER'
+    rm -f /tmp/veil-prove-live.jwt
+    '$MINI_BIN' agent token '$AGENT' --secret-file '$MINI_SECRET' --out-file /tmp/veil-prove-live.jwt >/dev/null
+    chmod 600 /tmp/veil-prove-live.jwt
   "
-  scp -q "$SSH_HOST:/tmp/pwm-prove-live.jwt" "$JWT_FILE"
-  remote "rm -f /tmp/pwm-prove-live.jwt"
+  scp -q "$SSH_HOST:/tmp/veil-prove-live.jwt" "$JWT_FILE"
+  remote "rm -f /tmp/veil-prove-live.jwt"
 }
 
 echo "== origin $ORIGIN"
 ensure_identity
 
-code="$(curl -sS -o /tmp/pwm-prove-health.txt -w '%{http_code}' --max-time 10 "$ORIGIN/health")"
+code="$(curl -sS -o /tmp/veil-prove-health.txt -w '%{http_code}' --max-time 10 "$ORIGIN/health")"
 echo "== GET /health http=$code"
 test "$code" = "200"
 
-ready_code="$(curl -sS -o /tmp/pwm-prove-ready.txt -w '%{http_code}' --max-time 10 "$ORIGIN/ready" || true)"
+ready_code="$(curl -sS -o /tmp/veil-prove-ready.txt -w '%{http_code}' --max-time 10 "$ORIGIN/ready" || true)"
 echo "== GET /ready http=$ready_code"
 if test "$ready_code" != "200"; then
   echo "== issuer discovery (Mini process may not have /ready until rebuild)"
@@ -71,12 +71,12 @@ mint
 test -s "$JWT_FILE"
 
 echo "== go test liveorigin"
-PWM_ORIGIN="$ORIGIN" PWM_LIVE_JWT_FILE="$JWT_FILE" \
+VEIL_ORIGIN="$ORIGIN" VEIL_LIVE_JWT_FILE="$JWT_FILE" \
   go test -tags liveorigin ./internal/livetest -count=1 -timeout 3m
 
 echo "== CLI use github on $SSH_HOST"
 remote "set -euo pipefail
-  export PWM_HOME='$MINI_HOME' PWM_HYDRA_ISSUER='$ISSUER'
+  export VEIL_HOME='$MINI_HOME' VEIL_HYDRA_ISSUER='$ISSUER'
   '$MINI_BIN' use --agent '$AGENT' --item github --url https://api.github.com/user
 " >"$CLI_OUT"
 python3 - <<PY
@@ -96,7 +96,7 @@ PY
 
 echo "== CLI deny wrong host"
 remote "set -euo pipefail
-  export PWM_HOME='$MINI_HOME' PWM_HYDRA_ISSUER='$ISSUER'
+  export VEIL_HOME='$MINI_HOME' VEIL_HYDRA_ISSUER='$ISSUER'
   '$MINI_BIN' use --agent '$AGENT' --item github --url https://example.com/
 " >"$CLI_OUT"
 python3 - <<PY

@@ -12,7 +12,7 @@ import (
 
 	ory "github.com/ory/kratos-client-go/v26"
 
-	"github.com/veilnyc/password-manager/identity/glue/internal/absurl"
+	"github.com/VortexNYC/veil/identity/glue/internal/absurl"
 )
 
 type Client struct {

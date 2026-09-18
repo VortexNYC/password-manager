@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/veilnyc/password-manager/internal/id"
+	"github.com/VortexNYC/veil/internal/id"
 )
 
 func TestPutItemKeepsHostAsDisplayName(t *testing.T) {

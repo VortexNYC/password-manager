@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/crypto"
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/crypto"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 func testStores(t *testing.T) []Store {

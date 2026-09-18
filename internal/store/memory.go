@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/veilnyc/password-manager/internal/protocol"
+	"github.com/VortexNYC/veil/internal/protocol"
 )
 
 type Memory struct {

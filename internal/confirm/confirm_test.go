@@ -5,9 +5,9 @@ import (
 )
 
 func TestEnabledOff(t *testing.T) {
-	t.Setenv("PWM_FILL_TOUCHID", "0")
+	t.Setenv("VEIL_FILL_TOUCHID", "0")
 	if Enabled() {
-		t.Fatal("touch id on with PWM_FILL_TOUCHID=0")
+		t.Fatal("touch id on with VEIL_FILL_TOUCHID=0")
 	}
 }
 
@@ -24,7 +24,7 @@ func TestActionStripsVeilWantsTo(t *testing.T) {
 }
 
 func TestCLIAccessOffIsNoop(t *testing.T) {
-	t.Setenv("PWM_FILL_TOUCHID", "0")
+	t.Setenv("VEIL_FILL_TOUCHID", "0")
 	if err := CLIAccess(); err != nil {
 		t.Fatal(err)
 	}
