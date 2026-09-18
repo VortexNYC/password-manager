@@ -19,8 +19,10 @@
     "@hey-api/client-fetch": "^0.13.1",
     "@hey-api/openapi-ts": "^0.98.2",
     "@openapitools/openapi-generator-cli": "^2.35.0",
+    "esbuild": "^0.28.2",
     "railway": "^3.11.0",
     "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "vite-plus": "0.2.4"
   }
 }

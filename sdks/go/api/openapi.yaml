@@ -4,7 +4,7 @@ info:
     \ never include vault material. CLI, MCP, and generated SDKs are projections of\
     \ this contract."
   title: Veil
-  version: 0.1.0
+  version: 0.1.1
 servers:
 - url: https://veil.nyc
 security:

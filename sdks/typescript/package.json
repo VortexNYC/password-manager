@@ -1,6 +1,6 @@
 {
   "name": "@vortex-api/veil",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generated TypeScript SDK for Veil. Use injects. Never GetSecret.",
   "license": "MIT",
   "repository": {
@@ -8,10 +8,20 @@
     "url": "git+https://github.com/VortexNYC/veil.git",
     "directory": "sdks/typescript"
   },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "sideEffects": false,
-  "main": "./index.ts",
-  "types": "./index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"

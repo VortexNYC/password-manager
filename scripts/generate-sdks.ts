@@ -204,6 +204,60 @@ function appendTypeScriptRootExports(): void {
   writeFileSync(indexPath, `${content.replace(/\n+$/u, "")}\n${extra}`);
 }
 
+function buildTypeScriptDist(): void {
+  const dist = resolve(typeScriptOutput, "dist");
+  rmSync(dist, { force: true, recursive: true });
+  run("Bundle TypeScript SDK runtime", [
+    "pnpm",
+    "exec",
+    "esbuild",
+    resolve(typeScriptOutput, "index.ts"),
+    "--bundle",
+    "--format=esm",
+    "--platform=neutral",
+    `--outfile=${resolve(dist, "index.js")}`,
+  ]);
+  run("Emit TypeScript SDK declarations", [
+    "pnpm",
+    "exec",
+    "tsc",
+    "--emitDeclarationOnly",
+    "--declaration",
+    "--skipLibCheck",
+    "--module",
+    "esnext",
+    "--moduleResolution",
+    "bundler",
+    "--target",
+    "esnext",
+    "--outDir",
+    dist,
+    resolve(typeScriptOutput, "index.ts"),
+  ]);
+  for (const path of listFiles(dist)) {
+    if (!path.endsWith(".d.ts")) {
+      continue;
+    }
+    const content = readFileSync(path, "utf8");
+    const next = content.replace(
+      /from\s+(['"])(\.{1,2}\/[^'"]+)\1/g,
+      (match, quote: string, specifier: string) => {
+        if (specifier.endsWith(".js") || specifier.endsWith(".json")) {
+          return match;
+        }
+        const base = resolve(dirname(path), specifier);
+        const target = existsSync(`${base}.d.ts`)
+          ? `${specifier}.js`
+          : `${specifier}/index.js`;
+        return `from ${quote}${target}${quote}`;
+      }
+    );
+    if (next !== content) {
+      writeFileSync(path, next);
+    }
+  }
+}
+
 function writePackageMetadata(version: string): void {
   writeFileSync(resolve(typeScriptOutput, "LICENSE"), MIT);
   writeFileSync(
@@ -216,8 +270,16 @@ function writePackageMetadata(version: string): void {
         license: "MIT",
         type: "module",
         sideEffects: false,
-        main: "./index.ts",
-        types: "./index.ts",
+        main: "./dist/index.js",
+        types: "./dist/index.d.ts",
+        exports: {
+          ".": {
+            types: "./dist/index.d.ts",
+            import: "./dist/index.js",
+            default: "./dist/index.js",
+          },
+        },
+        files: ["dist"],
         publishConfig: {
           access: "public",
           registry: "https://registry.npmjs.org",
@@ -414,6 +476,8 @@ run("Format generated SDK outputs", [
   pythonOutput,
   goOutput,
 ]);
+
+buildTypeScriptDist();
 
 rmSync(tempRoot, { force: true, recursive: true });
 console.log("sdk:generate ok");

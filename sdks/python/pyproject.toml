@@ -1,6 +1,6 @@
 [project]
 name = "vortex-api-veil"
-version = "0.1.0"
+version = "0.1.1"
 description = "Generated Python SDK for Veil. Use injects. Never GetSecret."
 readme = "README.md"
 license = { text = "MIT" }
