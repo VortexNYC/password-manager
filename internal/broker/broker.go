@@ -105,20 +105,22 @@ func (b *Broker) now() time.Time {
 	return b.Now()
 }
 
-func (b *Broker) appendAudit(ctx context.Context, e protocol.AuditEvent) {
+func (b *Broker) appendAudit(ctx context.Context, e protocol.AuditEvent) error {
 	timeout := b.AuditTimeout
 	if timeout <= 0 {
 		timeout = defaultAuditTimeout
 	}
 	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
-	if err := b.Auditor.Append(auditCtx, e); err != nil {
+	err := b.Auditor.Append(auditCtx, e)
+	if err != nil {
 		if audit.IsDropped(err) {
 			slog.Warn("audit event dropped", "error", err, "agent", e.AgentID, "item", e.ItemID)
 		} else {
 			slog.Error("audit append failed", "error", err, "agent", e.AgentID, "item", e.ItemID)
 		}
 	}
+	return err
 }
 
 func (b *Broker) client() *http.Client {
@@ -191,9 +193,13 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 			Time: now, OrgID: agent.OrgID, AgentID: agent.ID, ItemID: req.ItemID,
 			Action: req.Action, Decision: dec.Decision, Reason: dec.Reason,
 		}
-		b.appendAudit(ctx, evt)
+		auditErr := b.appendAudit(ctx, evt)
 		LogEvent(evt, req.ItemID, "", 0)
 		spanUse(span, agent.ID, req.ItemID, dec, 0, "")
+		if auditErr != nil {
+			span.RecordError(auditErr)
+			span.SetStatus(codes.Error, "audit_append_failed")
+		}
 		return dec, nil
 	}
 
@@ -287,9 +293,15 @@ func (b *Broker) auditUse(ctx context.Context, span trace.Span, agent protocol.P
 		Reason:     dec.Reason,
 		ApprovalID: dec.ApprovalID,
 	}
-	b.appendAudit(ctx, event)
+	auditErr := b.appendAudit(ctx, event)
 	LogEvent(event, item.Name, host, status)
 	spanUse(span, agent.ID, item.Name, dec, status, host)
+	// Audit failure is a lost security event — mark the span so it surfaces
+	// in traces, not just logs. Set last so spanUse cannot overwrite it.
+	if auditErr != nil {
+		span.RecordError(auditErr)
+		span.SetStatus(codes.Error, "audit_append_failed")
+	}
 	return dec
 }
 
