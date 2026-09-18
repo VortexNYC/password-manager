@@ -784,7 +784,15 @@ func (p *Postgres) WorkloadsForIssuer(issuer string) ([]protocol.Workload, error
 }
 
 func (p *Postgres) AppendAudit(e protocol.AuditEvent) error {
-	return p.AppendAudits([]protocol.AuditEvent{e})
+	// Single events take a plain INSERT on the request path — no COPY stream
+	// setup for one row.
+	_, err := retryOnDeadConn(func() (struct{}, error) {
+		return struct{}{}, p.sqlc.InsertAudit(context.Background(), sqlc.InsertAuditParams{
+			At: e.Time.UTC(), OrgID: e.OrgID, AgentID: e.AgentID, ItemID: e.ItemID,
+			Action: string(e.Action), Decision: string(e.Decision), Reason: e.Reason, ApprovalID: e.ApprovalID,
+		})
+	})
+	return err
 }
 
 func (p *Postgres) AppendAudits(events []protocol.AuditEvent) error {
@@ -832,4 +840,28 @@ func (p *Postgres) Audit() ([]protocol.AuditEvent, error) {
 		}
 	}
 	return out, nil
+}
+
+// SweepPostgres deletes terminally-expired rows older than before: sessions
+// past expiry or revoked, and grants/approvals past expiry. It takes a bare
+// DBTX so callers that never touch ciphertext (e.g. `veil sweep`) do not need
+// the master key.
+func SweepPostgres(ctx context.Context, db sqlc.DBTX, before time.Time) (SweepReport, error) {
+	q := sqlc.New(db)
+	var rep SweepReport
+	var err error
+	if rep.Sessions, err = q.SweepExpiredSessions(ctx, before.UTC()); err != nil {
+		return rep, fmt.Errorf("sweep sessions: %w", err)
+	}
+	if rep.Grants, err = q.SweepExpiredGrants(ctx, before.UTC()); err != nil {
+		return rep, fmt.Errorf("sweep grants: %w", err)
+	}
+	if rep.Approvals, err = q.SweepExpiredApprovals(ctx, before.UTC()); err != nil {
+		return rep, fmt.Errorf("sweep approvals: %w", err)
+	}
+	return rep, nil
+}
+
+func (p *Postgres) Sweep(olderThan time.Time) (SweepReport, error) {
+	return SweepPostgres(context.Background(), p.pool, olderThan)
 }

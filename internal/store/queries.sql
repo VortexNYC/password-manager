@@ -252,3 +252,14 @@ VALUES(@at::timestamptz, @org_id::text, @agent_id::text, @item_id::text, @action
 -- name: ListAudit :many
 SELECT id, at, org_id, agent_id, item_id, action, decision, reason, approval_id
 FROM audit ORDER BY id DESC LIMIT @max_results::bigint;
+
+-- name: SweepExpiredSessions :execrows
+DELETE FROM sessions
+WHERE expires_at < @before::timestamptz
+   OR (revoked_at IS NOT NULL AND revoked_at < @before::timestamptz);
+
+-- name: SweepExpiredGrants :execrows
+DELETE FROM grants WHERE expires_at IS NOT NULL AND expires_at < @before::timestamptz;
+
+-- name: SweepExpiredApprovals :execrows
+DELETE FROM approvals WHERE expires_at < @before::timestamptz;

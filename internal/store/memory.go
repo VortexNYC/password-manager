@@ -556,3 +556,31 @@ func (m *Memory) RenewSession(id string, at time.Time) (protocol.Session, error)
 	}
 	return protocol.Session{}, ErrNotFound
 }
+
+func (m *Memory) Sweep(olderThan time.Time) (SweepReport, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var rep SweepReport
+	cut := olderThan.UTC()
+	for k, s := range m.sessions {
+		expired := s.ExpiresAt.Before(cut)
+		revoked := s.RevokedAt != nil && s.RevokedAt.Before(cut)
+		if expired || revoked {
+			delete(m.sessions, k)
+			rep.Sessions++
+		}
+	}
+	for k, g := range m.grants {
+		if g.ExpiresAt != nil && g.ExpiresAt.Before(cut) {
+			delete(m.grants, k)
+			rep.Grants++
+		}
+	}
+	for k, a := range m.approvals {
+		if a.ExpiresAt.Before(cut) {
+			delete(m.approvals, k)
+			rep.Approvals++
+		}
+	}
+	return rep, nil
+}

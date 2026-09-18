@@ -971,6 +971,44 @@ func (q *Queries) SnapshotItem(ctx context.Context, arg SnapshotItemParams) erro
 	return err
 }
 
+const sweepExpiredApprovals = `-- name: SweepExpiredApprovals :execrows
+DELETE FROM approvals WHERE expires_at < $1::timestamptz
+`
+
+func (q *Queries) SweepExpiredApprovals(ctx context.Context, before time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepExpiredApprovals, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepExpiredGrants = `-- name: SweepExpiredGrants :execrows
+DELETE FROM grants WHERE expires_at IS NOT NULL AND expires_at < $1::timestamptz
+`
+
+func (q *Queries) SweepExpiredGrants(ctx context.Context, before time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepExpiredGrants, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sweepExpiredSessions = `-- name: SweepExpiredSessions :execrows
+DELETE FROM sessions
+WHERE expires_at < $1::timestamptz
+   OR (revoked_at IS NOT NULL AND revoked_at < $1::timestamptz)
+`
+
+func (q *Queries) SweepExpiredSessions(ctx context.Context, before time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepExpiredSessions, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const useAuth = `-- name: UseAuth :one
 SELECT
     a.id AS agent_id,

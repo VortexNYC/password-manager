@@ -53,6 +53,17 @@ export default defineRailway(() => {
       VEIL_POSTGRES_DSN: "postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/veil",
     },
   });
+  // Hourly cleanup of terminally-expired sessions, grants, and approvals
+  // (24h keep window). Deletes only; never decrypts, so no master key.
+  const veilSweep = service("veil-sweep", {
+    build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+    start: "/veil sweep --keep 24h",
+    deploy: { restartPolicyType: "NEVER", cronSchedule: "0 * * * *" },
+    replicas: { "sfo": 1 },
+    env: {
+      VEIL_POSTGRES_DSN: "postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/veil",
+    },
+  });
   const glue = service("glue", {
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
     start: "/identity-glue",
@@ -70,6 +81,6 @@ export default defineRailway(() => {
   });
 
   return project("password-manager", {
-    resources: [kratos, keto, pwm, Postgres, glue, hydra, postgresVolume, pwmVolume, veilMigrate],
+    resources: [kratos, keto, pwm, Postgres, glue, hydra, postgresVolume, pwmVolume, veilMigrate, veilSweep],
   });
 });

@@ -284,8 +284,10 @@ plus an async audit `COPY`.
 
 | Decision | Status | Rationale |
 |---|---|---|
-| Async audit with bounded flush | **Kept** | Improves throughput and tail latency; crash-loss window is explicit and acceptable. |
-| `VEIL_AUDIT_FLUSH_INTERVAL=5ms` default | **Kept** | 20ms is faster in this workload, but 5ms keeps the in-memory audit window smaller; deployments can override per risk/cost appetite. |
+| Async audit with bounded flush | **Reversed** (§11) | Origin is an authorization system — a crash-lost audit row is a lost security event. Sync INSERT costs ~0.6ms against ~10× DB headroom. |
+| `VEIL_AUDIT_FLUSH_INTERVAL`/`VEIL_AUDIT_BUFFER` | **Removed** (§11) | Env knobs only existed for the async auditor. |
+| Sync audit on the Postgres origin | **Adopted** (§11) | Decision rows durable before response; INSERT failure logs and returns the decision (same DB as auth — no extra availability coupling). |
+| Hourly `veil sweep` via Railway cron | **Adopted** (§11) | Bounded hot-path indexes; key-free service (DSN only), `restartPolicyType: NEVER`, exits after each run. |
 | Per-request `slog.Info` in benchmark | **Suppressed in harness** | Avoids log I/O distorting results; production can enable INFO. |
 | `Store.UseAuth` consolidation | **Kept** | Cuts DB round trips and raises throughput; fail-closed final agent reload is preserved. |
 | Remove `App.UseFetch` pre-call | **Kept** | The broker already reloads the agent; the extra `Store.Agent` was pure overhead. |
@@ -595,10 +597,9 @@ on its own pool — ~0.18 ms DB time total at 4.8k req/s.
 
 Before adding a fail-closed cache or distributed rate limiting:
 
-1. **Audit channel: fixed** (§9). Dedicated pool + 256-row drain + safe retry;
-   zero drops at ~4.8k req/s local. Re-validate at WAN scale on Railway, then
-   the next audit lever is `VEIL_AUDIT_BUFFER` sizing and drop-oldest vs
-   block-and-shed policy.
+1. **Audit channel: superseded** (§11). The origin audits synchronously now —
+   one `INSERT` per decision, durable before response, ~0.6ms. `AppendAudits`
+   (batch COPY on `auditPool`) remains for bulk writers only.
 2. **Connection budget.** `MaxConns=20` main + 2 audit per replica. Against
    `max_connections=100` the replica ceiling is ~4–5 before headroom for
    migrations/admin is gone. Document or gate replica scale-out; PgBouncer
@@ -663,6 +664,43 @@ the WAN upstream hop). `/v1/items` origin-only: **p50 114ms, p95 131ms** —
 the server-side share after Mac→Railway RTT is ~30–50ms: OIDC verify +
 workload lookup + grant-filtered items query on the migrated `veil` database.
 
+### 11. Synchronous audit + expiration sweep (2026-09-18)
+
+Two durability changes on the back of the §10 measurements.
+
+**Sync audit.** The Postgres origin switched from `audit.Async` (in-memory
+buffer, batch COPY on a 2-conn pool, crash-loss window = buffered events) to
+`audit.Sync` — every `Use` decision is an `INSERT` durable in Postgres before
+the response returns. Rationale: this is an authorization system; a lost
+audit row is a lost security event, and the measured cost is small.
+
+Measured single-row `INSERT INTO audit` on the test Postgres: **0.60 ms/op**
+(1,661 writes/s on one connection — irrelevant ceiling, the origin pool has
+20). Per-request DB time goes ~0.097ms → ~0.7ms; Postgres still is not the
+limiter. `AppendAudits` (batch COPY on `auditPool`) remains for bulk writers.
+
+Ordering note: audit rows are written *after* the decision — for allows, the
+secret has already been fetched and injected before `auditUse` fires. Sync
+therefore buys "durable before response," not "deny if unauditable." On INSERT
+failure the broker logs an error and still returns the decision (the same
+Postgres serves auth reads, so a dead audit path means a dead auth path
+anyway — the marginal availability cost of this coupling is ~zero).
+
+**Expiration sweep.** Sessions, grants, and approvals previously grew forever
+— expiry is enforced at read time but rows were never deleted. `Store.Sweep`
+(new interface method, all three impls) deletes terminally-expired rows older
+than a cutoff: `sessions` past expiry or revoked, `grants`/`approvals` past
+expiry. The 24h keep window preserves a grace period for forensics. `veil
+sweep --keep 24h` runs it key-free (raw `pgxpool`/`sql.DB` — no decrypt), so
+the `veil-sweep` Railway service carries only `VEIL_POSTGRES_DSN`, runs
+`0 * * * *`, and exits. `EnsureSQLiteSchema` was factored out of
+`SQLite.migrate` so the keyless CLI path can create missing tables on old
+vaults (`rewrapLegacy` stays behind `OpenSQLite` — it needs the key).
+
+Test coverage: `TestSweep` runs the conformance suite across Memory/SQLite/
+Postgres — expired+revoked sessions deleted, keep-window rows preserved,
+grants/approvals honored, second pass is a no-op.
+
 ## Scalability model — thousands of users and agents
 
 Measured basis (this doc): a `Use` costs ~0.097ms DB time + ~107B WAL for the
@@ -701,9 +739,7 @@ Deliberately not done. Each has a trigger; act when the trigger fires, not befor
    workload auths behind one HTTP call. Trigger: issuers being added while
    traffic is live, or concurrent first-auths against a new issuer. Issuers are
    configured ahead of time today; the cold case is effectively startup-only.
-3. **Audit drop-oldest vs block-and-shed.** Policy decision, not a bug. On
-   saturation today `Append` blocks the request ≤500ms then drops the event
-   (warns). Drop-oldest trades completeness for tail latency; block-and-shed
-   turns audit backpressure into 503s. Pick when a compliance/durability
-   requirement exists to reason against. Zero drops at measured rates (§9).
+3. **Audit drop-oldest vs block-and-shed.** **Resolved by §11** — the async
+   queue is gone from the origin path, so there is no drop policy left to
+   pick. Sync INSERT failure logs an error and returns the decision.
 
