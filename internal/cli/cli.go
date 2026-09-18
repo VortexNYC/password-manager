@@ -873,6 +873,11 @@ func agentCmd(home *string) *cobra.Command {
 			if secretFile == "" {
 				return fmt.Errorf("--secret-file is required")
 			}
+			// EnsureAgent PUTs the client and rotates its secret. Check the file
+			// first so a re-run cannot orphan every existing copy of the secret.
+			if _, err := os.Stat(secretFile); err == nil {
+				return fmt.Errorf("agent hydra: %s exists; remove it to rotate the client secret", secretFile)
+			}
 			a, err := openApp(*home)
 			if err != nil {
 				return err
