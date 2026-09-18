@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -162,7 +161,12 @@ func OpenPostgres(dsn string) (*App, error) {
 		_ = s.Close()
 		return nil, err
 	}
-	return finish("", cfg, s, audit.NewAsyncWithInterval(s, auditBufferCapacity(), auditFlushInterval()))
+	// The origin audits synchronously: every Use decision is durable in
+	// Postgres before the response returns. The buffered Async path traded a
+	// few hundred ms of crash-window loss for batch COPY efficiency — wrong
+	// trade for an authorization system. A single-row INSERT costs ~0.6ms
+	// against a measured ~10x DB headroom.
+	return finish("", cfg, s, &audit.Sync{Store: s})
 }
 
 func loadMasterFromEnv() ([]byte, error) {
@@ -171,30 +175,6 @@ func loadMasterFromEnv() ([]byte, error) {
 		return nil, fmt.Errorf("app: VEIL_MASTER_KEY is required for stateless origin")
 	}
 	return decodeMasterEnv(env)
-}
-
-func auditBufferCapacity() int {
-	env := os.Getenv("VEIL_AUDIT_BUFFER")
-	if env == "" {
-		return 1024
-	}
-	n, err := strconv.Atoi(env)
-	if err != nil || n <= 0 {
-		return 1024
-	}
-	return n
-}
-
-func auditFlushInterval() time.Duration {
-	env := os.Getenv("VEIL_AUDIT_FLUSH_INTERVAL")
-	if env == "" {
-		return 5 * time.Millisecond
-	}
-	d, err := time.ParseDuration(env)
-	if err != nil || d <= 0 {
-		return 5 * time.Millisecond
-	}
-	return d
 }
 
 func finish(dir string, cfg config, s store.Store, auditor audit.Auditor) (*App, error) {

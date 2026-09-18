@@ -28,6 +28,13 @@ type UseAuth struct {
 	Approval *protocol.Approval
 }
 
+// SweepReport counts rows deleted by a Sweep.
+type SweepReport struct {
+	Sessions  int64
+	Grants    int64
+	Approvals int64
+}
+
 type Store interface {
 	PutAgent(protocol.Principal) error
 	Agent(id string) (protocol.Principal, error)
@@ -95,5 +102,11 @@ type Store interface {
 	AppendAudit(protocol.AuditEvent) error
 	AppendAudits([]protocol.AuditEvent) error
 	Audit() ([]protocol.AuditEvent, error)
+
+	// Sweep deletes terminally-expired rows (sessions past expiry or revoked,
+	// grants and approvals past expiry) older than the cutoff. It keeps the
+	// hot-path indexes bounded; expiry semantics are unaffected because
+	// expired rows are already invisible to authorization queries.
+	Sweep(olderThan time.Time) (SweepReport, error)
 	Close() error
 }

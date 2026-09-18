@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
@@ -77,6 +79,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(genCmd())
 	root.AddCommand(totpCmd())
 	root.AddCommand(migrateCmd(&home))
+	root.AddCommand(sweepCmd(&home))
 	return root
 }
 
@@ -115,6 +118,69 @@ func migrateCmd(home *string) *cobra.Command {
 	}
 	c.Flags().StringVar(&sqlitePath, "sqlite", "", "sqlite vault file (default $VEIL_HOME/vault.db)")
 	c.Flags().StringVar(&dsn, "dsn", "", "Postgres DSN (default env VEIL_POSTGRES_DSN)")
+	return c
+}
+
+func sweepCmd(home *string) *cobra.Command {
+	var sqlitePath, dsn string
+	var keep time.Duration
+	c := &cobra.Command{
+		Use:   "sweep",
+		Short: "Delete terminally-expired sessions, grants, and approvals",
+		Long: "Deletes rows that are already invisible to authorization: sessions " +
+			"past expiry or revoked, and grants/approvals past expiry — but only " +
+			"when the terminal timestamp is older than --keep (default 24h), so " +
+			"recent expirations stay auditable. With --sqlite the sqlite file is " +
+			"swept; otherwise Postgres when --dsn or VEIL_POSTGRES_DSN is set; " +
+			"otherwise the default sqlite vault. Sweep never decrypts, so no " +
+			"master key is required.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			before := time.Now().Add(-keep)
+			if dsn == "" {
+				dsn = os.Getenv("VEIL_POSTGRES_DSN")
+			}
+			if dsn != "" && sqlitePath == "" {
+				pool, err := pgxpool.New(cmd.Context(), dsn)
+				if err != nil {
+					return fmt.Errorf("sweep: %w", err)
+				}
+				defer pool.Close()
+				rep, err := store.SweepPostgres(cmd.Context(), pool, before)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "sessions=%d grants=%d approvals=%d\n", rep.Sessions, rep.Grants, rep.Approvals)
+				return nil
+			}
+			if sqlitePath == "" {
+				dir, err := resolveHome(*home)
+				if err != nil {
+					return err
+				}
+				sqlitePath = filepath.Join(dir, "vault.db")
+			}
+			if _, err := os.Stat(sqlitePath); err != nil {
+				return fmt.Errorf("sqlite vault: %w", err)
+			}
+			db, err := sql.Open("sqlite", "file:"+sqlitePath+"?_pragma=busy_timeout(30000)")
+			if err != nil {
+				return fmt.Errorf("open sqlite: %w", err)
+			}
+			defer db.Close()
+			if err := store.EnsureSQLiteSchema(db); err != nil {
+				return fmt.Errorf("sqlite schema: %w", err)
+			}
+			rep, err := store.SweepSQLite(db, before)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "sessions=%d grants=%d approvals=%d\n", rep.Sessions, rep.Grants, rep.Approvals)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&sqlitePath, "sqlite", "", "sqlite vault file (default $VEIL_HOME/vault.db)")
+	c.Flags().StringVar(&dsn, "dsn", "", "Postgres DSN (default env VEIL_POSTGRES_DSN)")
+	c.Flags().DurationVar(&keep, "keep", 24*time.Hour, "delete rows expired longer ago than this")
 	return c
 }
 

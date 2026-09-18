@@ -74,6 +74,17 @@ func sqliteDSN(path string) string {
 }
 
 func (s *SQLite) migrate() error {
+	if err := EnsureSQLiteSchema(s.db); err != nil {
+		return err
+	}
+	return s.rewrapLegacy()
+}
+
+// EnsureSQLiteSchema creates any missing tables and applies the sqlite
+// schema migrations. It touches no secrets, so maintenance commands can call
+// it on a raw handle without a master key.
+func EnsureSQLiteSchema(db *sql.DB) error {
+	s := &SQLite{db: db}
 	for _, q := range []string{
 		`PRAGMA foreign_keys = ON`,
 		`PRAGMA busy_timeout = 5000`,
@@ -188,9 +199,6 @@ func (s *SQLite) migrate() error {
 	_, _ = s.db.Exec(`UPDATE sessions SET ttl = 900 WHERE ttl = 0`)
 	_, _ = s.db.Exec(`UPDATE sessions SET max_ttl = 3600 WHERE max_ttl = 0`)
 	if err := s.dropItemsNameUnique(); err != nil {
-		return err
-	}
-	if err := s.rewrapLegacy(); err != nil {
 		return err
 	}
 	for _, q := range []string{
@@ -1449,4 +1457,39 @@ func (s *SQLite) rewrapRows(rows *sql.Rows, ts sqliteTxSource, update func(id st
 		resolved++
 	}
 	return rewrapped > 0, resolved, len(list), nil
+}
+
+// SweepSQLite deletes terminally-expired rows older than before: sessions past
+// expiry or revoked, and grants/approvals past expiry. Session expires_at is a
+// unix epoch integer while revoked_at is RFC3339 text — the encodings match
+// the write paths. It takes a bare *sql.DB so callers that never touch
+// ciphertext (e.g. `veil sweep`) do not need the master key.
+func SweepSQLite(db *sql.DB, before time.Time) (SweepReport, error) {
+	var rep SweepReport
+	cut := before.UTC()
+	res, err := db.Exec(`DELETE FROM sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`,
+		cut.Unix(), cut.Format(time.RFC3339))
+	if err != nil {
+		return rep, fmt.Errorf("sweep sessions: %w", err)
+	}
+	if rep.Sessions, err = res.RowsAffected(); err != nil {
+		return rep, err
+	}
+	if res, err = db.Exec(`DELETE FROM grants WHERE expires_at IS NOT NULL AND expires_at < ?`, cut.Unix()); err != nil {
+		return rep, fmt.Errorf("sweep grants: %w", err)
+	}
+	if rep.Grants, err = res.RowsAffected(); err != nil {
+		return rep, err
+	}
+	if res, err = db.Exec(`DELETE FROM approvals WHERE expires_at < ?`, cut.Unix()); err != nil {
+		return rep, fmt.Errorf("sweep approvals: %w", err)
+	}
+	if rep.Approvals, err = res.RowsAffected(); err != nil {
+		return rep, err
+	}
+	return rep, nil
+}
+
+func (s *SQLite) Sweep(olderThan time.Time) (SweepReport, error) {
+	return SweepSQLite(s.db, olderThan)
 }
