@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -371,6 +372,114 @@ func TestSessionExpiry(t *testing.T) {
 			_, err = s.UseAuthSession(hash, itemID, time.Now())
 			if !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrSessionExpired) {
 				t.Fatalf("expected expired session to fail: %v", err)
+			}
+		})
+	}
+}
+
+func TestSessionConsumeAudited(t *testing.T) {
+	for _, s := range testStores(t) {
+		name := fmt.Sprintf("%T", s)
+		t.Run(name, func(t *testing.T) {
+			defer s.Close()
+			hash, itemID := seedSessionStore(t, s)
+			now := time.Now()
+
+			// The event's OrgID/AgentID are filled from the consumed agent.
+			evt := protocol.AuditEvent{
+				Time: now, ItemID: itemID, Action: protocol.ActionFetch,
+				Decision: protocol.DecisionAllow,
+			}
+			agent, err := s.ConsumeSessionAudited(hash, now, evt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if agent.ID != "claude" {
+				t.Fatalf("agent %+v", agent)
+			}
+			sess, err := s.SessionByHash(hash)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sess.Uses != 1 {
+				t.Fatalf("uses=%d", sess.Uses)
+			}
+			events, err := s.Audit()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 1 {
+				t.Fatalf("audit rows=%d", len(events))
+			}
+			got := events[0]
+			if got.AgentID != "claude" || got.OrgID != "org" || got.ItemID != itemID || got.Decision != protocol.DecisionAllow {
+				t.Fatalf("event %+v", got)
+			}
+
+			// A refused consume must not append an audit row.
+			bad := sha256.Sum256([]byte("ses_99999999999999999999999999999999"))
+			if _, err := s.ConsumeSessionAudited(bad[:], now, evt); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("expected ErrNotFound: %v", err)
+			}
+			events, err = s.Audit()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 1 {
+				t.Fatalf("audit rows after failed consume=%d", len(events))
+			}
+		})
+	}
+}
+
+// A failed audit insert must roll the consume back: no credential may be
+// released without its audit row. Memory cannot inject the failure — its
+// append is in-memory under the same lock — so this exercises the real
+// transaction on the durable stores.
+func TestSessionConsumeAuditedRollback(t *testing.T) {
+	for _, s := range testStores(t) {
+		name := fmt.Sprintf("%T", s)
+		t.Run(name, func(t *testing.T) {
+			defer s.Close()
+			hash, itemID := seedSessionStore(t, s)
+			now := time.Now()
+			evt := protocol.AuditEvent{
+				Time: now, ItemID: itemID, Action: protocol.ActionFetch,
+				Decision: protocol.DecisionAllow,
+			}
+
+			switch st := s.(type) {
+			case *SQLite:
+				if _, err := st.db.Exec(`DROP TABLE audit`); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if err := EnsureSQLiteSchema(st.db); err != nil {
+						t.Fatal(err)
+					}
+				}()
+			case *Postgres:
+				if _, err := st.pool.Exec(context.Background(), `DROP TABLE audit`); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if err := st.migrate(); err != nil {
+						t.Fatal(err)
+					}
+				}()
+			default:
+				t.Skip("no failure injection")
+			}
+
+			if _, err := s.ConsumeSessionAudited(hash, now, evt); err == nil {
+				t.Fatal("expected audit insert failure")
+			}
+			sess, err := s.SessionByHash(hash)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sess.Uses != 0 {
+				t.Fatalf("consume not rolled back: uses=%d", sess.Uses)
 			}
 		})
 	}

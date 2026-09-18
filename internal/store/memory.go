@@ -339,6 +339,14 @@ func (m *Memory) UseAuthSession(sessionHash []byte, itemID string, now time.Time
 }
 
 func (m *Memory) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
+	return m.consumeSession(sessionHash, now, nil)
+}
+
+func (m *Memory) ConsumeSessionAudited(sessionHash []byte, now time.Time, e protocol.AuditEvent) (protocol.Principal, error) {
+	return m.consumeSession(sessionHash, now, &e)
+}
+
+func (m *Memory) consumeSession(sessionHash []byte, now time.Time, e *protocol.AuditEvent) (protocol.Principal, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	sess, ok := m.sessions[sessionHashKey(sessionHash)]
@@ -360,6 +368,11 @@ func (m *Memory) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Pri
 	}
 	sess.Uses++
 	m.sessions[sessionHashKey(sessionHash)] = sess
+	if e != nil {
+		e.OrgID = a.OrgID
+		e.AgentID = a.ID
+		m.audit = append(m.audit, *e)
+	}
 	return a, nil
 }
 

@@ -79,6 +79,14 @@ type Store interface {
 	// token Use calls.
 	ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error)
 
+	// ConsumeSessionAudited is ConsumeSession plus the audit event appended in
+	// the same transaction: the consume and the audit row commit together or
+	// not at all. e's OrgID/AgentID are overwritten with the consumed agent's
+	// identity before insert, so callers may leave them unset. The broker uses
+	// this on the allow path so an allow can never release a credential
+	// without its audit row already durable.
+	ConsumeSessionAudited(sessionHash []byte, now time.Time, e protocol.AuditEvent) (protocol.Principal, error)
+
 	SessionByID(id string) (protocol.Session, error)
 	RevokeSession(id string, at time.Time) error
 	RenewSession(id string, at time.Time) (protocol.Session, error)

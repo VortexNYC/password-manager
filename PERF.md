@@ -286,7 +286,7 @@ plus an async audit `COPY`.
 |---|---|---|
 | Async audit with bounded flush | **Reversed** (§11) | Origin is an authorization system — a crash-lost audit row is a lost security event. Sync INSERT costs ~0.6ms against ~10× DB headroom. |
 | `VEIL_AUDIT_FLUSH_INTERVAL`/`VEIL_AUDIT_BUFFER` | **Removed** (§11) | Env knobs only existed for the async auditor. |
-| Sync audit on the Postgres origin | **Adopted** (§11) | Decision rows durable before response; INSERT failure logs and returns the decision (same DB as auth — no extra availability coupling). |
+| Sync audit on the Postgres origin | **Adopted** (§11) | Decision rows durable before response; hardened in §12 — allow-path audit commits in the consume transaction before disclosure. |
 | Hourly `veil sweep` via Railway cron | **Adopted** (§11) | Bounded hot-path indexes; key-free service (DSN only), `restartPolicyType: NEVER`, exits after each run. |
 | Per-request `slog.Info` in benchmark | **Suppressed in harness** | Avoids log I/O distorting results; production can enable INFO. |
 | `Store.UseAuth` consolidation | **Kept** | Cuts DB round trips and raises throughput; fail-closed final agent reload is preserved. |
@@ -679,12 +679,11 @@ Measured single-row `INSERT INTO audit` on the test Postgres: **0.60 ms/op**
 20). Per-request DB time goes ~0.097ms → ~0.7ms; Postgres still is not the
 limiter. `AppendAudits` (batch COPY on `auditPool`) remains for bulk writers.
 
-Ordering note: audit rows are written *after* the decision — for allows, the
-secret has already been fetched and injected before `auditUse` fires. Sync
-therefore buys "durable before response," not "deny if unauditable." On INSERT
-failure the broker logs an error and still returns the decision (the same
-Postgres serves auth reads, so a dead audit path means a dead auth path
-anyway — the marginal availability cost of this coupling is ~zero).
+Ordering note: audit rows were written *after* the decision — for allows, the
+secret had already been fetched and injected before `auditUse` fired. Sync
+therefore bought "durable before response," not "deny if unauditable." This
+gap is closed in §12: the allow-path audit row now commits inside the
+`ConsumeSession` transaction *before* the secret is touched.
 
 **Expiration sweep.** Sessions, grants, and approvals previously grew forever
 — expiry is enforced at read time but rows were never deleted. `Store.Sweep`
@@ -700,6 +699,35 @@ vaults (`rewrapLegacy` stays behind `OpenSQLite` — it needs the key).
 Test coverage: `TestSweep` runs the conformance suite across Memory/SQLite/
 Postgres — expired+revoked sessions deleted, keep-window rows preserved,
 grants/approvals honored, second pass is a no-op.
+
+### 12. Transactional consume+audit — zero unaudited allows (2026-09-18)
+
+§11 made audit durable before the response; this makes it durable before
+*disclosure*. `Store.ConsumeSessionAudited` runs the atomic `ConsumeSession`
+UPDATE and the audit `INSERT` in one Postgres transaction (SQLite: one
+`database/sql` tx; Memory: one lock). If the audit insert fails, the consume
+rolls back and the request errors — the session use is not burned, no secret
+is fetched, no credential leaves the origin. Agent-token calls have no
+consume to transact with, so their allow-path audit is a synchronous
+`AppendAudit` before `Store.Secret`; failure there also fails closed.
+
+Semantics that changed on purpose: the audit row records the authorization
+decision *at release time*. A downstream fetch failure no longer writes a
+second `fetch_failed` row — the `allow` row stands (the credential was
+released into the attempt); upstream outcome remains in logs and spans. Deny
+paths still audit post-decision and stay best-effort: an unaudited deny
+discloses nothing.
+
+Cost: the audit INSERT shares the consume's transaction and connection — no
+extra round trip, so the §11 0.6ms figure is the total added cost, not per
+request on top of consume.
+
+Test coverage: `TestSessionConsumeAudited` (conformance — event committed
+with the consumed agent's identity, refused consume appends nothing),
+`TestSessionConsumeAuditedRollback` (audit table dropped under SQLite and
+Postgres — consume rolls back, `uses` stays 0), and
+`TestUseAuditFailureFailsClosed` (broker — both token paths error with zero
+audit rows and no upstream call).
 
 ## Scalability model — thousands of users and agents
 
