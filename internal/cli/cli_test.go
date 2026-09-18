@@ -179,14 +179,20 @@ func TestCLIAgentHydraNeedsAgent(t *testing.T) {
 
 func TestCLIAgentHydraNeedsSecretFile(t *testing.T) {
 	home := t.TempDir()
+	// Pin HOME so the canonical default path resolves inside the tempdir —
+	// never the operator's real ~/.config/vortex secrets.
+	t.Setenv("HOME", home)
+	t.Setenv("PWM_HYDRA_SECRET_FILE", "")
 	if _, err := run(t, home, "", "init"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, home, "", "agent", "add", "flue"); err != nil {
 		t.Fatal(err)
 	}
+	// No secret file anywhere: the command must try to provision, and fails
+	// only because no admin endpoint is reachable from the test.
 	if _, err := run(t, home, "", "agent", "hydra", "flue"); err == nil {
-		t.Fatal("accepted hydra without --secret-file")
+		t.Fatal("expected provisioning failure with no admin endpoint")
 	}
 }
 
@@ -260,6 +266,10 @@ func TestCLIAgentTokenWritesFileNotStdout(t *testing.T) {
 
 func TestCLIAgentTokenNeedsFiles(t *testing.T) {
 	home := t.TempDir()
+	// Pin HOME + clear the env override so the default secret path resolves
+	// inside the tempdir — never the operator's real secrets.
+	t.Setenv("HOME", home)
+	t.Setenv("PWM_HYDRA_SECRET_FILE", "")
 	if _, err := run(t, home, "", "agent", "token", "flue"); err == nil {
 		t.Fatal("accepted token without files")
 	}
@@ -1985,5 +1995,216 @@ func TestResolveHomeKeepsVeilWhenBothExist(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".password-manager")); err != nil {
 		t.Fatal("legacy dir must not be touched when .veil exists")
+	}
+}
+
+// fakeHydra serves both the public token endpoint and the admin client
+// endpoints. liveSecret mints; any other secret gets invalid_client.
+// putCalls counts client rotations — the whole point of these tests.
+func fakeHydra(t *testing.T, liveSecret, rotatedSecret string, putCalls *int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/oauth2/token":
+			user, pass, ok := r.BasicAuth()
+			if !ok || pass != liveSecret || !strings.HasPrefix(user, "agent-") {
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"access_token": "aaa.bbb.ccc", "token_type": "bearer",
+			})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/admin/clients/"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"client_id": strings.TrimPrefix(r.URL.Path, "/admin/clients/")})
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/admin/clients/"):
+			*putCalls++
+			id := strings.TrimPrefix(r.URL.Path, "/admin/clients/")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"client_id":                  id,
+				"client_secret":              rotatedSecret,
+				"grant_types":                []string{"client_credentials"},
+				"audience":                   []string{"password-manager"},
+				"access_token_strategy":      "jwt",
+				"token_endpoint_auth_method": "client_secret_basic",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestCLIAgentHydraSkipsRotationWhenSecretVerifies(t *testing.T) {
+	var puts int
+	srv := fakeHydra(t, "live-secret", "rotated-secret", &puts)
+	t.Setenv("VEIL_HYDRA_ISSUER", srv.URL)
+	t.Setenv("VEIL_HYDRA_ADMIN", srv.URL)
+	t.Setenv("PWM_HYDRA_SECRET_FILE", "")
+
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	// Canonical default path under HOME — no --secret-file flag.
+	secFile := filepath.Join(home, ".config", "vortex", "pwm-railway", "codex.hydra")
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Dir(secFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secFile, []byte("live-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := run(t, home, "", "agent", "hydra", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if puts != 0 {
+		t.Fatalf("verified secret still rotated: puts=%d", puts)
+	}
+	raw, _ := os.ReadFile(secFile)
+	if strings.TrimSpace(string(raw)) != "live-secret" {
+		t.Fatal("secret file rewritten during a verify-only run")
+	}
+}
+
+func TestCLIAgentHydraRotatesWhenSecretStale(t *testing.T) {
+	var puts int
+	srv := fakeHydra(t, "live-secret", "rotated-secret", &puts)
+	t.Setenv("VEIL_HYDRA_ISSUER", srv.URL)
+	t.Setenv("VEIL_HYDRA_ADMIN", srv.URL)
+
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	secFile := filepath.Join(home, "stale.hydra")
+	if err := os.WriteFile(secFile, []byte("stale-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "hydra", "codex", "--secret-file", secFile); err != nil {
+		t.Fatal(err)
+	}
+	if puts != 1 {
+		t.Fatalf("stale secret did not rotate: puts=%d", puts)
+	}
+	raw, _ := os.ReadFile(secFile)
+	if strings.TrimSpace(string(raw)) != "rotated-secret" {
+		t.Fatal("rotated secret not written back to file")
+	}
+}
+
+func TestCLIAgentHydraRefusesRotateWhenIssuerUnreachable(t *testing.T) {
+	var puts int
+	srv := fakeHydra(t, "live-secret", "rotated-secret", &puts)
+	admin := srv.URL
+	srv.Close() // issuer unreachable; admin URL kept so the fake still counts PUTs if hit
+	t.Setenv("VEIL_HYDRA_ISSUER", srv.URL)
+	t.Setenv("VEIL_HYDRA_ADMIN", admin)
+
+	home := t.TempDir()
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	secFile := filepath.Join(home, "maybe-live.hydra")
+	if err := os.WriteFile(secFile, []byte("maybe-live\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "hydra", "codex", "--secret-file", secFile); err == nil {
+		t.Fatal("rotated despite unverifiable secret")
+	}
+	if puts != 0 {
+		t.Fatalf("network error triggered rotation: puts=%d", puts)
+	}
+	raw, _ := os.ReadFile(secFile)
+	if strings.TrimSpace(string(raw)) != "maybe-live" {
+		t.Fatal("secret file clobbered on failed verify")
+	}
+}
+
+// PWM_HYDRA_SECRET_FILE describes the ambient agent (PWM_AGENT). Running
+// `agent hydra OTHER` must not read — and on rotation, must not overwrite —
+// that agent's file.
+func TestCLIAgentHydraIgnoresForeignSecretEnv(t *testing.T) {
+	var puts int
+	srv := fakeHydra(t, "live-secret", "rotated-secret", &puts)
+	t.Setenv("VEIL_HYDRA_ISSUER", srv.URL)
+	t.Setenv("VEIL_HYDRA_ADMIN", srv.URL)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ambient agent is cursor; its secret file must not be consulted or
+	// written when provisioning codex.
+	foreign := filepath.Join(home, "cursor.hydra")
+	if err := os.WriteFile(foreign, []byte("cursors-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_AGENT", "cursor")
+	t.Setenv("PWM_HYDRA_SECRET_FILE", foreign)
+
+	if _, err := run(t, home, "", "agent", "hydra", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if puts != 1 {
+		t.Fatalf("expected provisioning rotate: puts=%d", puts)
+	}
+	raw, _ := os.ReadFile(foreign)
+	if strings.TrimSpace(string(raw)) != "cursors-secret" {
+		t.Fatal("foreign agent's secret file was overwritten")
+	}
+	canon := filepath.Join(home, ".config", "vortex", "pwm-railway", "codex.hydra")
+	raw, err := os.ReadFile(canon)
+	if err != nil {
+		t.Fatalf("canonical secret file not written: %v", err)
+	}
+	if strings.TrimSpace(string(raw)) != "rotated-secret" {
+		t.Fatal("canonical file has wrong secret")
+	}
+}
+
+func TestCLIAgentHydraUsesEnvForMatchingAgent(t *testing.T) {
+	var puts int
+	srv := fakeHydra(t, "live-secret", "rotated-secret", &puts)
+	t.Setenv("VEIL_HYDRA_ISSUER", srv.URL)
+	t.Setenv("VEIL_HYDRA_ADMIN", srv.URL)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if _, err := run(t, home, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, home, "", "agent", "add", "cursor"); err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(home, "env.hydra")
+	if err := os.WriteFile(envFile, []byte("live-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWM_AGENT", "cursor")
+	t.Setenv("PWM_HYDRA_SECRET_FILE", envFile)
+
+	if _, err := run(t, home, "", "agent", "hydra", "cursor"); err != nil {
+		t.Fatal(err)
+	}
+	if puts != 0 {
+		t.Fatalf("verified env-path secret still rotated: puts=%d", puts)
 	}
 }
