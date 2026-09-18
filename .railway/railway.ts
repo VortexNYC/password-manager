@@ -24,17 +24,20 @@ export default defineRailway(() => {
     replicas: { "sfo": 1 },
     env: { DSN: preserve() },
   });
-  // Live vault is sqlite on this volume today. Postgres cutover is a separate
-  // operation: migrate sqlite -> pg first, only then set POSTGRES_DSN.
+  // Vault is sqlite on this volume; Postgres cutover runs via preDeploy:
+  // `/veil migrate` copies sqlite -> pg (idempotent, ON CONFLICT DO NOTHING)
+  // before the new deployment boots on PWM_POSTGRES_DSN. The volume stays
+  // mounted as the rollback source until the cutover proves out.
   const pwmVolume = volume("pwm-volume", { region: "sfo", sizeMB: 500, allowOnlineResize: true });
   const pwm = service("pwm", {
     start: "/veil mcp",
+    preDeploy: "/veil migrate",
     healthcheck: "/health",
     healthcheckTimeout: 300,
     replicas: { "sfo": 1 },
     domains: [{ domain: "veil.nyc", port: 4461 }],
     volumeMounts: { "/data": pwmVolume },
-    env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: preserve(), OTEL_EXPORTER_OTLP_TRACES_HEADERS: preserve(), OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: preserve(), OTEL_RESOURCE_ATTRIBUTES: preserve(), OTEL_SERVICE_NAME: preserve(), PORT: preserve(), PWM_HOME: preserve(), PWM_HYDRA_ADMIN: preserve(), PWM_HYDRA_CLIENT_ID: preserve(), PWM_HYDRA_ISSUER: preserve(), PWM_KETO_READ: preserve(), PWM_KETO_WRITE: preserve(), PWM_KRATOS_ADMIN: preserve(), PWM_KRATOS_PUBLIC: preserve(), PWM_MCP_URL: preserve(), PWM_MASTER_KEY: preserve() },
+    env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: preserve(), OTEL_EXPORTER_OTLP_TRACES_HEADERS: preserve(), OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: preserve(), OTEL_RESOURCE_ATTRIBUTES: preserve(), OTEL_SERVICE_NAME: preserve(), PORT: preserve(), PWM_HOME: preserve(), PWM_HYDRA_ADMIN: preserve(), PWM_HYDRA_CLIENT_ID: preserve(), PWM_HYDRA_ISSUER: preserve(), PWM_KETO_READ: preserve(), PWM_KETO_WRITE: preserve(), PWM_KRATOS_ADMIN: preserve(), PWM_KRATOS_PUBLIC: preserve(), PWM_MCP_URL: preserve(), PWM_MASTER_KEY: preserve(), PWM_POSTGRES_DSN: "postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/veil" },
   });
   const glue = service("glue", {
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
