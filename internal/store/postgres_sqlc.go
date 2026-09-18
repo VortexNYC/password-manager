@@ -136,12 +136,46 @@ func (p *Postgres) UseAuthSession(sessionHash []byte, itemID string, now time.Ti
 }
 
 func (p *Postgres) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
+	return p.consumeSession(sessionHash, now, nil)
+}
+
+func (p *Postgres) ConsumeSessionAudited(sessionHash []byte, now time.Time, e protocol.AuditEvent) (protocol.Principal, error) {
+	return p.consumeSession(sessionHash, now, &e)
+}
+
+// consumeSession runs the atomic consume UPDATE — and, when e is set, the
+// audit INSERT — in one transaction. A failed audit insert rolls the consume
+// back, so an allow can never leave the origin unaudited.
+func (p *Postgres) consumeSession(sessionHash []byte, now time.Time, e *protocol.AuditEvent) (protocol.Principal, error) {
 	ctx := context.Background()
 	row, err := retryOnDeadConn(func() (sqlc.ConsumeSessionRow, error) {
-		return p.sqlc.ConsumeSession(ctx, sqlc.ConsumeSessionParams{
+		tx, err := p.pool.Begin(ctx)
+		if err != nil {
+			return sqlc.ConsumeSessionRow{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		qtx := p.sqlc.WithTx(tx)
+		row, err := qtx.ConsumeSession(ctx, sqlc.ConsumeSessionParams{
 			SessionHash: sessionHash,
 			Now:         now.UTC(),
 		})
+		if err != nil {
+			return row, err
+		}
+		if e != nil {
+			e.OrgID = row.AgentOrgID
+			e.AgentID = row.AgentID
+			if err := qtx.InsertAudit(ctx, sqlc.InsertAuditParams{
+				At: e.Time.UTC(), OrgID: e.OrgID, AgentID: e.AgentID, ItemID: e.ItemID,
+				Action: string(e.Action), Decision: string(e.Decision), Reason: e.Reason, ApprovalID: e.ApprovalID,
+			}); err != nil {
+				return sqlc.ConsumeSessionRow{}, err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return sqlc.ConsumeSessionRow{}, err
+		}
+		return row, nil
 	})
 	if err != nil {
 		if err == pgx.ErrNoRows {

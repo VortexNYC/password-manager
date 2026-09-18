@@ -245,8 +245,16 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 		return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), nil
 	}
 
+	// The audit row commits before the secret is released: session-token
+	// calls write it inside the ConsumeSession transaction, agent-token calls
+	// write it synchronously here. A failed audit write fails the request
+	// closed — no credential ever leaves the origin unaudited.
+	event := protocol.AuditEvent{
+		Time: now, OrgID: agent.OrgID, AgentID: agent.ID, ItemID: req.ItemID,
+		Action: req.Action, Decision: dec.Decision, ApprovalID: dec.ApprovalID,
+	}
 	if sessionHash != nil {
-		current, err := b.Store.ConsumeSession(sessionHash, now)
+		current, err := b.Store.ConsumeSessionAudited(sessionHash, now, event)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrSessionExpired) || errors.Is(err, store.ErrSessionRevoked) || errors.Is(err, store.ErrDenied) {
 				dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "session_revoked"}
@@ -255,6 +263,11 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 			return protocol.UseResult{}, fmt.Errorf("consume: %w", err)
 		}
 		agent = current
+		event.OrgID, event.AgentID = agent.OrgID, agent.ID
+	} else if err := b.appendAudit(ctx, event); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "audit_append_failed")
+		return protocol.UseResult{}, fmt.Errorf("audit: %w", err)
 	}
 
 	secret, err := b.Store.Secret(item.ID)
@@ -263,9 +276,14 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 	}
 	env := material.Unpack(secret)
 	fr, code, access, err := b.fetch(ctx, req.Fetch, env, now)
+	// The allow row is already durable — it records the authorization and the
+	// credential release, which happened regardless of the upstream outcome.
+	// Upstream status stays in logs and spans.
 	if err != nil {
 		dec = protocol.UseResult{Decision: protocol.DecisionDeny, Reason: "fetch_failed"}
-		return b.auditUse(ctx, span, agent, item, req, dec, target, 0, now), err
+		LogEvent(event, item.Name, hostPath(target), 0)
+		spanUse(span, agent.ID, item.Name, dec, 0, hostPath(target))
+		return dec, err
 	}
 	status := fr.Status
 	hide := material.ScrubList(env, secret, []byte(code), []byte(access))
@@ -278,7 +296,9 @@ func (b *Broker) useAuthorized(ctx context.Context, span trace.Span, agent proto
 		fr.Header[k] = cleaned
 	}
 	dec.Fetch = fr
-	return b.auditUse(ctx, span, agent, item, req, dec, target, status, now), nil
+	LogEvent(event, item.Name, hostPath(target), status)
+	spanUse(span, agent.ID, item.Name, dec, status, hostPath(target))
+	return dec, nil
 }
 
 func (b *Broker) auditUse(ctx context.Context, span trace.Span, agent protocol.Principal, item protocol.Item, req protocol.UseRequest, dec protocol.UseResult, target string, status int, now time.Time) protocol.UseResult {

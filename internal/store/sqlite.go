@@ -772,6 +772,17 @@ func (s *SQLite) UseAuthSession(sessionHash []byte, itemID string, now time.Time
 }
 
 func (s *SQLite) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Principal, error) {
+	return s.consumeSession(sessionHash, now, nil)
+}
+
+func (s *SQLite) ConsumeSessionAudited(sessionHash []byte, now time.Time, e protocol.AuditEvent) (protocol.Principal, error) {
+	return s.consumeSession(sessionHash, now, &e)
+}
+
+// consumeSession runs the atomic consume UPDATE — and, when e is set, the
+// audit INSERT — in one transaction. A failed audit insert rolls the consume
+// back, so an allow can never leave the origin unaudited.
+func (s *SQLite) consumeSession(sessionHash []byte, now time.Time, e *protocol.AuditEvent) (protocol.Principal, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return protocol.Principal{}, err
@@ -801,6 +812,15 @@ func (s *SQLite) ConsumeSession(sessionHash []byte, now time.Time) (protocol.Pri
 	}
 	if err != nil {
 		return protocol.Principal{}, err
+	}
+	if e != nil {
+		e.OrgID = aOrgID.String
+		e.AgentID = aID.String
+		if _, err := tx.Exec(`INSERT INTO audit(at, org_id, agent_id, item_id, action, decision, reason, approval_id)
+			VALUES(?,?,?,?,?,?,?,?)`,
+			e.Time.UTC().Format(time.RFC3339Nano), e.OrgID, e.AgentID, e.ItemID, e.Action, e.Decision, e.Reason, e.ApprovalID); err != nil {
+			return protocol.Principal{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return protocol.Principal{}, err

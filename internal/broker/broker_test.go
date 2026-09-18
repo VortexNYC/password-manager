@@ -3,6 +3,7 @@ package broker
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -890,5 +891,62 @@ func TestUseInFlightLimitReleasesOnDenial(t *testing.T) {
 	}
 	if got2.Decision != protocol.DecisionDeny || got2.Reason != "not_injectable" {
 		t.Fatalf("second use got %+v", got2)
+	}
+}
+
+// failAuditStore makes every audit write fail — ConsumeSessionAudited before
+// its commit boundary — to prove allows fail closed with nothing disclosed.
+type failAuditStore struct {
+	store.Store
+}
+
+func (failAuditStore) AppendAudit(protocol.AuditEvent) error {
+	return errors.New("audit store unavailable")
+}
+
+func (f failAuditStore) ConsumeSessionAudited([]byte, time.Time, protocol.AuditEvent) (protocol.Principal, error) {
+	return protocol.Principal{}, errors.New("audit store unavailable")
+}
+
+func TestUseAuditFailureFailsClosed(t *testing.T) {
+	b, agent, _, upstream, _ := setup(t, protocol.Level2)
+	fb := New(failAuditStore{Store: b.Store})
+	fb.Now = b.Now
+
+	req := protocol.UseRequest{
+		ItemID: "item-1",
+		Action: protocol.ActionFetch,
+		Fetch:  &protocol.Fetch{URL: upstream.URL},
+	}
+	if _, err := fb.Use(context.Background(), agent, req); err == nil {
+		t.Fatal("agent-token use must fail closed when the audit write fails")
+	}
+	events, err := b.Store.Audit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("phantom audit rows=%d", len(events))
+	}
+
+	// Session-token path: the audit failure must roll the consume back —
+	// uses stays 0 and no secret is released.
+	sess := protocol.Session{
+		ID: "ses_fail", OrgID: agent.OrgID, AgentID: agent.ID,
+		CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour),
+	}
+	hash := sha256.Sum256([]byte("ses_fail_token"))
+	if err := b.Store.PutSession(sess, hash[:]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fb.UseSession(context.Background(), hash[:], req); err == nil {
+		t.Fatal("session-token use must fail closed when the audited consume fails")
+	}
+	got, err := b.Store.SessionByHash(hash[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Uses != 0 {
+		t.Fatalf("consume not rolled back: uses=%d", got.Uses)
 	}
 }
